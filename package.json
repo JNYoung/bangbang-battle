@@ -1,0 +1,27 @@
+{
+  "name": "profession-ball-arena",
+  "version": "0.1.0",
+  "private": true,
+  "description": "职业球球斗技场：面向 Meta 小游戏、Android 和 iOS 的 Canvas 2D 小游戏。",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "meta:bundle": "npm run build && node scripts/build-meta.mjs",
+    "cap:sync": "npm run build && cap sync",
+    "android:open": "cap open android",
+    "ios:open": "cap open ios",
+    "build:all": "npm run build && node scripts/build-meta.mjs && cap sync"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "archiver": "^7.0.1",
+    "vite": "^7.0.0"
+  }
+}

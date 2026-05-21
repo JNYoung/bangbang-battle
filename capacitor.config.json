@@ -1,0 +1,8 @@
+{
+  "appId": "com.professionballarena.game",
+  "appName": "职业球球斗技场",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
