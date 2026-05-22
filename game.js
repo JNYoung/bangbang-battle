@@ -13,6 +13,28 @@ import {
 const ARENA_SIZE = 800;
 const MAX_DELTA_TIME = 1 / 30;
 const MAX_DEVICE_PIXEL_RATIO = 3;
+const BALL_RADIUS_MULTIPLIER = 1.5;
+const ATTACK_COOLDOWN_MULTIPLIER = 0.65;
+const SPEED_RAMP_CONFIG = {
+  startMultiplier: 1,
+  maxMultiplier: 3,
+  secondsToMaxMultiplier: 20,
+};
+const ATTACK_ANIMATION_CONFIG = {
+  spear: {
+    duration: 0.24,
+    hitFrame: 0.48,
+  },
+  blade: {
+    duration: 0.32,
+    hitFrame: 0.55,
+    sweepAngle: (Math.PI * 130) / 180,
+  },
+  default: {
+    duration: 0.24,
+    hitFrame: 0.5,
+  },
+};
 
 const COLORS = {
   backgroundTop: "#111722",
@@ -25,6 +47,23 @@ const COLORS = {
   grid: "rgba(255, 255, 255, 0.055)",
   button: "#f2f6fb",
   buttonText: "#101318",
+};
+
+const SIDE_VISUAL_CONFIG = {
+  A: {
+    color: "#49c5ff",
+    accentColor: "#d8f4ff",
+    bladeTrailIdle: "rgba(216, 244, 255, 0.34)",
+    bladeTrailAttack: "rgba(216, 244, 255, 0.68)",
+    backgroundGlow: "rgba(73, 197, 255, 0.13)",
+  },
+  B: {
+    color: "#ffbd45",
+    accentColor: "#fff0c2",
+    bladeTrailIdle: "rgba(255, 240, 194, 0.34)",
+    bladeTrailAttack: "rgba(255, 240, 194, 0.68)",
+    backgroundGlow: "rgba(255, 189, 69, 0.13)",
+  },
 };
 
 const ProfessionConfig = {
@@ -41,7 +80,7 @@ const ProfessionConfig = {
     accentColor: "#d8f4ff",
     skillName: "正面突刺",
     getDamage(attacker, defender, normalFromAttackerToDefender) {
-      const facingDot = dot(normalize(attacker.velocity), normalFromAttackerToDefender);
+      const facingDot = dot(normalize(attacker.attackState?.direction || attacker.velocity), normalFromAttackerToDefender);
       return facingDot >= 0.72 ? 16 : this.attackDamage;
     },
     getKnockbackMultiplier() {
@@ -57,7 +96,7 @@ const ProfessionConfig = {
     maxHp: 120,
     radius: 26,
     moveSpeed: 180,
-    attackDamage: 18,
+    attackDamage: 20,
     attackCooldown: 0.65,
     weaponRange: 32,
     color: "#ffbd45",
@@ -76,12 +115,12 @@ const ProfessionConfig = {
   shield: {
     id: "shield",
     name: "盾牌球",
-    maxHp: 150,
+    maxHp: 140,
     radius: 28,
-    moveSpeed: 145,
-    attackDamage: 10,
-    attackCooldown: 0.8,
-    weaponRange: 28,
+    moveSpeed: 170,
+    attackDamage: 14,
+    attackCooldown: 0.7,
+    weaponRange: 56,
     color: "#78f0a4",
     accentColor: "#c6fff0",
     skillName: "盾墙反震",
@@ -105,18 +144,21 @@ class Ball {
     this.config = ProfessionConfig[profession];
     this.position = { x, y };
     this.velocity = scale(normalize(direction), this.config.moveSpeed);
-    this.radius = this.config.radius;
+    this.radius = this.config.radius * BALL_RADIUS_MULTIPLIER;
     this.hp = this.config.maxHp;
     this.maxHp = this.config.maxHp;
     this.attackDamage = this.config.attackDamage;
-    this.attackCooldown = this.config.attackCooldown;
+    this.attackCooldown = this.config.attackCooldown * ATTACK_COOLDOWN_MULTIPLIER;
     this.weaponRange = this.config.weaponRange;
+    this.visual = getSideVisualConfig(this.label);
     this.lastAttackTime = -Infinity;
     this.hitFlashTime = 0;
+    this.attackState = null;
     this.cosmeticState = createCosmeticState();
   }
 
   update(deltaTime, currentTime) {
+    this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this));
     this.position.x += this.velocity.x * deltaTime;
     this.position.y += this.velocity.y * deltaTime;
     this.hitFlashTime = Math.max(0, this.hitFlashTime - deltaTime);
@@ -143,18 +185,36 @@ class Ball {
   }
 
   canAttack(currentTime) {
-    return currentTime - this.lastAttackTime >= this.attackCooldown;
+    return this.hp > 0 && !this.attackState && currentTime - this.lastAttackTime >= this.attackCooldown;
   }
 
-  dealDamageTo(defender, currentTime, normalFromAttackerToDefender) {
-    if (!this.canAttack(currentTime) || this.hp <= 0) {
+  startAttack(defender, currentTime) {
+    if (!this.canAttack(currentTime) || defender.hp <= 0) {
+      return false;
+    }
+
+    const attackConfig = getAttackAnimationConfig(this.profession);
+    const direction = getDirectionBetween(this, defender);
+    this.attackState = {
+      defender,
+      startTime: currentTime,
+      duration: attackConfig.duration,
+      hitFrame: attackConfig.hitFrame,
+      direction,
+      didDealDamage: false,
+    };
+    this.lastAttackTime = currentTime;
+    return true;
+  }
+
+  dealAttackDamageTo(defender, normalFromAttackerToDefender) {
+    if (this.hp <= 0 || defender.hp <= 0) {
       return 0;
     }
 
     const damage = this.config.getDamage(this, defender, normalFromAttackerToDefender);
     defender.hp = Math.max(0, defender.hp - damage);
     defender.hitFlashTime = 0.16;
-    this.lastAttackTime = currentTime;
     return damage;
   }
 
@@ -162,47 +222,23 @@ class Ball {
     return this.config.isSkillHit(this, defender, normalFromAttackerToDefender, damage);
   }
 
-  draw(ctx, currentTime) {
-    const facing = normalize(this.velocity);
-    const weaponStart = add(this.position, scale(facing, this.radius * 0.72));
-    const weaponEnd = add(this.position, scale(facing, this.radius + this.weaponRange));
-
+  draw(ctx, currentTime, target) {
     renderBallPendants(ctx, this, currentTime);
+    drawWeapon(ctx, this, currentTime, target);
+    drawBallBody(ctx, this);
+
+    const hpText = String(Math.ceil(this.hp));
+    const hpFontSize = clamp(this.radius * 0.58, 15, 20);
 
     ctx.save();
-    ctx.lineCap = "round";
-    ctx.strokeStyle = this.config.accentColor;
-    ctx.lineWidth = this.profession === "spear" ? 5 : 10;
-    ctx.globalAlpha = 0.9;
-    ctx.beginPath();
-    ctx.moveTo(weaponStart.x, weaponStart.y);
-    ctx.lineTo(weaponEnd.x, weaponEnd.y);
-    ctx.stroke();
-
-    if (this.profession === "blade") {
-      ctx.strokeStyle = "rgba(255, 240, 194, 0.45)";
-      ctx.lineWidth = 7;
-      ctx.beginPath();
-      ctx.arc(this.position.x, this.position.y, this.radius + this.weaponRange, -0.8, 0.8);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.save();
-    ctx.shadowColor = this.config.color;
-    ctx.shadowBlur = 16;
-    ctx.fillStyle = this.hitFlashTime > 0 ? "#ffffff" : this.config.color;
-    ctx.beginPath();
-    ctx.arc(this.position.x, this.position.y, this.radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    ctx.save();
-    ctx.fillStyle = "#0f141b";
-    ctx.font = canvasFont(16, 800);
+    ctx.fillStyle = COLORS.text;
+    ctx.strokeStyle = "rgba(5, 8, 12, 0.92)";
+    ctx.lineWidth = 5;
+    ctx.font = canvasFont(hpFontSize, 900);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(this.label, this.position.x, this.position.y);
+    ctx.strokeText(hpText, this.position.x, this.position.y);
+    ctx.fillText(hpText, this.position.x, this.position.y);
     ctx.restore();
   }
 }
@@ -215,23 +251,26 @@ let gameOver = false;
 let resultMessage = "";
 let lastFrameTime = 0;
 let elapsedTimeSeconds = 0;
+let matchElapsedTimeSeconds = 0;
 let viewport = { width: 0, height: 0, dpr: 1 };
 let layout = null;
 let pointerDown = false;
 let attackEffectInstances = [];
 
 function createInitialBalls() {
+  const selectedProfessions = getSelectedProfessions();
+
   return [
     new Ball({
       label: "A",
-      profession: "spear",
+      profession: selectedProfessions.a,
       x: 190,
       y: 210,
       direction: { x: 1, y: 0.64 },
     }),
     new Ball({
       label: "B",
-      profession: "blade",
+      profession: selectedProfessions.b,
       x: 610,
       y: 590,
       direction: { x: -0.95, y: -0.48 },
@@ -239,11 +278,30 @@ function createInitialBalls() {
   ];
 }
 
+function getSelectedProfessions() {
+  const params = new URLSearchParams(window.location.search);
+
+  return {
+    a: getProfessionParam(params, "a", "spear"),
+    b: getProfessionParam(params, "b", "blade"),
+  };
+}
+
+function getProfessionParam(params, name, fallback) {
+  const profession = params.get(name);
+  return Object.hasOwn(ProfessionConfig, profession) ? profession : fallback;
+}
+
+function getSideVisualConfig(label) {
+  return SIDE_VISUAL_CONFIG[label] || SIDE_VISUAL_CONFIG.A;
+}
+
 function restartGame() {
   balls = createInitialBalls();
   attackEffectInstances = [];
   gameOver = false;
   resultMessage = "";
+  matchElapsedTimeSeconds = 0;
   lastFrameTime = performance.now();
   GamePlatform.setLoadingProgress(100);
 }
@@ -284,14 +342,12 @@ function createLayout(width, height) {
 function createTopHudLayout(metrics) {
   const { left, top, contentWidth, contentHeight, gap } = metrics;
   const titleHeight = contentWidth < 430 ? 50 : 58;
-  const panelHeight = contentWidth < 430 ? 66 : 78;
-  const hudHeight = titleHeight + panelHeight + gap;
+  const hudHeight = titleHeight;
   const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap);
   const arenaSize = Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight);
   const spareHeight = Math.max(0, arenaMaxHeight - arenaSize);
-  const panelWidth = (contentWidth - gap) / 2;
   const arenaX = left + (contentWidth - arenaSize) / 2;
-  const arenaY = top + hudHeight + gap + spareHeight * 0.25;
+  const arenaY = top + hudHeight + gap + spareHeight * 0.5;
 
   return {
     mode: "top",
@@ -305,16 +361,6 @@ function createTopHudLayout(metrics) {
       y: top + titleHeight * 0.82,
       fontSize: 13,
     },
-    panels: [
-      { x: left, y: top + titleHeight, width: panelWidth, height: panelHeight, align: "left" },
-      {
-        x: left + panelWidth + gap,
-        y: top + titleHeight,
-        width: panelWidth,
-        height: panelHeight,
-        align: "right",
-      },
-    ],
     arena: {
       x: arenaX,
       y: arenaY,
@@ -326,19 +372,11 @@ function createTopHudLayout(metrics) {
 }
 
 function createLandscapeLayout(metrics) {
-  const { left, top, contentWidth, contentHeight, gap } = metrics;
-  let sideWidth = clamp((contentWidth - contentHeight) / 2 - gap, 132, 220);
-  let arenaSize = Math.min(ARENA_SIZE, contentHeight, contentWidth - (sideWidth + gap) * 2);
-
-  if (arenaSize < 260) {
-    sideWidth = Math.max(112, (contentWidth - 260) / 2 - gap);
-    arenaSize = Math.max(240, Math.min(contentHeight, contentWidth - (sideWidth + gap) * 2));
-  }
+  const { left, top, contentWidth, contentHeight } = metrics;
+  const arenaSize = Math.min(ARENA_SIZE, contentWidth, contentHeight);
 
   const arenaX = left + (contentWidth - arenaSize) / 2;
   const arenaY = top + (contentHeight - arenaSize) / 2;
-  const panelHeight = clamp(arenaSize * 0.22, 74, 104);
-  const panelY = arenaY + Math.max(38, arenaSize * 0.12);
 
   return {
     mode: "landscape",
@@ -352,16 +390,6 @@ function createLandscapeLayout(metrics) {
       y: arenaY + 48,
       fontSize: 12,
     },
-    panels: [
-      { x: left, y: panelY, width: sideWidth, height: panelHeight, align: "left" },
-      {
-        x: left + contentWidth - sideWidth,
-        y: panelY,
-        width: sideWidth,
-        height: panelHeight,
-        align: "right",
-      },
-    ],
     arena: {
       x: arenaX,
       y: arenaY,
@@ -378,6 +406,7 @@ function gameLoop(timestamp) {
   elapsedTimeSeconds = timestamp / 1000;
 
   if (!gameOver) {
+    matchElapsedTimeSeconds += deltaTime;
     update(deltaTime, elapsedTimeSeconds);
   }
 
@@ -388,11 +417,13 @@ function gameLoop(timestamp) {
 function update(deltaTime, currentTime) {
   balls.forEach((ball) => ball.update(deltaTime, currentTime));
   attackEffectInstances = updateAttackEffectInstances(attackEffectInstances, currentTime);
-  resolveBallCollision(balls[0], balls[1], currentTime);
+  resolveBallCollision(balls[0], balls[1]);
+  updateAttackForPair(balls[0], balls[1], currentTime);
+  updateAttackForPair(balls[1], balls[0], currentTime);
   checkGameOver();
 }
 
-function resolveBallCollision(ballA, ballB, currentTime) {
+function resolveBallCollision(ballA, ballB) {
   const difference = subtract(ballB.position, ballA.position);
   let distance = length(difference);
   const minDistance = ballA.radius + ballB.radius;
@@ -405,13 +436,51 @@ function resolveBallCollision(ballA, ballB, currentTime) {
   distance = Math.max(distance, 0.001);
   separateBalls(ballA, ballB, normal, minDistance - distance);
   bounceBalls(ballA, ballB, normal);
+}
 
-  const damageFromA = ballA.dealDamageTo(ballB, currentTime, normal);
-  const damageFromB = ballB.dealDamageTo(ballA, currentTime, scale(normal, -1));
+function updateAttackForPair(attacker, defender, currentTime) {
+  updateAttackState(attacker, currentTime);
 
-  applySkillKnockback(ballA, ballB, normal, damageFromA, damageFromB);
-  playHitCosmetics(ballA, ballB, normal, damageFromA, currentTime);
-  playHitCosmetics(ballB, ballA, scale(normal, -1), damageFromB, currentTime);
+  if (!attacker.attackState && isInAttackRange(attacker, defender)) {
+    attacker.startAttack(defender, currentTime);
+  }
+}
+
+function updateAttackState(attacker, currentTime) {
+  const attackState = attacker.attackState;
+
+  if (!attackState) {
+    return;
+  }
+
+  if (attacker.hp <= 0) {
+    attacker.attackState = null;
+    return;
+  }
+
+  const progress = getAttackProgressFromState(attackState, currentTime);
+
+  if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
+    const defender = attackState.defender;
+    const normal = normalize(attackState.direction);
+    const damage = attacker.dealAttackDamageTo(defender, normal);
+    attackState.didDealDamage = true;
+    applyAttackKnockback(attacker, defender, normal, damage);
+    playHitCosmetics(attacker, defender, normal, damage, currentTime);
+  }
+
+  if (currentTime - attackState.startTime >= attackState.duration) {
+    attacker.attackState = null;
+  }
+}
+
+function isInAttackRange(attacker, defender) {
+  if (attacker.hp <= 0 || defender.hp <= 0) {
+    return false;
+  }
+
+  const attackReach = attacker.radius + defender.radius + attacker.weaponRange;
+  return length(subtract(defender.position, attacker.position)) <= attackReach;
 }
 
 function playHitCosmetics(attacker, defender, normalFromAttackerToDefender, damage, currentTime) {
@@ -430,7 +499,8 @@ function playHitCosmetics(attacker, defender, normalFromAttackerToDefender, dama
     }),
   );
 
-  if (!attacker.isSkillHit(defender, normalFromAttackerToDefender, damage)) {
+  const isSkillHit = attacker.isSkillHit(defender, normalFromAttackerToDefender, damage);
+  if (!isSkillHit) {
     return;
   }
 
@@ -469,23 +539,72 @@ function bounceBalls(ballA, ballB, normal) {
   keepSpeed(ballB);
 }
 
-function applySkillKnockback(ballA, ballB, normal, damageFromA, damageFromB) {
-  if (damageFromA > 0) {
-    const push = 56 * ballA.config.getKnockbackMultiplier();
-    ballB.velocity = add(ballB.velocity, scale(normal, push));
+function applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage) {
+  if (damage <= 0) {
+    return;
   }
 
-  if (damageFromB > 0) {
-    const push = 56 * ballB.config.getKnockbackMultiplier();
-    ballA.velocity = add(ballA.velocity, scale(normal, -push));
-  }
-
-  keepSpeed(ballA);
-  keepSpeed(ballB);
+  const push = 56 * attacker.config.getKnockbackMultiplier();
+  defender.velocity = add(defender.velocity, scale(normalFromAttackerToDefender, push));
+  keepSpeed(attacker);
+  keepSpeed(defender);
 }
 
 function keepSpeed(ball) {
-  ball.velocity = scale(normalize(ball.velocity), ball.config.moveSpeed);
+  ball.velocity = scale(normalize(ball.velocity), getCurrentMoveSpeed(ball));
+}
+
+function getCurrentMoveSpeed(ball) {
+  return ball.config.moveSpeed * getSpeedMultiplier(matchElapsedTimeSeconds);
+}
+
+function getSpeedMultiplier(elapsedSeconds) {
+  const rampSeconds = Math.max(0.001, SPEED_RAMP_CONFIG.secondsToMaxMultiplier);
+  const progress = clamp(elapsedSeconds / rampSeconds, 0, 1);
+  return (
+    SPEED_RAMP_CONFIG.startMultiplier +
+    (SPEED_RAMP_CONFIG.maxMultiplier - SPEED_RAMP_CONFIG.startMultiplier) * progress
+  );
+}
+
+function getAttackAnimationConfig(profession) {
+  return ATTACK_ANIMATION_CONFIG[profession] || ATTACK_ANIMATION_CONFIG.default;
+}
+
+function getAttackProgress(ball, currentTime) {
+  if (!ball.attackState) {
+    return null;
+  }
+
+  return getAttackProgressFromState(ball.attackState, currentTime);
+}
+
+function getAttackProgressFromState(attackState, currentTime) {
+  return clamp((currentTime - attackState.startTime) / attackState.duration, 0, 1);
+}
+
+function getWeaponDirection(ball, target) {
+  if (ball.attackState) {
+    return normalize(ball.attackState.direction);
+  }
+
+  if (target && target.hp > 0) {
+    return getDirectionBetween(ball, target);
+  }
+
+  return normalize(ball.velocity);
+}
+
+function getDirectionBetween(source, target) {
+  return normalize(subtract(target.position, source.position));
+}
+
+function getThrustExtension(progress, hitFrame) {
+  if (progress <= hitFrame) {
+    return lerp(0.58, 1.34, easeOutCubic(progress / hitFrame));
+  }
+
+  return lerp(1.34, 0.88, easeInCubic((progress - hitFrame) / (1 - hitFrame)));
 }
 
 function checkGameOver() {
@@ -528,8 +647,8 @@ function drawBackground() {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, viewport.width, viewport.height);
 
-  drawGlow(viewport.width * 0.18, viewport.height * 0.12, viewport.width * 0.42, "rgba(73, 197, 255, 0.13)");
-  drawGlow(viewport.width * 0.84, viewport.height * 0.14, viewport.width * 0.34, "rgba(255, 189, 69, 0.13)");
+  drawGlow(viewport.width * 0.18, viewport.height * 0.12, viewport.width * 0.42, SIDE_VISUAL_CONFIG.A.backgroundGlow);
+  drawGlow(viewport.width * 0.84, viewport.height * 0.14, viewport.width * 0.34, SIDE_VISUAL_CONFIG.B.backgroundGlow);
 }
 
 function drawGlow(x, y, radius, color) {
@@ -541,7 +660,6 @@ function drawGlow(x, y, radius, color) {
 }
 
 function drawHud() {
-  const [ballA, ballB] = balls;
   const statusText = gameOver ? resultMessage : "自动开战中";
 
   ctx.save();
@@ -555,63 +673,111 @@ function drawHud() {
   ctx.font = canvasFont(layout.status.fontSize, 600);
   ctx.fillText(statusText, layout.status.x, layout.status.y);
   ctx.restore();
-
-  drawFighterPanel(layout.panels[0], ballA);
-  drawFighterPanel(layout.panels[1], ballB);
 }
 
-function drawFighterPanel(panel, ball) {
+function drawBallBody(ctx, ball) {
   ctx.save();
-  roundRect(ctx, panel.x, panel.y, panel.width, panel.height, 8);
-  ctx.fillStyle = COLORS.panel;
+  ctx.shadowColor = ball.visual.color;
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = ball.visual.color;
+  ctx.beginPath();
+  ctx.arc(ball.position.x, ball.position.y, ball.radius, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = COLORS.panelBorder;
-  ctx.lineWidth = 1;
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = ball.visual.accentColor;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(ball.position.x, ball.position.y, ball.radius - 3, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  if (ball.hitFlashTime > 0) {
+    ctx.save();
+    ctx.globalAlpha = clamp(ball.hitFlashTime / 0.16, 0, 1) * 0.45;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(ball.position.x, ball.position.y, ball.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawWeapon(ctx, ball, currentTime, target) {
+  const direction = getWeaponDirection(ball, target);
+  const progress = getAttackProgress(ball, currentTime);
+
+  if (ball.profession === "blade") {
+    drawBladeWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  drawSpearWeapon(ctx, ball, direction, progress);
+}
+
+function drawSpearWeapon(ctx, ball, direction, progress) {
+  const hitFrame = ball.attackState?.hitFrame || ATTACK_ANIMATION_CONFIG.default.hitFrame;
+  const extension = progress === null ? 1 : getThrustExtension(progress, hitFrame);
+  const weaponStart = add(ball.position, scale(direction, ball.radius * 0.52));
+  const weaponEnd = add(ball.position, scale(direction, ball.radius + ball.weaponRange * extension));
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = ball.visual.accentColor;
+  ctx.lineWidth = 6;
+  ctx.globalAlpha = progress === null ? 0.88 : 1;
+  ctx.beginPath();
+  moveToVector(ctx, weaponStart);
+  lineToVector(ctx, weaponEnd);
   ctx.stroke();
 
-  const padding = Math.max(9, panel.width * 0.07);
-  const textX = panel.align === "right" ? panel.x + panel.width - padding : panel.x + padding;
-  const hpRatio = Math.max(0, ball.hp / ball.maxHp);
-  const compact = panel.width < 160;
-
-  ctx.textAlign = panel.align;
-  ctx.textBaseline = "top";
-  ctx.fillStyle = COLORS.muted;
-  ctx.font = canvasFont(compact ? 11 : 12, 700);
-  ctx.fillText(`球 ${ball.label}`, textX, panel.y + padding);
-
-  ctx.fillStyle = COLORS.text;
-  ctx.font = canvasFont(compact ? 14 : 16, 900);
-  ctx.fillText(ball.config.name, textX, panel.y + padding + (compact ? 16 : 18));
-
-  const barWidth = Math.max(62, panel.width - padding * 2);
-  const barHeight = compact ? 9 : 11;
-  const barX = panel.x + padding;
-  const barY = panel.y + panel.height - padding - barHeight - (compact ? 14 : 16);
-  drawHpBar(barX, barY, barWidth, barHeight, hpRatio, ball.config.color);
-
-  ctx.fillStyle = COLORS.muted;
-  ctx.font = canvasFont(compact ? 11 : 12, 700);
-  ctx.textBaseline = "bottom";
-  ctx.fillText(`${Math.ceil(ball.hp)} / ${ball.maxHp}`, textX, panel.y + panel.height - padding + 1);
+  if (progress !== null) {
+    ctx.globalAlpha = 0.26 * (1 - progress);
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    moveToVector(ctx, add(ball.position, scale(direction, ball.radius * 0.34)));
+    lineToVector(ctx, weaponEnd);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
-function drawHpBar(x, y, width, height, ratio, color) {
-  roundRect(ctx, x, y, width, height, height / 2);
-  ctx.fillStyle = "#2a3340";
-  ctx.fill();
+function drawBladeWeapon(ctx, ball, direction, progress) {
+  const baseAngle = angleOf(direction);
+  const bladeConfig = getAttackAnimationConfig("blade");
+  const sweepAngle = bladeConfig.sweepAngle;
+  const arcRadius = ball.radius + ball.weaponRange;
+  const attackEase = progress === null ? null : easeOutCubic(progress);
+  const bladeAngle = progress === null ? baseAngle : baseAngle - sweepAngle / 2 + sweepAngle * attackEase;
+  const bladeDirection = vectorFromAngle(bladeAngle);
+  const weaponStart = add(ball.position, scale(bladeDirection, ball.radius * 0.46));
+  const weaponEnd = add(ball.position, scale(bladeDirection, ball.radius + ball.weaponRange * 0.92));
 
-  if (ratio > 0) {
-    roundRect(ctx, x, y, width * ratio, height, height / 2);
-    const gradient = ctx.createLinearGradient(x, y, x + width, y);
-    gradient.addColorStop(0, color);
-    gradient.addColorStop(1, "#ffffff");
-    ctx.fillStyle = gradient;
-    ctx.globalAlpha = 0.9;
-    ctx.fill();
-    ctx.globalAlpha = 1;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = ball.visual.accentColor;
+  ctx.lineWidth = 12;
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  moveToVector(ctx, weaponStart);
+  lineToVector(ctx, weaponEnd);
+  ctx.stroke();
+
+  ctx.strokeStyle = progress === null ? ball.visual.bladeTrailIdle : ball.visual.bladeTrailAttack;
+  ctx.lineWidth = progress === null ? 7 : 11;
+  ctx.beginPath();
+
+  if (progress === null) {
+    ctx.arc(ball.position.x, ball.position.y, arcRadius, baseAngle - 0.42, baseAngle + 0.42);
+  } else {
+    const startAngle = baseAngle - sweepAngle / 2;
+    ctx.arc(ball.position.x, ball.position.y, arcRadius, startAngle, bladeAngle);
   }
+
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawArenaScene() {
@@ -619,7 +785,7 @@ function drawArenaScene() {
   ctx.translate(layout.arena.x, layout.arena.y);
   ctx.scale(layout.arena.scale, layout.arena.scale);
   drawArena();
-  balls.forEach((ball) => ball.draw(ctx, elapsedTimeSeconds));
+  balls.forEach((ball, index) => ball.draw(ctx, elapsedTimeSeconds, balls[index === 0 ? 1 : 0]));
   renderAttackEffectInstances(ctx, attackEffectInstances, elapsedTimeSeconds);
   ctx.restore();
 }
@@ -766,6 +932,14 @@ function roundRect(context, x, y, width, height, radius) {
   context.closePath();
 }
 
+function moveToVector(context, vector) {
+  context.moveTo(vector.x, vector.y);
+}
+
+function lineToVector(context, vector) {
+  context.lineTo(vector.x, vector.y);
+}
+
 function add(a, b) {
   return { x: a.x + b.x, y: a.y + b.y };
 }
@@ -786,6 +960,14 @@ function length(vector) {
   return Math.hypot(vector.x, vector.y);
 }
 
+function angleOf(vector) {
+  return Math.atan2(vector.y, vector.x);
+}
+
+function vectorFromAngle(angle) {
+  return { x: Math.cos(angle), y: Math.sin(angle) };
+}
+
 function normalize(vector) {
   const vectorLength = length(vector);
   if (vectorLength === 0) {
@@ -797,6 +979,20 @@ function normalize(vector) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function lerp(start, end, progress) {
+  return start + (end - start) * clamp(progress, 0, 1);
+}
+
+function easeOutCubic(progress) {
+  const safeProgress = clamp(progress, 0, 1);
+  return 1 - (1 - safeProgress) ** 3;
+}
+
+function easeInCubic(progress) {
+  const safeProgress = clamp(progress, 0, 1);
+  return safeProgress ** 3;
 }
 
 async function bootGame() {

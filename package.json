@@ -8,6 +8,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "test:matchups": "node scripts/simulate-matchups.mjs",
     "meta:bundle": "npm run build && node scripts/build-meta.mjs",
     "cap:sync": "npm run build && cap sync",
     "android:open": "cap open android",
