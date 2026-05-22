@@ -4,8 +4,10 @@ import test from "node:test";
 import {
   ATTACK_ANIMATION_CONFIG,
   ProfessionConfig,
+  SceneConfig,
   SIDE_VISUAL_CONFIG,
   getAttackAnimationConfig,
+  getSceneProfessionIds,
   getSpeedMultiplier,
 } from "../game-config.js";
 import { ProfessionCosmeticConfig } from "../cosmetics.js";
@@ -13,7 +15,21 @@ import { ProfessionCosmeticConfig } from "../cosmetics.js";
 test("profession config exposes balanced, testable combat fields", () => {
   const professions = Object.keys(ProfessionConfig);
 
-  assert.deepEqual(professions.sort(), ["archer", "assassin", "blade", "chain", "mage", "shield", "spear"]);
+  assert.deepEqual(professions.sort(), [
+    "archer",
+    "assassin",
+    "bat",
+    "blade",
+    "chain",
+    "frost",
+    "lava",
+    "mage",
+    "reaper",
+    "shield",
+    "spear",
+    "spider",
+    "venom",
+  ]);
 
   for (const [profession, config] of Object.entries(ProfessionConfig)) {
     assert.equal(config.id, profession);
@@ -40,6 +56,13 @@ test("combat and cosmetic profession lists stay in sync", () => {
     Object.keys(ProfessionCosmeticConfig).sort(),
     Object.keys(ProfessionConfig).sort(),
   );
+});
+
+test("scene config keeps classic and super profession pools separate", () => {
+  assert.deepEqual(SceneConfig.classic.professionIds, ["spear", "blade", "shield", "assassin", "archer", "chain", "mage"]);
+  assert.deepEqual(SceneConfig.super.professionIds, ["bat", "venom", "spider", "lava", "reaper", "frost"]);
+  assert.equal(getSceneProfessionIds("super").includes("bat"), true);
+  assert.equal(getSceneProfessionIds("super").includes("spear"), false);
 });
 
 test("spear front thrust upgrades damage only while facing the enemy", () => {
@@ -87,6 +110,19 @@ test("new profession skills expose distinct combat hooks", () => {
   };
   assert.equal(ProfessionConfig.mage.getDamage(attacker), 10);
   assert.equal(ProfessionConfig.mage.getAttackVariant(attacker, defender, 1).id.length > 0, true);
+});
+
+test("super arena professions expose their special combat contracts", () => {
+  assert.equal(ProfessionConfig.bat.collisionDrain.damage > 0, true);
+  assert.equal(ProfessionConfig.bat.collisionDrain.disableDuration > 0, true);
+  assert.equal(ProfessionConfig.venom.venomSpike.poisonDamagePerSecond > 0, true);
+  assert.equal(ProfessionConfig.spider.webLine.collisionRadius > 0, true);
+  assert.equal(ProfessionConfig.lava.flameTrail.dropInterval > 0, true);
+  assert.equal(ProfessionConfig.reaper.attackMode, "reaper");
+  assert.equal(ProfessionConfig.reaper.attackCooldown > ProfessionConfig.blade.attackCooldown, true);
+  assert.equal(ProfessionConfig.reaper.attackDamage > ProfessionConfig.blade.attackDamage, true);
+  assert.equal(ProfessionConfig.frost.attackMode, "frostOrbit");
+  assert.equal(ProfessionConfig.frost.frostOrbit.count >= 3, true);
 });
 
 test("speed ramp and attack animation helpers clamp predictably", () => {

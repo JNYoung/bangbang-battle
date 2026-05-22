@@ -15,6 +15,31 @@ export const ATTACK_ANIMATION_CONFIG = {
     duration: 0.24,
     hitFrame: 0.48,
   },
+  bat: {
+    duration: 0.28,
+    hitFrame: 0.42,
+  },
+  venom: {
+    duration: 0.34,
+    hitFrame: 0.52,
+  },
+  spider: {
+    duration: 0.34,
+    hitFrame: 0.5,
+  },
+  lava: {
+    duration: 0.36,
+    hitFrame: 0.54,
+  },
+  reaper: {
+    duration: 0.82,
+    hitFrame: 0.64,
+    sweepAngle: (Math.PI * 118) / 180,
+  },
+  frost: {
+    duration: 0.42,
+    hitFrame: 0.58,
+  },
   assassin: {
     duration: 0.22,
     hitFrame: 0.42,
@@ -40,6 +65,32 @@ export const ATTACK_ANIMATION_CONFIG = {
   default: {
     duration: 0.24,
     hitFrame: 0.5,
+  },
+};
+
+export const DEFAULT_SCENE_ID = "classic";
+export const SUPER_SCENE_ID = "super";
+
+export const SceneConfig = {
+  classic: {
+    id: "classic",
+    nameKey: "scenes.classic.name",
+    descriptionKey: "scenes.classic.description",
+    professionIds: ["spear", "blade", "shield", "assassin", "archer", "chain", "mage"],
+    defaultProfessions: {
+      a: "spear",
+      b: "blade",
+    },
+  },
+  super: {
+    id: "super",
+    nameKey: "scenes.super.name",
+    descriptionKey: "scenes.super.description",
+    professionIds: ["bat", "venom", "spider", "lava", "reaper", "frost"],
+    defaultProfessions: {
+      a: "bat",
+      b: "venom",
+    },
   },
 };
 
@@ -102,6 +153,211 @@ export const SIDE_VISUAL_CONFIG = {
 };
 
 export const ProfessionConfig = {
+  bat: {
+    id: "bat",
+    name: "蝙蝠球",
+    maxHp: 106,
+    radius: 23,
+    moveSpeed: 228,
+    attackDamage: 10,
+    attackCooldown: 0.58,
+    weaponRange: 34,
+    color: "#5f4bb6",
+    accentColor: "#ffd9f1",
+    skillName: "尖牙吸血",
+    item: {
+      name: "暗翼尖牙",
+      type: "fangWing",
+      animation: "碰撞吸血",
+    },
+    collisionDrain: {
+      damage: 14,
+      heal: 2,
+      disableDuration: 0.82,
+      cooldown: 0.72,
+    },
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier() {
+      return 0.72;
+    },
+    isSkillHit() {
+      return false;
+    },
+  },
+  venom: {
+    id: "venom",
+    name: "毒液球",
+    maxHp: 118,
+    radius: 25,
+    moveSpeed: 190,
+    attackDamage: 10,
+    attackCooldown: 0.78,
+    weaponRange: 32,
+    color: "#39d353",
+    accentColor: "#caff70",
+    skillName: "毒刺孢子",
+    item: {
+      name: "剧毒尖刺",
+      type: "poisonSpike",
+      animation: "撞墙产刺",
+    },
+    venomSpike: {
+      radius: 22,
+      duration: 7.5,
+      damage: 4,
+      poisonDamagePerSecond: 3,
+      poisonDuration: 2.4,
+      hitCooldown: 0.85,
+    },
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier() {
+      return 0.88;
+    },
+    isSkillHit() {
+      return false;
+    },
+  },
+  spider: {
+    id: "spider",
+    name: "蜘蛛球",
+    maxHp: 104,
+    radius: 23,
+    moveSpeed: 204,
+    attackDamage: 9,
+    attackCooldown: 0.74,
+    weaponRange: 34,
+    color: "#6f42c1",
+    accentColor: "#f0d7ff",
+    skillName: "蛛丝结网",
+    item: {
+      name: "蛛丝节点",
+      type: "webLine",
+      animation: "奇偶撞墙连线",
+    },
+    webLine: {
+      nodeRadius: 12,
+      duration: 9,
+      damage: 5,
+      hitCooldown: 0.72,
+      collisionRadius: 10,
+    },
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier() {
+      return 0.8;
+    },
+    isSkillHit() {
+      return false;
+    },
+  },
+  lava: {
+    id: "lava",
+    name: "熔岩球",
+    maxHp: 124,
+    radius: 26,
+    moveSpeed: 184,
+    attackDamage: 12,
+    attackCooldown: 0.82,
+    weaponRange: 34,
+    color: "#ff6b24",
+    accentColor: "#ffd166",
+    skillName: "熔火路径",
+    item: {
+      name: "熔岩核心",
+      type: "flameTrail",
+      animation: "身后留火",
+    },
+    flameTrail: {
+      radius: 24,
+      duration: 2.8,
+      dropInterval: 0.14,
+      damage: 3,
+      hitCooldown: 0.5,
+    },
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier() {
+      return 1.05;
+    },
+    isSkillHit() {
+      return false;
+    },
+  },
+  reaper: {
+    id: "reaper",
+    name: "死神球",
+    maxHp: 92,
+    radius: 24,
+    moveSpeed: 162,
+    attackDamage: 46,
+    attackCooldown: 1.95,
+    weaponRange: 92,
+    color: "#202637",
+    accentColor: "#e6f0ff",
+    skillName: "镰刃收割",
+    item: {
+      name: "终末大镰刀",
+      type: "scythe",
+      animation: "慢速镰刃",
+    },
+    attackMode: "reaper",
+    reaperBlade: {
+      edgeLength: 150,
+      collisionRadius: 22,
+    },
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier() {
+      return 1.48;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage) {
+      return damage >= this.attackDamage;
+    },
+  },
+  frost: {
+    id: "frost",
+    name: "冰冻球",
+    maxHp: 96,
+    radius: 24,
+    moveSpeed: 176,
+    attackDamage: 7,
+    attackCooldown: 0.9,
+    weaponRange: 74,
+    color: "#8be8ff",
+    accentColor: "#f8fbff",
+    skillName: "冰轮冻结",
+    item: {
+      name: "环绕冰轮",
+      type: "frostOrbit",
+      animation: "冰轮冻结",
+    },
+    attackMode: "frostOrbit",
+    frostOrbit: {
+      orbitRadius: 76,
+      orbRadius: 13,
+      count: 3,
+      spinSpeed: 2.7,
+      damage: 12,
+      freezeDuration: 0.55,
+      hitCooldown: 0.55,
+    },
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier() {
+      return 0.58;
+    },
+    isSkillHit() {
+      return true;
+    },
+  },
   spear: {
     id: "spear",
     name: "长矛球",
@@ -366,6 +622,18 @@ export const ProfessionConfig = {
 
 export function getAttackAnimationConfig(profession) {
   return ATTACK_ANIMATION_CONFIG[profession] || ATTACK_ANIMATION_CONFIG.default;
+}
+
+export function getSceneConfig(sceneId) {
+  return SceneConfig[sceneId] || SceneConfig[DEFAULT_SCENE_ID];
+}
+
+export function getSceneProfessionIds(sceneId) {
+  return getSceneConfig(sceneId).professionIds;
+}
+
+export function getSceneDefaultProfessions(sceneId) {
+  return getSceneConfig(sceneId).defaultProfessions;
 }
 
 export function getSpeedMultiplier(elapsedSeconds) {

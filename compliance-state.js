@@ -1,5 +1,11 @@
 import { LegalConfig, getLegalVersionKey } from "./legal-config.js";
-import { ProfessionConfig } from "./game-config.js";
+import {
+  DEFAULT_SCENE_ID,
+  ProfessionConfig,
+  SceneConfig,
+  getSceneDefaultProfessions,
+  getSceneProfessionIds,
+} from "./game-config.js";
 
 export const ComplianceStorageKeys = {
   acceptedLegalVersion: "bangbang.acceptedLegalVersion",
@@ -8,8 +14,8 @@ export const ComplianceStorageKeys = {
 };
 
 export const DefaultProfessions = {
-  a: "spear",
-  b: "blade",
+  scene: DEFAULT_SCENE_ID,
+  ...getSceneDefaultProfessions(DEFAULT_SCENE_ID),
   ballCount: 2,
 };
 
@@ -49,6 +55,7 @@ export function createComplianceState({
         {
           a: overrides.a ?? saved.a,
           b: overrides.b ?? saved.b,
+          scene: overrides.scene ?? saved.scene,
           ballCount: overrides.ballCount ?? saved.ballCount,
         },
         professionConfig,
@@ -80,9 +87,14 @@ export function createComplianceState({
 }
 
 export function normalizeSelectedProfessions(selectedProfessions = {}, professionConfig = ProfessionConfig) {
+  const scene = getValidScene(selectedProfessions.scene);
+  const sceneDefaultProfessions = getSceneDefaultProfessions(scene);
+  const sceneProfessionIds = getSceneProfessionIds(scene);
+
   return {
-    a: getValidProfession(selectedProfessions.a, DefaultProfessions.a, professionConfig),
-    b: getValidProfession(selectedProfessions.b, DefaultProfessions.b, professionConfig),
+    scene,
+    a: getValidProfessionForScene(selectedProfessions.a, sceneDefaultProfessions.a, sceneProfessionIds, professionConfig),
+    b: getValidProfessionForScene(selectedProfessions.b, sceneDefaultProfessions.b, sceneProfessionIds, professionConfig),
     ballCount: normalizeBallCount(selectedProfessions.ballCount),
   };
 }
@@ -115,8 +127,12 @@ export function createMemoryStorage(initialState = {}) {
   };
 }
 
-function getValidProfession(profession, fallback, professionConfig) {
-  return Object.hasOwn(professionConfig, profession) ? profession : fallback;
+function getValidScene(scene) {
+  return Object.hasOwn(SceneConfig, scene) ? scene : DefaultProfessions.scene;
+}
+
+function getValidProfessionForScene(profession, fallback, sceneProfessionIds, professionConfig) {
+  return Object.hasOwn(professionConfig, profession) && sceneProfessionIds.includes(profession) ? profession : fallback;
 }
 
 function getDefaultStorage() {

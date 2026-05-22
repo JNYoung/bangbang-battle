@@ -31,6 +31,8 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "app.name"), "app.name");
     assert.notEqual(translate(locale, "main.start"), "main.start");
     assert.notEqual(translate(locale, "professions.archer.name"), "professions.archer.name");
+    assert.notEqual(translate(locale, "professions.bat.name"), "professions.bat.name");
+    assert.notEqual(translate(locale, "scenes.super.name"), "scenes.super.name");
     assert.match(translate(locale, "result.winner", { side: "A", profession: "Archer" }), /A|Archer|الكرة/);
   }
 });

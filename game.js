@@ -1,4 +1,4 @@
-import { createComplianceState } from "./compliance-state.js";
+import { createComplianceState, normalizeSelectedProfessions } from "./compliance-state.js";
 import {
   ARENA_SIZE,
   ATTACK_ANIMATION_CONFIG,
@@ -8,8 +8,10 @@ import {
   MAX_DELTA_TIME,
   MAX_DEVICE_PIXEL_RATIO,
   ProfessionConfig,
+  SceneConfig,
   SIDE_VISUAL_CONFIG,
   getAttackAnimationConfig,
+  getSceneProfessionIds,
   getSpeedMultiplier,
 } from "./game-config.js";
 import { LegalConfig, getLegalDocument } from "./legal-config.js";
@@ -48,7 +50,7 @@ const Screen = Object.freeze({
 const canvas = document.querySelector("#gameCanvas");
 const ctx = canvas.getContext("2d");
 const complianceState = createComplianceState();
-const professionIds = Object.keys(ProfessionConfig);
+const sceneIds = Object.keys(SceneConfig);
 const ARENA_TERRAIN_TILE_SIZE = 40;
 const BACKDROP_TERRAIN_TILE_SIZE = 48;
 
@@ -73,15 +75,12 @@ let interactiveElements = [];
 let attackEffectInstances = [];
 let projectiles = [];
 let spellTrajectories = [];
+let arenaHazards = [];
+let webLinks = [];
+let flameTrails = [];
 let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
-
-const defaultScene = {
-  id: "classic-arena",
-  nameKey: "scenes.classic.name",
-  descriptionKey: "scenes.classic.description",
-};
 
 const voxelAssets = createVoxelAssets();
 
@@ -411,8 +410,8 @@ function createVoxelSprite(rows, palette, pixelSize = 2) {
   return sprite;
 }
 
-function createTerrainState(seed = Math.floor(Math.random() * 0xffffffff)) {
-  const arenaBiome = terrainNoise(seed, 0, 0, 101) > 0.5 ? "grass" : "rock";
+function createTerrainState(seed = Math.floor(Math.random() * 0xffffffff), sceneId = selectedProfessions?.scene) {
+  const arenaBiome = sceneId === "super" ? "super" : terrainNoise(seed, 0, 0, 101) > 0.5 ? "grass" : "rock";
   const terrainColumns = Math.ceil(ARENA_SIZE / ARENA_TERRAIN_TILE_SIZE);
   const terrainRows = Math.ceil(ARENA_SIZE / ARENA_TERRAIN_TILE_SIZE);
 
@@ -429,6 +428,19 @@ function createArenaTerrainTile(seed, biome, column, row) {
   const detail = terrainNoise(seed, column, row, 7);
   const softPatch = getSoftTerrainNoise(seed, column, row, 17);
   const vein = getTerrainVein(seed, column, row);
+
+  if (biome === "super") {
+    if (vein > 0.82) {
+      return { type: "obsidian", shade: 0.28 + detail * 0.14 };
+    }
+    if (softPatch > 0.78) {
+      return { type: "glowstone", shade: 0.18 + detail * 0.12 };
+    }
+    if (softPatch < 0.2) {
+      return { type: "deepslate", shade: 0.22 + detail * 0.12 };
+    }
+    return { type: "stone", shade: 0.12 + detail * 0.12 };
+  }
 
   if (biome === "rock") {
     if (softPatch > 0.78 || vein > 0.88) {
@@ -507,43 +519,78 @@ class Ball {
     this.attackDamage = this.config.attackDamage;
     this.attackCooldown = this.config.attackCooldown * ATTACK_COOLDOWN_MULTIPLIER;
     this.weaponRange = this.config.weaponRange;
-    this.visual = getSideVisualConfig(this.label);
+    this.visual = {
+      ...getSideVisualConfig(this.label),
+      color: this.config.color || getSideVisualConfig(this.label).color,
+      accentColor: this.config.accentColor || getSideVisualConfig(this.label).accentColor,
+    };
     this.lastAttackTime = -Infinity;
     this.hitFlashTime = 0;
     this.attackState = null;
+    this.attackDisabledUntil = 0;
+    this.frozenUntil = 0;
+    this.poisonUntil = 0;
+    this.poisonDamagePerSecond = 0;
+    this.lastCollisionAbilityTime = -Infinity;
+    this.lastHazardHitTime = -Infinity;
+    this.lastWebHitTime = -Infinity;
+    this.lastFlameHitTime = -Infinity;
+    this.lastFrostHitTime = -Infinity;
+    this.lastFlameDropTime = -Infinity;
+    this.wallCollisionCount = 0;
+    this.pendingWebNode = null;
     this.chainWeaponState = createChainWeaponState(this);
+    this.frostOrbitState = createFrostOrbitState(this);
     this.cosmeticState = createCosmeticState();
   }
 
   update(deltaTime, currentTime) {
     this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this));
-    this.position.x += this.velocity.x * deltaTime;
-    this.position.y += this.velocity.y * deltaTime;
+    if (!isBallFrozen(this, currentTime)) {
+      this.position.x += this.velocity.x * deltaTime;
+      this.position.y += this.velocity.y * deltaTime;
+    }
     this.hitFlashTime = Math.max(0, this.hitFlashTime - deltaTime);
     updateBallCosmetics(this, currentTime);
-    this.bounceOffWalls();
+    this.bounceOffWalls(currentTime);
+    updateFlameTrailForBall(this, currentTime);
   }
 
-  bounceOffWalls() {
+  bounceOffWalls(currentTime = null) {
+    const contacts = [];
+
     if (this.position.x - this.radius < 0) {
       this.position.x = this.radius;
       this.velocity.x = Math.abs(this.velocity.x);
+      contacts.push({ wall: "left", point: { x: this.radius, y: this.position.y } });
     } else if (this.position.x + this.radius > ARENA_SIZE) {
       this.position.x = ARENA_SIZE - this.radius;
       this.velocity.x = -Math.abs(this.velocity.x);
+      contacts.push({ wall: "right", point: { x: ARENA_SIZE - this.radius, y: this.position.y } });
     }
 
     if (this.position.y - this.radius < 0) {
       this.position.y = this.radius;
       this.velocity.y = Math.abs(this.velocity.y);
+      contacts.push({ wall: "top", point: { x: this.position.x, y: this.radius } });
     } else if (this.position.y + this.radius > ARENA_SIZE) {
       this.position.y = ARENA_SIZE - this.radius;
       this.velocity.y = -Math.abs(this.velocity.y);
+      contacts.push({ wall: "bottom", point: { x: this.position.x, y: ARENA_SIZE - this.radius } });
+    }
+
+    if (contacts.length > 0 && currentTime !== null) {
+      handleWallCollision(this, contacts[0], currentTime);
     }
   }
 
   canAttack(currentTime) {
-    return this.hp > 0 && !this.attackState && currentTime - this.lastAttackTime >= this.attackCooldown;
+    return (
+      this.hp > 0 &&
+      !this.attackState &&
+      !isBallControlLocked(this, currentTime) &&
+      currentTime - this.lastAttackTime >= this.attackCooldown
+    );
   }
 
   startAttack(defender, currentTime) {
@@ -573,9 +620,7 @@ class Ball {
     }
 
     const damage = this.config.getDamage(this, defender, normalFromAttackerToDefender, attackVariant);
-    defender.hp = Math.max(0, defender.hp - damage);
-    defender.hitFlashTime = 0.16;
-    return damage;
+    return damageBall(defender, damage);
   }
 
   isSkillHit(defender, normalFromAttackerToDefender, damage, attackVariant = null) {
@@ -625,9 +670,34 @@ function createInitialBalls() {
 function getUrlProfessionOverrides() {
   const params = new URLSearchParams(window.location.search);
   return {
+    scene: params.get("scene"),
     a: params.get("a"),
     b: params.get("b"),
   };
+}
+
+function getActiveProfessionIds() {
+  return getSceneProfessionIds(selectedProfessions.scene);
+}
+
+function setSelectedScene(sceneId) {
+  selectedProfessions = normalizeSelectedProfessions(
+    {
+      ...selectedProfessions,
+      scene: sceneId,
+    },
+    ProfessionConfig,
+  );
+  activeProfessionSide = "a";
+  serviceMessage = t("messages.selectedScene", { scene: getSceneName(selectedProfessions.scene) });
+}
+
+function getSceneName(sceneId) {
+  return t(SceneConfig[sceneId]?.nameKey || SceneConfig.classic.nameKey);
+}
+
+function getSceneDescription(sceneId) {
+  return t(SceneConfig[sceneId]?.descriptionKey || SceneConfig.classic.descriptionKey);
 }
 
 function getSideVisualConfig(label) {
@@ -694,6 +764,17 @@ function createChainWeaponState(ball) {
   };
 }
 
+function createFrostOrbitState(ball) {
+  if (ball.config.attackMode !== "frostOrbit") {
+    return null;
+  }
+
+  return {
+    rotationAngle: ball.label === "A" ? 0 : Math.PI,
+    lastHitTime: -Infinity,
+  };
+}
+
 function setScreen(nextScreen) {
   screen = nextScreen;
   pointerDownElementId = null;
@@ -731,11 +812,14 @@ function startGame() {
 }
 
 function restartGame() {
-  terrainState = createTerrainState();
+  terrainState = createTerrainState(undefined, selectedProfessions.scene);
   balls = createInitialBalls();
   attackEffectInstances = [];
   projectiles = [];
   spellTrajectories = [];
+  arenaHazards = [];
+  webLinks = [];
+  flameTrails = [];
   gameOver = false;
   resultMessage = "";
   matchElapsedTimeSeconds = 0;
@@ -748,6 +832,9 @@ function returnToMenu() {
   attackEffectInstances = [];
   projectiles = [];
   spellTrajectories = [];
+  arenaHazards = [];
+  webLinks = [];
+  flameTrails = [];
   gameOver = false;
   resultMessage = "";
   setScreen(Screen.MAIN_MENU);
@@ -876,20 +963,29 @@ function gameLoop(timestamp) {
 
 function update(deltaTime, currentTime) {
   balls.forEach((ball) => ball.update(deltaTime, currentTime));
+  updateStatusEffects(deltaTime, currentTime);
   attackEffectInstances = updateAttackEffectInstances(attackEffectInstances, currentTime);
   spellTrajectories = updateSpellTrajectories(currentTime);
-  resolveBallCollision(balls[0], balls[1]);
+  arenaHazards = arenaHazards.filter((hazard) => hazard.expiresAt > currentTime);
+  webLinks = webLinks.filter((web) => web.expiresAt > currentTime);
+  flameTrails = flameTrails.filter((flame) => flame.expiresAt > currentTime);
+  resolveBallCollision(balls[0], balls[1], currentTime);
+  updateEnvironmentalHazards(currentTime);
   updateProjectiles(deltaTime, currentTime);
   updateChainWeapon(balls[0], deltaTime);
   updateChainWeapon(balls[1], deltaTime);
   updateChainWeaponForPair(balls[0], balls[1], currentTime);
   updateChainWeaponForPair(balls[1], balls[0], currentTime);
+  updateFrostOrbit(balls[0], deltaTime);
+  updateFrostOrbit(balls[1], deltaTime);
+  updateFrostOrbitForPair(balls[0], balls[1], currentTime);
+  updateFrostOrbitForPair(balls[1], balls[0], currentTime);
   updateAttackForPair(balls[0], balls[1], currentTime);
   updateAttackForPair(balls[1], balls[0], currentTime);
   checkGameOver();
 }
 
-function resolveBallCollision(ballA, ballB) {
+function resolveBallCollision(ballA, ballB, currentTime) {
   const difference = subtract(ballB.position, ballA.position);
   let distance = length(difference);
   const minDistance = ballA.radius + ballB.radius;
@@ -902,10 +998,16 @@ function resolveBallCollision(ballA, ballB) {
   distance = Math.max(distance, 0.001);
   separateBalls(ballA, ballB, normal, minDistance - distance);
   bounceBalls(ballA, ballB, normal);
+  resolveCollisionAbilities(ballA, ballB, normal, currentTime);
 }
 
 function updateAttackForPair(attacker, defender, currentTime) {
-  if (attacker.config.attackMode === "chainSpin") {
+  if (attacker.config.attackMode === "chainSpin" || attacker.config.attackMode === "frostOrbit") {
+    return;
+  }
+
+  if (isBallControlLocked(attacker, currentTime)) {
+    attacker.attackState = null;
     return;
   }
 
@@ -942,6 +1044,15 @@ function updateAttackState(attacker, currentTime) {
       attackState.didCastSpell = true;
       attackState.didDealDamage = true;
       castMageSpell(attacker, attackState.defender, currentTime);
+    }
+  } else if (attacker.config.attackMode === "reaper") {
+    if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
+      const defender = attackState.defender;
+      const hit = getReaperBladeHit(attacker, defender, currentTime);
+      attackState.didDealDamage = true;
+      if (hit) {
+        resolveAttackHit(attacker, defender, hit.normal, currentTime);
+      }
     }
   } else if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
     const defender = attackState.defender;
@@ -1165,6 +1276,190 @@ function updateChainWeaponForPair(attacker, defender, currentTime) {
   resolveAttackHit(attacker, defender, hit.normal, currentTime);
 }
 
+function updateFrostOrbit(ball, deltaTime) {
+  if (!ball.frostOrbitState || ball.hp <= 0) {
+    return;
+  }
+
+  ball.frostOrbitState.rotationAngle = normalizeAngle(
+    ball.frostOrbitState.rotationAngle + ball.config.frostOrbit.spinSpeed * deltaTime,
+  );
+}
+
+function updateFrostOrbitForPair(attacker, defender, currentTime) {
+  if (!attacker.frostOrbitState || attacker.hp <= 0 || defender.hp <= 0) {
+    return;
+  }
+
+  const orbit = attacker.config.frostOrbit;
+  if (currentTime - attacker.frostOrbitState.lastHitTime < orbit.hitCooldown) {
+    return;
+  }
+
+  const hit = getFrostOrbitHit(attacker, defender);
+  if (!hit) {
+    return;
+  }
+
+  attacker.frostOrbitState.lastHitTime = currentTime;
+  defender.frozenUntil = Math.max(defender.frozenUntil, currentTime + orbit.freezeDuration);
+  defender.attackState = null;
+  damageBall(defender, orbit.damage);
+  playHitCosmetics(attacker, defender, hit.normal, orbit.damage, currentTime);
+}
+
+function resolveCollisionAbilities(ballA, ballB, normalFromAToB, currentTime) {
+  resolveBatDrain(ballA, ballB, normalFromAToB, currentTime);
+  resolveBatDrain(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+}
+
+function resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime) {
+  const drain = attacker.config.collisionDrain;
+  if (!drain || attacker.hp <= 0 || defender.hp <= 0 || currentTime - attacker.lastCollisionAbilityTime < drain.cooldown) {
+    return;
+  }
+
+  attacker.lastCollisionAbilityTime = currentTime;
+  defender.attackState = null;
+  defender.attackDisabledUntil = Math.max(defender.attackDisabledUntil, currentTime + drain.disableDuration);
+  const damage = damageBall(defender, drain.damage);
+  healBall(attacker, drain.heal);
+  playHitCosmetics(attacker, defender, normalFromAttackerToDefender, damage, currentTime);
+}
+
+function handleWallCollision(ball, contact, currentTime) {
+  if (ball.hp <= 0) {
+    return;
+  }
+
+  if (ball.config.venomSpike) {
+    createVenomSpike(ball, contact, currentTime);
+  }
+
+  if (ball.config.webLine) {
+    createSpiderWebNode(ball, contact, currentTime);
+  }
+}
+
+function createVenomSpike(ball, contact, currentTime) {
+  const spike = ball.config.venomSpike;
+  const offset = ball.radius + spike.radius * 0.2;
+  const position = clampArenaPoint(add(contact.point, scale(getWallNormal(contact.wall), offset)));
+  arenaHazards.push({
+    type: "venomSpike",
+    owner: ball,
+    position,
+    radius: spike.radius,
+    damage: spike.damage,
+    poisonDamagePerSecond: spike.poisonDamagePerSecond,
+    poisonDuration: spike.poisonDuration,
+    hitCooldown: spike.hitCooldown,
+    createdAt: currentTime,
+    expiresAt: currentTime + spike.duration,
+  });
+}
+
+function createSpiderWebNode(ball, contact, currentTime) {
+  const web = ball.config.webLine;
+  const node = {
+    x: clamp(contact.point.x, web.nodeRadius, ARENA_SIZE - web.nodeRadius),
+    y: clamp(contact.point.y, web.nodeRadius, ARENA_SIZE - web.nodeRadius),
+  };
+  ball.wallCollisionCount += 1;
+
+  if (ball.wallCollisionCount % 2 === 1 || !ball.pendingWebNode) {
+    ball.pendingWebNode = node;
+    return;
+  }
+
+  webLinks.push({
+    owner: ball,
+    start: ball.pendingWebNode,
+    end: node,
+    nodeRadius: web.nodeRadius,
+    collisionRadius: web.collisionRadius,
+    damage: web.damage,
+    hitCooldown: web.hitCooldown,
+    createdAt: currentTime,
+    expiresAt: currentTime + web.duration,
+  });
+  ball.pendingWebNode = null;
+}
+
+function updateFlameTrailForBall(ball, currentTime) {
+  const flame = ball.config.flameTrail;
+  if (!flame || ball.hp <= 0 || currentTime - ball.lastFlameDropTime < flame.dropInterval) {
+    return;
+  }
+
+  ball.lastFlameDropTime = currentTime;
+  flameTrails.push({
+    owner: ball,
+    position: { ...ball.position },
+    radius: flame.radius,
+    damage: flame.damage,
+    hitCooldown: flame.hitCooldown,
+    createdAt: currentTime,
+    expiresAt: currentTime + flame.duration,
+  });
+}
+
+function updateStatusEffects(deltaTime, currentTime) {
+  for (const ball of balls) {
+    if (ball.hp <= 0) {
+      continue;
+    }
+
+    if (ball.poisonUntil > currentTime && ball.poisonDamagePerSecond > 0) {
+      damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
+    }
+  }
+}
+
+function updateEnvironmentalHazards(currentTime) {
+  for (const hazard of arenaHazards) {
+    for (const ball of balls) {
+      if (ball !== hazard.owner && ball.hp > 0 && length(subtract(ball.position, hazard.position)) <= ball.radius + hazard.radius) {
+        applyVenomSpikeHit(hazard, ball, currentTime);
+      }
+    }
+  }
+
+  for (const web of webLinks) {
+    for (const ball of balls) {
+      const hit = ball !== web.owner && ball.hp > 0
+        ? getSegmentCircleHit(ball.position, ball.radius + web.collisionRadius, web.start, web.end)
+        : null;
+      if (hit && currentTime - ball.lastWebHitTime >= web.hitCooldown) {
+        ball.lastWebHitTime = currentTime;
+        damageBall(ball, web.damage);
+      }
+    }
+  }
+
+  for (const flame of flameTrails) {
+    for (const ball of balls) {
+      if (ball !== flame.owner && ball.hp > 0 && length(subtract(ball.position, flame.position)) <= ball.radius + flame.radius) {
+        if (currentTime - ball.lastFlameHitTime >= flame.hitCooldown) {
+          ball.lastFlameHitTime = currentTime;
+          damageBall(ball, flame.damage);
+        }
+      }
+    }
+  }
+}
+
+function applyVenomSpikeHit(hazard, ball, currentTime) {
+  if (currentTime - ball.lastHazardHitTime < hazard.hitCooldown) {
+    return;
+  }
+
+  ball.lastHazardHitTime = currentTime;
+  ball.poisonUntil = Math.max(ball.poisonUntil, currentTime + hazard.poisonDuration);
+  ball.poisonDamagePerSecond = Math.max(ball.poisonDamagePerSecond, hazard.poisonDamagePerSecond);
+  damageBall(ball, hazard.damage);
+}
+
 function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime, attackVariant = null) {
   const damage = attacker.dealAttackDamageTo(defender, normalFromAttackerToDefender, attackVariant);
   applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, attackVariant);
@@ -1249,6 +1544,35 @@ function applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, 
   keepSpeed(defender);
 }
 
+function damageBall(ball, damage) {
+  if (ball.hp <= 0 || damage <= 0) {
+    return 0;
+  }
+
+  const appliedDamage = Math.min(ball.hp, damage);
+  ball.hp = Math.max(0, ball.hp - appliedDamage);
+  ball.hitFlashTime = 0.16;
+  return appliedDamage;
+}
+
+function healBall(ball, amount) {
+  if (ball.hp <= 0 || amount <= 0) {
+    return 0;
+  }
+
+  const healed = Math.min(ball.maxHp - ball.hp, amount);
+  ball.hp += healed;
+  return healed;
+}
+
+function isBallFrozen(ball, currentTime) {
+  return ball.frozenUntil > currentTime;
+}
+
+function isBallControlLocked(ball, currentTime) {
+  return isBallFrozen(ball, currentTime) || ball.attackDisabledUntil > currentTime;
+}
+
 function keepSpeed(ball) {
   ball.velocity = scale(normalize(ball.velocity), getCurrentMoveSpeed(ball));
 }
@@ -1317,6 +1641,73 @@ function getChainWeaponWallContact(ball) {
   }
 
   return null;
+}
+
+function getFrostOrbitGeometry(ball) {
+  const orbit = ball.config.frostOrbit;
+  const rotation = ball.frostOrbitState?.rotationAngle || 0;
+
+  return Array.from({ length: orbit.count }, (_, index) => {
+    const angle = rotation + (index * Math.PI * 2) / orbit.count;
+    return {
+      center: add(ball.position, scale(vectorFromAngle(angle), orbit.orbitRadius)),
+      radius: orbit.orbRadius,
+      angle,
+    };
+  });
+}
+
+function getFrostOrbitHit(attacker, defender) {
+  for (const orb of getFrostOrbitGeometry(attacker)) {
+    const orbToDefender = subtract(defender.position, orb.center);
+    if (length(orbToDefender) <= orb.radius + defender.radius) {
+      return {
+        normal: normalize(orbToDefender),
+      };
+    }
+  }
+
+  return null;
+}
+
+function getReaperBladeGeometry(ball, currentTime) {
+  const direction = normalize(ball.attackState?.direction || ball.velocity);
+  const progress = getAttackProgress(ball, currentTime);
+  const attackConfig = getAttackAnimationConfig("reaper");
+  const swingProgress = progress === null ? 0.55 : easeOutCubic(progress);
+  const baseAngle = angleOf(direction);
+  const bladeAngle = baseAngle - attackConfig.sweepAngle / 2 + attackConfig.sweepAngle * swingProgress;
+  const bladeDirection = vectorFromAngle(bladeAngle);
+  const side = vectorFromAngle(bladeAngle - Math.PI * 0.5);
+  const socket = add(ball.position, scale(bladeDirection, ball.radius + ball.weaponRange * 0.72));
+  const bladeHalf = ball.config.reaperBlade.edgeLength / 2;
+
+  return {
+    handleStart: add(ball.position, scale(bladeDirection, ball.radius * 0.48)),
+    handleEnd: socket,
+    bladeStart: add(socket, scale(side, -bladeHalf)),
+    bladeEnd: add(socket, scale(side, bladeHalf)),
+    normal: bladeDirection,
+  };
+}
+
+function getReaperBladeHit(attacker, defender, currentTime) {
+  const geometry = getReaperBladeGeometry(attacker, currentTime);
+  const hit = getSegmentCircleHit(
+    defender.position,
+    defender.radius + attacker.config.reaperBlade.collisionRadius,
+    geometry.bladeStart,
+    geometry.bladeEnd,
+  );
+
+  if (!hit) {
+    return null;
+  }
+
+  return {
+    ...hit,
+    normal: normalize(subtract(defender.position, geometry.handleEnd)),
+  };
 }
 
 function getMageStaffGeometry(ball, direction) {
@@ -1620,6 +2011,7 @@ function drawMainMenuScreen() {
     sideB: getSideLabel("b"),
     professionA: getProfessionName(selectedProfessions.a),
     professionB: getProfessionName(selectedProfessions.b),
+    scene: getSceneName(selectedProfessions.scene),
   });
   let y = panel.y + 34;
   drawPanelTitle(t("main.title"), panel.x + 28, y, panel.width - 56);
@@ -1644,8 +2036,8 @@ function drawProfessionSelectScreen() {
   drawPanel(panel);
 
   let y = panel.y + 24;
-  drawSetupSceneRow(panel.x + 28, y, panel.width - 56, defaultScene);
-  y += 78;
+  drawSetupSceneRow(panel.x + 28, y, panel.width - 56);
+  y += 88;
 
   const tabWidth = (panel.width - 68) / 2;
   drawButton(`${getSideLabel("a")}: ${getProfessionName(selectedProfessions.a)}`, panel.x + 28, y, tabWidth, 42, () => {
@@ -1664,11 +2056,12 @@ function drawProfessionSelectScreen() {
   const gridWidth = panel.width - 56;
   const gridBottom = actionY - 20;
   const columns = panel.width >= 520 ? 3 : 2;
-  const rows = Math.ceil(professionIds.length / columns);
+  const activeProfessionIds = getActiveProfessionIds();
+  const rows = Math.ceil(activeProfessionIds.length / columns);
   const cellWidth = (gridWidth - gridGap * (columns - 1)) / columns;
   const cellHeight = clamp((gridBottom - y - gridGap * (rows - 1)) / rows, 88, 142);
 
-  professionIds.forEach((professionId, index) => {
+  activeProfessionIds.forEach((professionId, index) => {
     const column = index % columns;
     const row = Math.floor(index / columns);
     drawProfessionGridItem(
@@ -1827,35 +2220,49 @@ function drawLanguageSelector(x, y, width) {
   });
 }
 
-function drawSetupSceneRow(x, y, width, scene) {
-  const textX = isRtlLocale(currentLocale) ? x + width - 16 : x + 112;
-  const labelX = isRtlLocale(currentLocale) ? x + width - 16 : x + 62;
-  const textWidth = width - 130;
+function drawSetupSceneRow(x, y, width) {
+  const gap = 12;
+  const cardWidth = (width - gap * (sceneIds.length - 1)) / sceneIds.length;
 
-  ctx.save();
-  drawPixelFrame(x, y, width, 58, {
-    fill: "#111a2f",
-    border: "#4bcfff",
-    shadow: "#050711",
+  sceneIds.forEach((sceneId, index) => {
+    const cardX = x + index * (cardWidth + gap);
+    const selected = selectedProfessions.scene === sceneId;
+    const iconX = isRtlLocale(currentLocale) ? cardX + cardWidth - 48 : cardX + 16;
+    const textX = isRtlLocale(currentLocale) ? cardX + cardWidth - 16 : cardX + 62;
+    const textWidth = cardWidth - 78;
+
+    ctx.save();
+    drawPixelFrame(cardX, y, cardWidth, 68, {
+      fill: selected ? "#12364b" : "#111a2f",
+      border: selected ? "#4bcfff" : "#4b5f8a",
+      shadow: "#050711",
+      texture: selected ? voxelAssets.blocks.glowstone : voxelAssets.blocks.deepslate,
+    });
+    drawPixelArenaIcon(iconX, y + 18, 32, sceneId);
+
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = canvasFont(12, 800);
+    setCanvasDirection(ctx);
+    ctx.textAlign = getTextAlignStart();
+    ctx.textBaseline = "top";
+    ctx.fillText(t("setup.sceneLabel"), textX, y + 10);
+
+    ctx.fillStyle = COLORS.text;
+    const sceneName = getSceneName(sceneId);
+    ctx.font = canvasFont(getFittedFontSize(sceneName, textWidth, 16, 10, 900), 900);
+    ctx.fillText(sceneName, textX, y + 26);
+
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = canvasFont(12, 700);
+    drawSingleLineText(getSceneDescription(sceneId), isRtlLocale(currentLocale) ? cardX + 16 : textX, y + 48, textWidth);
+    ctx.restore();
+
+    addInteractiveElement({
+      id: `scene-${sceneId}`,
+      rect: { x: cardX, y, width: cardWidth, height: 68 },
+      action: () => setSelectedScene(sceneId),
+    });
   });
-  drawPixelArenaIcon(x + 16, y + 13, 32);
-
-  ctx.fillStyle = COLORS.muted;
-  ctx.font = canvasFont(12, 800);
-  setCanvasDirection(ctx);
-  ctx.textAlign = getTextAlignStart();
-  ctx.textBaseline = "top";
-  ctx.fillText(t("setup.sceneLabel"), labelX, y + 10);
-
-  ctx.fillStyle = COLORS.text;
-  const sceneName = t(scene.nameKey);
-  ctx.font = canvasFont(getFittedFontSize(sceneName, textWidth, 17, 11, 900), 900);
-  ctx.fillText(sceneName, textX, y + 9);
-
-  ctx.fillStyle = COLORS.muted;
-  ctx.font = canvasFont(13, 700);
-  drawSingleLineText(t(scene.descriptionKey), x + 112, y + 34, textWidth);
-  ctx.restore();
 }
 
 function drawListHeader(text, x, y, width) {
@@ -1914,21 +2321,21 @@ function drawProfessionGridItem(x, y, width, height, professionId) {
   });
 }
 
-function drawPixelArenaIcon(x, y, size) {
+function drawPixelArenaIcon(x, y, size, sceneId = selectedProfessions.scene) {
   const cell = Math.max(2, Math.floor(size / 8));
   const iconSize = cell * 8;
-  drawTiledVoxelTexture(ctx, voxelAssets.blocks.grass, x, y, iconSize, iconSize, cell * 4);
+  drawTiledVoxelTexture(ctx, sceneId === "super" ? voxelAssets.blocks.obsidian : voxelAssets.blocks.grass, x, y, iconSize, iconSize, cell * 4);
   ctx.strokeStyle = "#171324";
   ctx.lineWidth = cell;
   ctx.strokeRect(x + cell / 2, y + cell / 2, iconSize - cell, iconSize - cell);
-  ctx.fillStyle = "rgba(52, 38, 20, 0.38)";
+  ctx.fillStyle = sceneId === "super" ? "rgba(75, 207, 255, 0.36)" : "rgba(52, 38, 20, 0.38)";
   for (let index = 2; index < 7; index += 2) {
     ctx.fillRect(x + index * cell, y + cell, cell, iconSize - cell * 2);
     ctx.fillRect(x + cell, y + index * cell, iconSize - cell * 2, cell);
   }
-  ctx.fillStyle = SIDE_VISUAL_CONFIG.A.color;
+  ctx.fillStyle = sceneId === "super" ? "#ff6b24" : SIDE_VISUAL_CONFIG.A.color;
   ctx.fillRect(x + cell * 2, y + cell * 2, cell * 2, cell * 2);
-  ctx.fillStyle = SIDE_VISUAL_CONFIG.B.color;
+  ctx.fillStyle = sceneId === "super" ? "#8be8ff" : SIDE_VISUAL_CONFIG.B.color;
   ctx.fillRect(x + cell * 5, y + cell * 5, cell * 2, cell * 2);
 }
 
@@ -1996,7 +2403,79 @@ function drawPixelProfessionIcon(x, y, size, professionId, isSelected) {
     H: accent,
   });
 
-  if (professionId === "spear") {
+  if (professionId === "bat") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "..WW........WW..",
+      ".WWW........WWW.",
+      "WWWW..FFFF..WWWW",
+      ".WWW..F..F..WWW.",
+      "..WW........WW..",
+      "................",
+    ], {
+      W: "#ffd9f1",
+      F: "#f8fbff",
+    });
+  } else if (professionId === "venom") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "......SS........",
+      "...S..SS..S.....",
+      "..SS......SS....",
+      ".....VVVV.......",
+      "...VVVVVVVV.....",
+    ], {
+      S: "#caff70",
+      V: "#145c2d",
+    });
+  } else if (professionId === "spider") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "..L..L..L..L....",
+      "...L.L..L.L.....",
+      "....LLLLLL......",
+      "...L.L..L.L.....",
+      "..L..L..L..L....",
+    ], {
+      L: "#f0d7ff",
+    });
+  } else if (professionId === "lava") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      ".....FFFF.......",
+      "....FOOOF.......",
+      "...FOYYYYF......",
+      "....FOOOF.......",
+      ".....FFFF.......",
+    ], {
+      F: "#9f2d17",
+      O: "#ff6b24",
+      Y: "#ffd166",
+    });
+  } else if (professionId === "reaper") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "..........SSSS..",
+      "........SS......",
+      "......SS........",
+      "....SS..........",
+      "...S............",
+      "..S.............",
+    ], {
+      S: "#e6f0ff",
+    });
+  } else if (professionId === "frost") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "....I......I....",
+      "......IIII......",
+      "...IIIIIIIIII...",
+      "......IIII......",
+      "....I......I....",
+    ], {
+      I: "#f8fbff",
+    });
+  } else if (professionId === "spear") {
     drawPixelCells(left, top, cell, [
       "................",
       "................",
@@ -2118,6 +2597,12 @@ function drawPixelProfessionIcon(x, y, size, professionId, isSelected) {
 function getProfessionItemSprite(professionId) {
   const items = voxelAssets.items;
   const itemMap = {
+    bat: null,
+    venom: null,
+    spider: null,
+    lava: null,
+    reaper: { sprite: items.sword, angle: -0.78, scale: 0.92 },
+    frost: { sprite: items.iceShard, angle: -0.38, scale: 0.62 },
     spear: { sprite: items.spear, angle: -0.78, scale: 0.9 },
     assassin: { sprite: items.dagger, angle: -0.72, scale: 0.72 },
     blade: { sprite: items.sword, angle: -0.72, scale: 0.78 },
@@ -2483,12 +2968,72 @@ function drawBallBody(ctx, ball) {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(x + cell * 2, y + cell * 2, cell * 8, cell * 8);
   }
+  drawProfessionBodyDetails(ctx, ball, x, y, cell);
   ctx.restore();
+}
+
+function drawProfessionBodyDetails(ctx, ball, x, y, cell) {
+  if (ball.profession === "bat") {
+    ctx.fillStyle = "#f8fbff";
+    ctx.fillRect(x + cell * 5, y + cell * 7, cell, cell * 2);
+    ctx.fillRect(x + cell * 7, y + cell * 7, cell, cell * 2);
+    ctx.fillStyle = "#ffd9f1";
+    ctx.fillRect(x + cell * 3, y + cell * 4, cell * 2, cell);
+    ctx.fillRect(x + cell * 7, y + cell * 4, cell * 2, cell);
+  } else if (ball.profession === "venom") {
+    ctx.fillStyle = "#caff70";
+    ctx.fillRect(x + cell * 4, y + cell * 3, cell, cell);
+    ctx.fillRect(x + cell * 8, y + cell * 5, cell, cell);
+    ctx.fillRect(x + cell * 5, y + cell * 8, cell * 2, cell);
+  } else if (ball.profession === "lava") {
+    ctx.fillStyle = "#ffd166";
+    ctx.fillRect(x + cell * 5, y + cell * 3, cell, cell * 6);
+    ctx.fillRect(x + cell * 3, y + cell * 6, cell * 6, cell);
+  } else if (ball.profession === "reaper") {
+    ctx.fillStyle = "#e6f0ff";
+    ctx.fillRect(x + cell * 4, y + cell * 4, cell * 4, cell);
+    ctx.fillStyle = "#050711";
+    ctx.fillRect(x + cell * 5, y + cell * 5, cell * 2, cell * 2);
+  } else if (ball.profession === "frost") {
+    ctx.strokeStyle = "#f8fbff";
+    ctx.lineWidth = Math.max(2, cell);
+    ctx.strokeRect(x + cell * 3, y + cell * 3, cell * 6, cell * 6);
+  }
 }
 
 function drawWeapon(ctx, ball, currentTime, target) {
   const direction = getWeaponDirection(ball, target);
   const progress = getAttackProgress(ball, currentTime);
+
+  if (ball.profession === "bat") {
+    drawBatWingWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (ball.profession === "venom") {
+    drawVenomSpikeWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (ball.profession === "spider") {
+    drawSpiderLegWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (ball.profession === "lava") {
+    drawLavaCoreWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (ball.profession === "reaper") {
+    drawReaperWeapon(ctx, ball, currentTime);
+    return;
+  }
+
+  if (ball.profession === "frost") {
+    drawFrostOrbits(ctx, ball);
+    return;
+  }
 
   if (ball.profession === "assassin") {
     drawDualBladeWeapon(ctx, ball, direction, progress);
@@ -2521,6 +3066,85 @@ function drawWeapon(ctx, ball, currentTime, target) {
   }
 
   drawSpearWeapon(ctx, ball, direction, progress);
+}
+
+function drawBatWingWeapon(ctx, ball, direction, progress) {
+  const flap = progress === null ? 0.25 + Math.sin(elapsedTimeSeconds * 8) * 0.12 : 0.56;
+  const side = { x: -direction.y, y: direction.x };
+  const back = add(ball.position, scale(direction, -ball.radius * 0.25));
+
+  ctx.save();
+  for (const sign of [-1, 1]) {
+    const root = add(back, scale(side, sign * ball.radius * 0.38));
+    const wingTip = add(root, add(scale(side, sign * ball.radius * 1.3), scale(direction, -ball.radius * flap)));
+    const wingBottom = add(root, add(scale(side, sign * ball.radius * 0.72), scale(direction, ball.radius * 0.55)));
+    ctx.fillStyle = "#050711";
+    ctx.beginPath();
+    moveToVector(ctx, snapVector(root, 4));
+    lineToVector(ctx, snapVector(wingTip, 4));
+    lineToVector(ctx, snapVector(wingBottom, 4));
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(255, 217, 241, 0.76)";
+    ctx.fillRect(wingTip.x - 5, wingTip.y - 5, 10, 10);
+  }
+  const fangBase = add(ball.position, scale(direction, ball.radius * 0.72));
+  ctx.fillStyle = "#f8fbff";
+  ctx.fillRect(fangBase.x - 9, fangBase.y - 4, 6, 12);
+  ctx.fillRect(fangBase.x + 3, fangBase.y - 4, 6, 12);
+  ctx.restore();
+}
+
+function drawVenomSpikeWeapon(ctx, ball, direction, progress) {
+  const pulse = progress === null ? 0.4 : 0.8;
+  ctx.save();
+  ctx.fillStyle = "#caff70";
+  for (let index = 0; index < 6; index += 1) {
+    const angle = (index * Math.PI * 2) / 6 + elapsedTimeSeconds * 0.8;
+    const spike = add(ball.position, scale(vectorFromAngle(angle), ball.radius * (0.92 + pulse * 0.18)));
+    ctx.fillRect(spike.x - 4, spike.y - 4, 8, 8);
+  }
+  ctx.restore();
+}
+
+function drawSpiderLegWeapon(ctx, ball, direction, progress) {
+  const baseAngle = angleOf(direction);
+  const reach = ball.radius * (1.05 + (progress === null ? 0 : progress * 0.2));
+
+  ctx.save();
+  ctx.strokeStyle = "#050711";
+  ctx.lineWidth = 7;
+  for (const sign of [-1, 1]) {
+    for (const offset of [0.65, 1.05, 1.45]) {
+      const legDirection = vectorFromAngle(baseAngle + sign * offset);
+      const start = add(ball.position, scale(legDirection, ball.radius * 0.45));
+      const knee = add(ball.position, scale(legDirection, reach));
+      const foot = add(knee, scale({ x: -legDirection.y, y: legDirection.x }, sign * 12));
+      ctx.beginPath();
+      moveToVector(ctx, snapVector(start, 4));
+      lineToVector(ctx, snapVector(knee, 4));
+      lineToVector(ctx, snapVector(foot, 4));
+      ctx.stroke();
+    }
+  }
+  ctx.strokeStyle = "#f0d7ff";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(ball.position.x - ball.radius - 8, ball.position.y - ball.radius - 8, (ball.radius + 8) * 2, (ball.radius + 8) * 2);
+  ctx.restore();
+}
+
+function drawLavaCoreWeapon(ctx, ball, direction, progress) {
+  const heat = progress === null ? 0.35 + Math.sin(elapsedTimeSeconds * 9) * 0.14 : 0.72;
+
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = "#ff2f16";
+  ctx.fillRect(ball.position.x - ball.radius * heat, ball.position.y - ball.radius * heat, ball.radius * heat * 2, ball.radius * heat * 2);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#ffd166";
+  const ember = add(ball.position, scale(direction, ball.radius * 0.96));
+  ctx.fillRect(ember.x - 6, ember.y - 6, 12, 12);
+  ctx.restore();
 }
 
 function drawDualBladeWeapon(ctx, ball, direction, progress) {
@@ -2820,6 +3444,68 @@ function drawSpellTrajectory(ctx, trajectory, currentTime) {
   ctx.restore();
 }
 
+function drawArenaHazards(ctx, currentTime) {
+  for (const hazard of arenaHazards) {
+    const life = clamp((hazard.expiresAt - currentTime) / Math.max(0.001, hazard.expiresAt - hazard.createdAt), 0, 1);
+    ctx.save();
+    ctx.globalAlpha = 0.35 + life * 0.65;
+    if (hazard.type === "venomSpike") {
+      drawVenomSpike(ctx, hazard);
+    }
+    ctx.restore();
+  }
+}
+
+function drawVenomSpike(ctx, hazard) {
+  const center = snapVector(hazard.position, 4);
+  const radius = hazard.radius;
+
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(center.x - radius, center.y - radius, radius * 2, radius * 2);
+  ctx.fillStyle = "#39d353";
+  ctx.fillRect(center.x - radius + 4, center.y - radius + 4, radius * 2 - 8, radius * 2 - 8);
+  ctx.fillStyle = "#caff70";
+  ctx.fillRect(center.x - 4, center.y - radius - 8, 8, radius + 12);
+  ctx.fillRect(center.x - radius - 8, center.y - 4, radius + 12, 8);
+}
+
+function drawWebLinks(ctx, currentTime) {
+  ctx.save();
+  for (const web of webLinks) {
+    const life = clamp((web.expiresAt - currentTime) / Math.max(0.001, web.expiresAt - web.createdAt), 0, 1);
+    ctx.globalAlpha = 0.25 + life * 0.65;
+    drawPixelLine(ctx, snapVector(web.start, 4), snapVector(web.end, 4), 12, "#050711");
+    drawPixelLine(ctx, snapVector(web.start, 4), snapVector(web.end, 4), 5, "#f0d7ff");
+    ctx.fillStyle = "#f8fbff";
+    ctx.fillRect(web.start.x - web.nodeRadius / 2, web.start.y - web.nodeRadius / 2, web.nodeRadius, web.nodeRadius);
+    ctx.fillRect(web.end.x - web.nodeRadius / 2, web.end.y - web.nodeRadius / 2, web.nodeRadius, web.nodeRadius);
+  }
+  for (const ball of balls) {
+    if (ball.pendingWebNode) {
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = "#f0d7ff";
+      ctx.fillRect(ball.pendingWebNode.x - 6, ball.pendingWebNode.y - 6, 12, 12);
+    }
+  }
+  ctx.restore();
+}
+
+function drawFlameTrails(ctx, currentTime) {
+  for (const flame of flameTrails) {
+    const life = clamp((flame.expiresAt - currentTime) / Math.max(0.001, flame.expiresAt - flame.createdAt), 0, 1);
+    const size = flame.radius * (0.8 + life * 0.4);
+    ctx.save();
+    ctx.globalAlpha = 0.18 + life * 0.52;
+    ctx.fillStyle = "#9f2d17";
+    ctx.fillRect(flame.position.x - size, flame.position.y - size, size * 2, size * 2);
+    ctx.fillStyle = "#ff6b24";
+    ctx.fillRect(flame.position.x - size * 0.65, flame.position.y - size * 0.65, size * 1.3, size * 1.3);
+    ctx.fillStyle = "#ffd166";
+    ctx.fillRect(flame.position.x - size * 0.25, flame.position.y - size * 0.25, size * 0.5, size * 0.5);
+    ctx.restore();
+  }
+}
+
 function drawChainWeapon(ctx, ball, direction, progress) {
   const geometry = getChainWeaponGeometry(ball);
   const start = snapVector(geometry.start, 4);
@@ -2855,6 +3541,51 @@ function drawChainWeapon(ctx, ball, direction, progress) {
   drawVoxelSpriteCentered(ctx, voxelAssets.items.flail, end, headRadius * 2.25, {
     shadowOffset: 3,
   });
+  ctx.restore();
+}
+
+function drawReaperWeapon(ctx, ball, currentTime) {
+  const geometry = getReaperBladeGeometry(ball, currentTime);
+  const handleStart = snapVector(geometry.handleStart, 4);
+  const handleEnd = snapVector(geometry.handleEnd, 4);
+  const bladeStart = snapVector(geometry.bladeStart, 4);
+  const bladeEnd = snapVector(geometry.bladeEnd, 4);
+
+  ctx.save();
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
+  drawPixelLine(ctx, handleStart, handleEnd, 13, "#050711");
+  drawPixelLine(ctx, handleStart, handleEnd, 6, "#7a5368");
+  drawPixelLine(ctx, bladeStart, bladeEnd, 18, "#050711");
+  drawPixelLine(ctx, bladeStart, bladeEnd, 9, ball.visual.accentColor);
+  ctx.fillStyle = "#bdefff";
+  ctx.fillRect(handleEnd.x - 5, handleEnd.y - 5, 10, 10);
+  ctx.restore();
+}
+
+function drawFrostOrbits(ctx, ball) {
+  if (!ball.frostOrbitState) {
+    return;
+  }
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(248, 251, 255, 0.34)";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(
+    ball.position.x - ball.config.frostOrbit.orbitRadius,
+    ball.position.y - ball.config.frostOrbit.orbitRadius,
+    ball.config.frostOrbit.orbitRadius * 2,
+    ball.config.frostOrbit.orbitRadius * 2,
+  );
+
+  for (const orb of getFrostOrbitGeometry(ball)) {
+    ctx.fillStyle = "#050711";
+    ctx.fillRect(orb.center.x - orb.radius - 3, orb.center.y - orb.radius - 3, orb.radius * 2 + 6, orb.radius * 2 + 6);
+    ctx.fillStyle = ball.visual.color;
+    ctx.fillRect(orb.center.x - orb.radius, orb.center.y - orb.radius, orb.radius * 2, orb.radius * 2);
+    ctx.fillStyle = "#f8fbff";
+    ctx.fillRect(orb.center.x - 4, orb.center.y - orb.radius + 2, 8, 8);
+  }
   ctx.restore();
 }
 
@@ -2921,6 +3652,9 @@ function drawArenaScene() {
   ctx.translate(layout.arena.x, layout.arena.y);
   ctx.scale(layout.arena.scale, layout.arena.scale);
   drawArena();
+  drawFlameTrails(ctx, elapsedTimeSeconds);
+  drawWebLinks(ctx, elapsedTimeSeconds);
+  drawArenaHazards(ctx, elapsedTimeSeconds);
   balls.forEach((ball, index) => ball.draw(ctx, elapsedTimeSeconds, balls[index === 0 ? 1 : 0]));
   drawProjectiles(ctx);
   drawSpellTrajectories(ctx, elapsedTimeSeconds);
@@ -2943,7 +3677,7 @@ function drawArena() {
     }
   }
 
-  ctx.fillStyle = terrainState.arenaBiome === "rock" ? "rgba(255, 244, 207, 0.035)" : "rgba(255, 244, 207, 0.045)";
+  ctx.fillStyle = terrainState.arenaBiome === "super" ? "rgba(75, 207, 255, 0.06)" : terrainState.arenaBiome === "rock" ? "rgba(255, 244, 207, 0.035)" : "rgba(255, 244, 207, 0.045)";
   for (let row = 0; row < terrainRows; row += 1) {
     for (let column = 0; column < terrainColumns; column += 1) {
       const sparkle = terrainNoise(terrainState.seed, column, row, 401);
@@ -2956,7 +3690,7 @@ function drawArena() {
     }
   }
 
-  const gridColor = terrainState.arenaBiome === "rock" ? "rgba(5, 7, 17, 0.34)" : COLORS.grid;
+  const gridColor = terrainState.arenaBiome === "super" ? "rgba(75, 207, 255, 0.22)" : terrainState.arenaBiome === "rock" ? "rgba(5, 7, 17, 0.34)" : COLORS.grid;
   ctx.fillStyle = gridColor;
   for (let i = tileSize; i < ARENA_SIZE; i += tileSize) {
     ctx.fillRect(i - 1, 0, 2, ARENA_SIZE);
@@ -2973,7 +3707,7 @@ function drawArena() {
   ctx.strokeStyle = "#050711";
   ctx.lineWidth = 6;
   ctx.strokeRect(4, 4, ARENA_SIZE - 8, ARENA_SIZE - 8);
-  ctx.strokeStyle = "#9b7a3a";
+  ctx.strokeStyle = terrainState.arenaBiome === "super" ? "#4bcfff" : "#9b7a3a";
   ctx.lineWidth = 3;
   ctx.strokeRect(border + 2, border + 2, ARENA_SIZE - border * 2 - 4, ARENA_SIZE - border * 2 - 4);
   ctx.restore();
@@ -3047,6 +3781,26 @@ function isInsideRect(point, rect) {
     point.y >= rect.y &&
     point.y <= rect.y + rect.height
   );
+}
+
+function getWallNormal(wall) {
+  if (wall === "left") {
+    return { x: 1, y: 0 };
+  }
+  if (wall === "right") {
+    return { x: -1, y: 0 };
+  }
+  if (wall === "top") {
+    return { x: 0, y: 1 };
+  }
+  return { x: 0, y: -1 };
+}
+
+function clampArenaPoint(point) {
+  return {
+    x: clamp(point.x, 0, ARENA_SIZE),
+    y: clamp(point.y, 0, ARENA_SIZE),
+  };
 }
 
 function getSafeAreaInsets() {
