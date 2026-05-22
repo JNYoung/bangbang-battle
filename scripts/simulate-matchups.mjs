@@ -1,77 +1,16 @@
-const ARENA_SIZE = 800;
-const BALL_RADIUS_MULTIPLIER = 1.5;
-const ATTACK_COOLDOWN_MULTIPLIER = 0.65;
+import {
+  ARENA_SIZE,
+  ATTACK_COOLDOWN_MULTIPLIER,
+  BALL_RADIUS_MULTIPLIER,
+  ProfessionConfig,
+  getAttackAnimationConfig,
+  getSpeedMultiplier,
+} from "../game-config.js";
+
 const TARGET_MIN_SECONDS = 18;
 const TARGET_MAX_SECONDS = 60;
 const SIMULATION_LIMIT_SECONDS = 75;
 const STEP_SECONDS = 1 / 60;
-
-const SPEED_RAMP_CONFIG = {
-  startMultiplier: 1,
-  maxMultiplier: 3,
-  secondsToMaxMultiplier: 20,
-};
-
-const ATTACK_ANIMATION_CONFIG = {
-  spear: {
-    duration: 0.24,
-    hitFrame: 0.48,
-  },
-  blade: {
-    duration: 0.32,
-    hitFrame: 0.55,
-  },
-  default: {
-    duration: 0.24,
-    hitFrame: 0.5,
-  },
-};
-
-const ProfessionConfig = {
-  spear: {
-    maxHp: 100,
-    radius: 24,
-    moveSpeed: 210,
-    attackDamage: 12,
-    attackCooldown: 0.45,
-    weaponRange: 50,
-    getDamage(attacker, defender, normalFromAttackerToDefender) {
-      const facingDot = dot(normalize(attacker.attackState?.direction || attacker.velocity), normalFromAttackerToDefender);
-      return facingDot >= 0.72 ? 16 : this.attackDamage;
-    },
-    getKnockbackMultiplier() {
-      return 1;
-    },
-  },
-  blade: {
-    maxHp: 120,
-    radius: 26,
-    moveSpeed: 180,
-    attackDamage: 20,
-    attackCooldown: 0.65,
-    weaponRange: 32,
-    getDamage() {
-      return this.attackDamage;
-    },
-    getKnockbackMultiplier() {
-      return 1.3;
-    },
-  },
-  shield: {
-    maxHp: 140,
-    radius: 28,
-    moveSpeed: 170,
-    attackDamage: 14,
-    attackCooldown: 0.7,
-    weaponRange: 56,
-    getDamage() {
-      return this.attackDamage;
-    },
-    getKnockbackMultiplier() {
-      return 0.85;
-    },
-  },
-};
 
 class SimulatedBall {
   constructor({ profession, x, y, direction }) {
@@ -121,7 +60,7 @@ class SimulatedBall {
       return;
     }
 
-    const attackConfig = ATTACK_ANIMATION_CONFIG[this.profession] || ATTACK_ANIMATION_CONFIG.default;
+    const attackConfig = getAttackAnimationConfig(this.profession);
     this.attackState = {
       defender,
       startTime: currentTime,
@@ -311,14 +250,6 @@ function keepSpeed(ball, elapsedSeconds) {
 
 function getCurrentMoveSpeed(ball, elapsedSeconds) {
   return ball.config.moveSpeed * getSpeedMultiplier(elapsedSeconds);
-}
-
-function getSpeedMultiplier(elapsedSeconds) {
-  const progress = clamp(elapsedSeconds / SPEED_RAMP_CONFIG.secondsToMaxMultiplier, 0, 1);
-  return (
-    SPEED_RAMP_CONFIG.startMultiplier +
-    (SPEED_RAMP_CONFIG.maxMultiplier - SPEED_RAMP_CONFIG.startMultiplier) * progress
-  );
 }
 
 function isWithinCurve(result) {

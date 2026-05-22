@@ -22,6 +22,7 @@
 ```bash
 npm run dev
 npm run build
+npm run test:ci
 npm run meta:bundle
 npm run cap:sync
 npm run android:open
