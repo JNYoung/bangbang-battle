@@ -17,6 +17,9 @@ export const AttackEffectType = Object.freeze({
   THRUST: "thrust",
   KNOCKBACK: "knockback",
   SKILL: "skill",
+  PROJECTILE: "projectile",
+  MAGIC: "magic",
+  CHAIN: "chain",
 });
 
 export const Rarity = Object.freeze({
@@ -219,6 +222,159 @@ export const ProfessionCosmeticConfig = {
       },
     ],
   },
+  assassin: {
+    profession: "assassin",
+    skinPacks: ["default", "shadow-cut"],
+    pendants: [
+      {
+        id: "assassin-shadow-trail",
+        name: "残影尾迹",
+        type: PendantType.TRAIL,
+        trigger: CosmeticTrigger.ALWAYS,
+        effect: "motionTrail",
+        color: "#c77dff",
+        duration: 0,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+      {
+        id: "assassin-dual-flare",
+        name: "双刀闪光",
+        type: PendantType.SHOULDER,
+        trigger: CosmeticTrigger.SKILL,
+        effect: "shoulderFlare",
+        color: "#ffe5ff",
+        duration: 0.18,
+        rarity: Rarity.RARE,
+        skinPack: "shadow-cut",
+      },
+    ],
+    attackEffects: [
+      {
+        id: "assassin-cross-slash",
+        name: "交叉斩痕",
+        type: AttackEffectType.SLASH,
+        trigger: CosmeticTrigger.ATTACK,
+        effect: "dualSlashPixels",
+        color: "#ffe5ff",
+        duration: 0.2,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+  },
+  archer: {
+    profession: "archer",
+    skinPacks: ["default", "leaf-string"],
+    pendants: [
+      {
+        id: "archer-leaf-trail",
+        name: "箭羽尾迹",
+        type: PendantType.TRAIL,
+        trigger: CosmeticTrigger.ALWAYS,
+        effect: "motionTrail",
+        color: "#7bd88f",
+        duration: 0,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+    attackEffects: [
+      {
+        id: "archer-arrow-line",
+        name: "穿云箭线",
+        type: AttackEffectType.PROJECTILE,
+        trigger: CosmeticTrigger.ATTACK,
+        effect: "arrowTrailPixels",
+        color: "#ecffd8",
+        duration: 0.22,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+  },
+  chain: {
+    profession: "chain",
+    skinPacks: ["default", "iron-swing"],
+    pendants: [
+      {
+        id: "chain-iron-back",
+        name: "铁链背饰",
+        type: PendantType.BACK,
+        trigger: CosmeticTrigger.ALWAYS,
+        effect: "backBanner",
+        color: "#a5a7b5",
+        duration: 0,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+      {
+        id: "chain-smash-flare",
+        name: "重锤肩光",
+        type: PendantType.SHOULDER,
+        trigger: CosmeticTrigger.SKILL,
+        effect: "shoulderFlare",
+        color: "#f4f6ff",
+        duration: 0.3,
+        rarity: Rarity.RARE,
+        skinPack: "iron-swing",
+      },
+    ],
+    attackEffects: [
+      {
+        id: "chain-hammer-wave",
+        name: "链锤震波",
+        type: AttackEffectType.CHAIN,
+        trigger: CosmeticTrigger.ATTACK,
+        effect: "chainHammerPixels",
+        color: "#f4f6ff",
+        duration: 0.32,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+  },
+  mage: {
+    profession: "mage",
+    skinPacks: ["default", "tri-spell"],
+    pendants: [
+      {
+        id: "mage-rune-halo",
+        name: "符文光环",
+        type: PendantType.HALO,
+        trigger: CosmeticTrigger.ALWAYS,
+        effect: "softHalo",
+        color: "#8d8cff",
+        duration: 0,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+      {
+        id: "mage-cast-shoulders",
+        name: "施法肩光",
+        type: PendantType.SHOULDER,
+        trigger: CosmeticTrigger.ATTACK,
+        effect: "shoulderFlare",
+        color: "#f3e8ff",
+        duration: 0.26,
+        rarity: Rarity.RARE,
+        skinPack: "tri-spell",
+      },
+    ],
+    attackEffects: [
+      {
+        id: "mage-spell-burst",
+        name: "三相爆点",
+        type: AttackEffectType.MAGIC,
+        trigger: CosmeticTrigger.ATTACK,
+        effect: "spellBurstPixels",
+        color: "#f3e8ff",
+        duration: 0.28,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+  },
 };
 
 export function createCosmeticState() {
@@ -262,6 +418,8 @@ export function createAttackEffectInstances({ attacker, defender, normal, trigge
     .filter((effect) => effect.trigger === trigger)
     .map((effect) => ({
       ...effect,
+      color: attacker.attackState?.variant?.color || effect.color,
+      variant: attacker.attackState?.variant || null,
       startTime: currentTime,
       source: { ...attacker.position },
       origin: { ...defender.position },
@@ -336,6 +494,18 @@ function renderAttackEffect(ctx, effect, currentTime) {
     case "shieldPulse":
       drawShieldPulse(ctx, effect, progress, alpha);
       break;
+    case "dualSlashPixels":
+      drawDualSlashPixels(ctx, effect, progress, alpha);
+      break;
+    case "arrowTrailPixels":
+      drawArrowTrailPixels(ctx, effect, progress, alpha);
+      break;
+    case "chainHammerPixels":
+      drawChainHammerPixels(ctx, effect, progress, alpha);
+      break;
+    case "spellBurstPixels":
+      drawSpellBurstPixels(ctx, effect, progress, alpha);
+      break;
     default:
       drawImpactBurst(ctx, effect, progress, alpha);
       break;
@@ -353,9 +523,8 @@ function drawMotionTrail(ctx, ball, pendant, currentTime, alpha) {
     const center = add(ball.position, scale(back, ball.radius * (0.5 + i * 0.38)));
     ctx.globalAlpha = alpha * (0.18 / i);
     ctx.fillStyle = trailColor;
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, ball.radius * (0.92 - i * 0.13) * pulse, 0, Math.PI * 2);
-    ctx.fill();
+    const size = Math.max(6, Math.round(ball.radius * (0.92 - i * 0.13) * pulse));
+    ctx.fillRect(center.x - size / 2, center.y - size / 2, size, size);
   }
   ctx.restore();
 }
@@ -368,9 +537,8 @@ function drawSoftHalo(ctx, ball, pendant, currentTime, alpha) {
   ctx.globalAlpha = alpha * 0.52;
   ctx.strokeStyle = haloColor;
   ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(ball.position.x, ball.position.y, ball.radius + 9 + pulse, 0, Math.PI * 2);
-  ctx.stroke();
+  const size = (ball.radius + 9 + pulse) * 2;
+  ctx.strokeRect(ball.position.x - size / 2, ball.position.y - size / 2, size, size);
   ctx.restore();
 }
 
@@ -385,9 +553,8 @@ function drawShoulderFlare(ctx, ball, pendant, currentTime, alpha) {
   ctx.fillStyle = flareColor;
   for (const sign of [-1, 1]) {
     const center = add(ball.position, scale(side, sign * ball.radius * 0.88));
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, 5.5 * pulse, 0, Math.PI * 2);
-    ctx.fill();
+    const size = 8 * pulse;
+    ctx.fillRect(center.x - size / 2, center.y - size / 2, size, size);
   }
   ctx.restore();
 }
@@ -488,8 +655,123 @@ function drawShieldPulse(ctx, effect, progress, alpha) {
   ctx.strokeStyle = effect.color;
   ctx.lineWidth = 5;
   ctx.setLineDash([14, 10]);
+  ctx.strokeRect(effect.source.x - radius, effect.source.y - radius, radius * 2, radius * 2);
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawDualSlashPixels(ctx, effect, progress, alpha) {
+  const center = add(effect.origin, scale(effect.normal, -effect.defenderRadius * 0.35));
+  const tangent = { x: -effect.normal.y, y: effect.normal.x };
+  const length = effect.defenderRadius + 34 + progress * 14;
+  const offset = 12 + progress * 10;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
+  for (const sign of [-1, 1]) {
+    const start = add(add(center, scale(tangent, -length * 0.5)), scale(effect.normal, sign * offset));
+    const end = add(add(center, scale(tangent, length * 0.5)), scale(effect.normal, -sign * offset));
+    drawPixelLine(ctx, start, end, 12, "#050711");
+    drawPixelLine(ctx, start, end, 5, effect.color);
+  }
+  ctx.restore();
+}
+
+function drawArrowTrailPixels(ctx, effect, progress, alpha) {
+  const end = add(effect.origin, scale(effect.normal, -effect.defenderRadius * 0.18));
+  const start = add(end, scale(effect.normal, -(30 + progress * 14)));
+  const side = { x: -effect.normal.y, y: effect.normal.x };
+  const tip = add(end, scale(effect.normal, 12));
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  drawPixelLine(ctx, start, end, 10, "#050711");
+  drawPixelLine(ctx, start, end, 4, effect.color);
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(tip.x - 8, tip.y - 8, 16, 16);
+  ctx.fillStyle = effect.color;
+  ctx.fillRect(tip.x - 5, tip.y - 5, 10, 10);
+  ctx.fillStyle = "#ffe66d";
+  const feather = add(start, scale(side, 8));
+  ctx.fillRect(feather.x - 4, feather.y - 4, 8, 8);
+  for (const sign of [-1, 1]) {
+    const shard = add(end, scale(side, sign * (12 + progress * 10)));
+    ctx.fillRect(shard.x - 3, shard.y - 3, 6, 6);
+  }
+  ctx.restore();
+}
+
+function drawChainHammerPixels(ctx, effect, progress, alpha) {
+  const center = add(effect.origin, scale(effect.normal, 10 + progress * 26));
+  const size = effect.defenderRadius + 22 + progress * 18;
+
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.82;
+  ctx.strokeStyle = effect.color;
+  ctx.lineWidth = 5;
+  ctx.strokeRect(center.x - size / 2, center.y - size / 2, size, size);
+  ctx.fillStyle = effect.color;
+  for (const sign of [-1, 1]) {
+    ctx.fillRect(center.x + sign * size * 0.44 - 4, center.y - 4, 8, 8);
+    ctx.fillRect(center.x - 4, center.y + sign * size * 0.44 - 4, 8, 8);
+  }
+  ctx.restore();
+}
+
+function drawSpellBurstPixels(ctx, effect, progress, alpha) {
+  const variant = effect.variant?.id || "fire";
+  const radius = effect.defenderRadius + 12 + progress * 42;
+  const side = { x: -effect.normal.y, y: effect.normal.x };
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = effect.color;
+
+  if (variant === "lightning") {
+    const a = add(effect.origin, scale(side, -radius * 0.6));
+    const b = add(add(effect.origin, scale(effect.normal, -radius * 0.1)), scale(side, radius * 0.15));
+    const c = add(add(effect.origin, scale(effect.normal, radius * 0.15)), scale(side, -radius * 0.12));
+    const d = add(effect.origin, scale(side, radius * 0.58));
+    drawPixelLine(ctx, a, b, 12, "#050711");
+    drawPixelLine(ctx, b, c, 12, "#050711");
+    drawPixelLine(ctx, c, d, 12, "#050711");
+    drawPixelLine(ctx, a, b, 5, effect.color);
+    drawPixelLine(ctx, b, c, 5, effect.color);
+    drawPixelLine(ctx, c, d, 5, effect.color);
+  } else if (variant === "ice") {
+    for (const sign of [-1, 0, 1]) {
+      const start = add(effect.origin, scale(side, sign * 12));
+      const end = add(start, scale(effect.normal, -radius * 0.68));
+      drawPixelLine(ctx, start, end, 10, "#050711");
+      drawPixelLine(ctx, start, end, 4, effect.color);
+      ctx.fillRect(end.x - 5, end.y - 5, 10, 10);
+    }
+  } else {
+    const count = 8;
+    for (let index = 0; index < count; index += 1) {
+      const angle = (Math.PI * 2 * index) / count;
+      const point = add(effect.origin, scale({ x: Math.cos(angle), y: Math.sin(angle) }, radius * 0.72));
+      const size = index % 2 === 0 ? 12 : 8;
+      ctx.fillStyle = "#050711";
+      ctx.fillRect(point.x - size / 2 - 2, point.y - size / 2 - 2, size + 4, size + 4);
+      ctx.fillStyle = effect.color;
+      ctx.fillRect(point.x - size / 2, point.y - size / 2, size, size);
+    }
+  }
+  ctx.restore();
+}
+
+function drawPixelLine(ctx, start, end, width, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
   ctx.beginPath();
-  ctx.arc(effect.source.x, effect.source.y, radius, 0, Math.PI * 2);
+  moveToVector(ctx, start);
+  lineToVector(ctx, end);
   ctx.stroke();
   ctx.restore();
 }

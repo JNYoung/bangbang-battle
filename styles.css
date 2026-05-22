@@ -16,7 +16,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: #101318;
+  background: #12161c;
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
   -webkit-user-select: none;
@@ -26,6 +26,7 @@ body {
 body {
   position: fixed;
   inset: 0;
+  font-family: "Courier New", "Microsoft YaHei", monospace;
 }
 
 canvas {
@@ -34,4 +35,6 @@ canvas {
   height: 100vh;
   height: 100dvh;
   touch-action: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }

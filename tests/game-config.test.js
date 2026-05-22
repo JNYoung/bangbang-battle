@@ -13,7 +13,7 @@ import { ProfessionCosmeticConfig } from "../cosmetics.js";
 test("profession config exposes balanced, testable combat fields", () => {
   const professions = Object.keys(ProfessionConfig);
 
-  assert.deepEqual(professions.sort(), ["blade", "shield", "spear"]);
+  assert.deepEqual(professions.sort(), ["archer", "assassin", "blade", "chain", "mage", "shield", "spear"]);
 
   for (const [profession, config] of Object.entries(ProfessionConfig)) {
     assert.equal(config.id, profession);
@@ -25,6 +25,9 @@ test("profession config exposes balanced, testable combat fields", () => {
     assert.ok(config.attackDamage > 0);
     assert.ok(config.attackCooldown > 0);
     assert.ok(config.weaponRange > 0);
+    assert.equal(typeof config.item?.name, "string");
+    assert.equal(typeof config.item?.type, "string");
+    assert.equal(typeof config.item?.animation, "string");
     assert.equal(typeof config.getDamage, "function");
     assert.equal(typeof config.getKnockbackMultiplier, "function");
     assert.equal(typeof config.isSkillHit, "function");
@@ -56,6 +59,34 @@ test("spear front thrust upgrades damage only while facing the enemy", () => {
   assert.equal(spear.getDamage(sideAttacker, defender, { x: 1, y: 0 }), 12);
   assert.equal(spear.isSkillHit(frontalAttacker, defender, { x: 1, y: 0 }, 16), true);
   assert.equal(spear.isSkillHit(sideAttacker, defender, { x: 1, y: 0 }, 12), false);
+});
+
+test("new profession skills expose distinct combat hooks", () => {
+  const attacker = {
+    position: { x: 0, y: 0 },
+    radius: 24,
+    attackState: null,
+  };
+  const defender = {
+    position: { x: 160, y: 0 },
+    radius: 24,
+  };
+
+  assert.equal(ProfessionConfig.archer.weaponRange > ProfessionConfig.blade.weaponRange, true);
+  assert.equal(Number.isFinite(ProfessionConfig.archer.weaponRange), false);
+  assert.equal(ProfessionConfig.archer.attackMode, "projectile");
+  assert.equal(ProfessionConfig.archer.projectileWeapon.speed > 0, true);
+  assert.equal(ProfessionConfig.archer.projectileWeapon.headRadius > 0, true);
+  assert.equal(ProfessionConfig.chain.getKnockbackMultiplier() > ProfessionConfig.spear.getKnockbackMultiplier(), true);
+  assert.equal(ProfessionConfig.chain.attackMode, "chainSpin");
+  assert.equal(ProfessionConfig.chain.chainWeapon.spinSpeed > 0, true);
+  assert.equal(ProfessionConfig.chain.chainWeapon.headRadius > ProfessionConfig.blade.radius / 2, true);
+
+  attacker.attackState = {
+    variant: ProfessionConfig.mage.spellBook.find((spell) => spell.id === "fire"),
+  };
+  assert.equal(ProfessionConfig.mage.getDamage(attacker), 10);
+  assert.equal(ProfessionConfig.mage.getAttackVariant(attacker, defender, 1).id.length > 0, true);
 });
 
 test("speed ramp and attack animation helpers clamp predictably", () => {

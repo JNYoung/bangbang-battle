@@ -43,8 +43,8 @@ test("cosmetic configs use complete, unique, extensible item records", () => {
 });
 
 test("unknown professions resolve to empty cosmetics instead of failing", () => {
-  assert.deepEqual(getProfessionCosmetics("assassin"), {
-    profession: "assassin",
+  assert.deepEqual(getProfessionCosmetics("unknown-profession"), {
+    profession: "unknown-profession",
     skinPacks: [],
     pendants: [],
     attackEffects: [],

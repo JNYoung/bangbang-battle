@@ -15,7 +15,7 @@ npm run test:ci
 ## 覆盖范围
 
 - `lint:syntax`：检查核心 JS、平台脚本和打包脚本语法。
-- `npm test`：验证职业配置、速度曲线、技能伤害、挂件/攻击特效配置和触发清理逻辑。
+- `npm test`：验证职业配置、速度曲线、技能伤害、挂件/攻击特效配置、合规同意状态、职业选择持久化和统计/广告/IAP 预留接口。
 - `test:matchups`：跑所有职业对战模拟，确保胜负时间仍落在目标曲线内。
 - `test:artifacts`：构建 Web 产物、生成 Meta Instant Games ZIP，并验证 SDK 注入、`fbapp-config.json` 和 ZIP 文件。
 - `test:ci`：串联以上所有检查，适合 GitHub Actions。

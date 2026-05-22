@@ -24,6 +24,7 @@ class SimulatedBall {
     this.weaponRange = this.config.weaponRange;
     this.lastAttackTime = -Infinity;
     this.attackState = null;
+    this.chainWeaponState = createChainWeaponState(this);
   }
 
   update(deltaTime, elapsedSeconds) {
@@ -66,7 +67,8 @@ class SimulatedBall {
       startTime: currentTime,
       duration: attackConfig.duration,
       hitFrame: attackConfig.hitFrame,
-      direction: getDirectionBetween(this, defender),
+      direction: getAttackDirection(this, defender),
+      variant: this.config.getAttackVariant?.(this, defender, currentTime) || null,
       didDealDamage: false,
     };
     this.lastAttackTime = currentTime;
@@ -100,8 +102,22 @@ if (failures.length > 0) {
   process.exitCode = 1;
 }
 
+function createChainWeaponState(ball) {
+  if (ball.config.attackMode !== "chainSpin") {
+    return null;
+  }
+
+  return {
+    rotationAngle: ball.position.x < ARENA_SIZE / 2 ? -0.42 : Math.PI + 0.42,
+    spinDirection: ball.position.x < ARENA_SIZE / 2 ? 1 : -1,
+    lastHitTime: -Infinity,
+    wallContact: null,
+  };
+}
+
 function simulateMatch(aProfession, bProfession) {
   let elapsedSeconds = 0;
+  let projectiles = [];
   const ballA = new SimulatedBall({
     profession: aProfession,
     x: 190,
@@ -120,8 +136,13 @@ function simulateMatch(aProfession, bProfession) {
     ballA.update(STEP_SECONDS, elapsedSeconds);
     ballB.update(STEP_SECONDS, elapsedSeconds);
     resolveBallCollision(ballA, ballB, elapsedSeconds);
-    updateAttackForPair(ballA, ballB, elapsedSeconds);
-    updateAttackForPair(ballB, ballA, elapsedSeconds);
+    projectiles = updateProjectiles(projectiles, STEP_SECONDS, elapsedSeconds, [ballA, ballB]);
+    updateChainWeapon(ballA, STEP_SECONDS);
+    updateChainWeapon(ballB, STEP_SECONDS);
+    updateChainWeaponForPair(ballA, ballB, elapsedSeconds);
+    updateChainWeaponForPair(ballB, ballA, elapsedSeconds);
+    updateAttackForPair(ballA, ballB, elapsedSeconds, projectiles);
+    updateAttackForPair(ballB, ballA, elapsedSeconds, projectiles);
 
     if (ballA.hp <= 0 || ballB.hp <= 0) {
       return getResult(aProfession, bProfession, elapsedSeconds, ballA, ballB);
@@ -153,15 +174,20 @@ function getResult(aProfession, bProfession, elapsedSeconds, ballA, ballB) {
   };
 }
 
-function updateAttackForPair(attacker, defender, currentTime) {
-  updateAttackState(attacker, currentTime);
+function updateAttackForPair(attacker, defender, currentTime, projectiles) {
+  if (attacker.config.attackMode === "chainSpin") {
+    return;
+  }
 
-  if (!attacker.attackState && isInAttackRange(attacker, defender)) {
+  updateAttackState(attacker, currentTime, projectiles);
+
+  const canStartAttack = attacker.config.attackMode === "projectile" || isInAttackRange(attacker, defender);
+  if (!attacker.attackState && canStartAttack) {
     attacker.startAttack(defender, currentTime);
   }
 }
 
-function updateAttackState(attacker, currentTime) {
+function updateAttackState(attacker, currentTime, projectiles) {
   const attackState = attacker.attackState;
 
   if (!attackState) {
@@ -175,16 +201,117 @@ function updateAttackState(attacker, currentTime) {
 
   const progress = clamp((currentTime - attackState.startTime) / attackState.duration, 0, 1);
 
-  if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
+  if (attacker.config.attackMode === "projectile") {
+    if (!attackState.didFireProjectile && progress >= attackState.hitFrame) {
+      attackState.didFireProjectile = true;
+      attackState.didDealDamage = true;
+      fireProjectile(projectiles, attacker, attackState.defender, currentTime);
+    }
+  } else if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
     const normal = normalize(attackState.direction);
-    const damage = attacker.dealAttackDamageTo(attackState.defender, normal);
     attackState.didDealDamage = true;
-    applyAttackKnockback(attacker, attackState.defender, normal, damage, currentTime);
+    resolveAttackHit(attacker, attackState.defender, normal, currentTime);
   }
 
   if (currentTime - attackState.startTime >= attackState.duration) {
     attacker.attackState = null;
   }
+}
+
+function fireProjectile(projectiles, attacker, defender, currentTime) {
+  if (attacker.hp <= 0 || defender.hp <= 0 || !attacker.config.projectileWeapon) {
+    return;
+  }
+
+  const weapon = attacker.config.projectileWeapon;
+  const direction = getProjectileAimDirection(attacker, defender, weapon.speed);
+  const position = add(attacker.position, scale(direction, attacker.radius + weapon.spawnOffset));
+  attacker.attackState.direction = direction;
+  attacker.lastAttackTime = currentTime;
+  projectiles.push({
+    owner: attacker,
+    position,
+    direction,
+    speed: weapon.speed,
+    headRadius: weapon.headRadius,
+    shaftLength: weapon.shaftLength,
+  });
+}
+
+function updateProjectiles(projectiles, deltaTime, currentTime, balls) {
+  return projectiles.filter((projectile) => {
+    projectile.position = add(projectile.position, scale(projectile.direction, projectile.speed * deltaTime));
+
+    if (!isProjectileInArena(projectile)) {
+      return false;
+    }
+
+    const defender = balls.find((ball) => ball !== projectile.owner && ball.hp > 0 && isProjectileHeadColliding(projectile, ball));
+    if (!defender) {
+      return true;
+    }
+
+    resolveAttackHit(projectile.owner, defender, projectile.direction, currentTime);
+    return false;
+  });
+}
+
+function isProjectileInArena(projectile) {
+  const margin = projectile.shaftLength + projectile.headRadius + 16;
+  return (
+    projectile.position.x >= -margin &&
+    projectile.position.x <= ARENA_SIZE + margin &&
+    projectile.position.y >= -margin &&
+    projectile.position.y <= ARENA_SIZE + margin
+  );
+}
+
+function isProjectileHeadColliding(projectile, defender) {
+  const headToDefender = subtract(defender.position, projectile.position);
+  return length(headToDefender) <= projectile.headRadius + defender.radius;
+}
+
+function updateChainWeapon(ball, deltaTime) {
+  if (!ball.chainWeaponState || ball.hp <= 0) {
+    return;
+  }
+
+  const weapon = ball.config.chainWeapon;
+  const state = ball.chainWeaponState;
+  state.rotationAngle = normalizeAngle(state.rotationAngle + weapon.spinSpeed * state.spinDirection * deltaTime);
+
+  const contact = getChainWeaponWallContact(ball);
+  if (contact && contact !== state.wallContact) {
+    state.spinDirection *= -1;
+    state.rotationAngle = normalizeAngle(state.rotationAngle + weapon.spinSpeed * state.spinDirection * deltaTime * 1.5);
+  }
+
+  state.wallContact = contact;
+}
+
+function updateChainWeaponForPair(attacker, defender, currentTime) {
+  if (!attacker.chainWeaponState || attacker.hp <= 0 || defender.hp <= 0) {
+    return;
+  }
+
+  const weapon = attacker.config.chainWeapon;
+  if (currentTime - attacker.chainWeaponState.lastHitTime < weapon.hitCooldown) {
+    return;
+  }
+
+  const hit = getChainWeaponHit(attacker, defender);
+  if (!hit) {
+    return;
+  }
+
+  attacker.chainWeaponState.lastHitTime = currentTime;
+  resolveAttackHit(attacker, defender, hit.normal, currentTime);
+}
+
+function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime) {
+  const damage = attacker.dealAttackDamageTo(defender, normalFromAttackerToDefender);
+  applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, currentTime);
+  return damage;
 }
 
 function isInAttackRange(attacker, defender) {
@@ -193,6 +320,52 @@ function isInAttackRange(attacker, defender) {
     defender.hp > 0 &&
     length(subtract(defender.position, attacker.position)) <= attacker.radius + defender.radius + attacker.weaponRange
   );
+}
+
+function getChainWeaponGeometry(ball) {
+  const weapon = ball.config.chainWeapon;
+  const direction = vectorFromAngle(ball.chainWeaponState?.rotationAngle || 0);
+  const head = add(ball.position, scale(direction, weapon.orbitRadius));
+
+  return {
+    head,
+    headRadius: weapon.headRadius,
+  };
+}
+
+function getChainWeaponHit(attacker, defender) {
+  const geometry = getChainWeaponGeometry(attacker);
+  const headToDefender = subtract(defender.position, geometry.head);
+  const hitDistance = geometry.headRadius + defender.radius;
+
+  if (length(headToDefender) > hitDistance) {
+    return null;
+  }
+
+  return {
+    normal: normalize(headToDefender),
+  };
+}
+
+function getChainWeaponWallContact(ball) {
+  const geometry = getChainWeaponGeometry(ball);
+  const head = geometry.head;
+  const radius = geometry.headRadius;
+
+  if (head.x - radius <= 0) {
+    return "left";
+  }
+  if (head.x + radius >= ARENA_SIZE) {
+    return "right";
+  }
+  if (head.y - radius <= 0) {
+    return "top";
+  }
+  if (head.y + radius >= ARENA_SIZE) {
+    return "bottom";
+  }
+
+  return null;
 }
 
 function resolveBallCollision(ballA, ballB, elapsedSeconds) {
@@ -238,7 +411,7 @@ function applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, 
     return;
   }
 
-  const push = 56 * attacker.config.getKnockbackMultiplier();
+  const push = 56 * attacker.config.getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage);
   defender.velocity = add(defender.velocity, scale(normalFromAttackerToDefender, push));
   keepSpeed(attacker, elapsedSeconds);
   keepSpeed(defender, elapsedSeconds);
@@ -286,6 +459,37 @@ function getDirectionBetween(source, target) {
   return normalize(subtract(target.position, source.position));
 }
 
+function getAttackDirection(attacker, defender) {
+  if (attacker.config.attackMode === "projectile" && attacker.config.projectileWeapon) {
+    return getProjectileAimDirection(attacker, defender, attacker.config.projectileWeapon.speed);
+  }
+
+  return getDirectionBetween(attacker, defender);
+}
+
+function getProjectileAimDirection(attacker, defender, projectileSpeed) {
+  const toDefender = subtract(defender.position, attacker.position);
+  const targetVelocity = defender.velocity || { x: 0, y: 0 };
+  const velocityDot = dot(targetVelocity, targetVelocity) - projectileSpeed ** 2;
+  const distanceVelocityDot = 2 * dot(toDefender, targetVelocity);
+  const distanceDot = dot(toDefender, toDefender);
+  const discriminant = distanceVelocityDot ** 2 - 4 * velocityDot * distanceDot;
+
+  if (Math.abs(velocityDot) > 0.0001 && discriminant >= 0) {
+    const root = Math.sqrt(discriminant);
+    const times = [(-distanceVelocityDot - root) / (2 * velocityDot), (-distanceVelocityDot + root) / (2 * velocityDot)].filter(
+      (time) => time > 0,
+    );
+    const interceptTime = Math.min(...times);
+
+    if (Number.isFinite(interceptTime)) {
+      return normalize(add(toDefender, scale(targetVelocity, interceptTime)));
+    }
+  }
+
+  return normalize(toDefender);
+}
+
 function add(a, b) {
   return { x: a.x + b.x, y: a.y + b.y };
 }
@@ -304,6 +508,15 @@ function dot(a, b) {
 
 function length(vector) {
   return Math.hypot(vector.x, vector.y);
+}
+
+function vectorFromAngle(angle) {
+  return { x: Math.cos(angle), y: Math.sin(angle) };
+}
+
+function normalizeAngle(angle) {
+  const fullTurn = Math.PI * 2;
+  return ((angle % fullTurn) + fullTurn) % fullTurn;
 }
 
 function normalize(vector) {
