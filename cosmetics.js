@@ -346,12 +346,13 @@ function drawMotionTrail(ctx, ball, pendant, currentTime, alpha) {
   const facing = normalize(ball.velocity);
   const back = scale(facing, -1);
   const pulse = 1 + Math.sin(currentTime * 9) * 0.08;
+  const trailColor = getBallPrimaryColor(ball, pendant.color);
 
   ctx.save();
   for (let i = 1; i <= 4; i += 1) {
     const center = add(ball.position, scale(back, ball.radius * (0.5 + i * 0.38)));
     ctx.globalAlpha = alpha * (0.18 / i);
-    ctx.fillStyle = pendant.color;
+    ctx.fillStyle = trailColor;
     ctx.beginPath();
     ctx.arc(center.x, center.y, ball.radius * (0.92 - i * 0.13) * pulse, 0, Math.PI * 2);
     ctx.fill();
@@ -361,10 +362,11 @@ function drawMotionTrail(ctx, ball, pendant, currentTime, alpha) {
 
 function drawSoftHalo(ctx, ball, pendant, currentTime, alpha) {
   const pulse = Math.sin(currentTime * 4) * 2;
+  const haloColor = getBallAccentColor(ball, pendant.color);
 
   ctx.save();
   ctx.globalAlpha = alpha * 0.52;
-  ctx.strokeStyle = pendant.color;
+  ctx.strokeStyle = haloColor;
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.arc(ball.position.x, ball.position.y, ball.radius + 9 + pulse, 0, Math.PI * 2);
@@ -376,10 +378,11 @@ function drawShoulderFlare(ctx, ball, pendant, currentTime, alpha) {
   const facing = normalize(ball.velocity);
   const side = { x: -facing.y, y: facing.x };
   const pulse = 1 + Math.sin(currentTime * 16) * 0.18;
+  const flareColor = getBallAccentColor(ball, pendant.color);
 
   ctx.save();
   ctx.globalAlpha = alpha * 0.8;
-  ctx.fillStyle = pendant.color;
+  ctx.fillStyle = flareColor;
   for (const sign of [-1, 1]) {
     const center = add(ball.position, scale(side, sign * ball.radius * 0.88));
     ctx.beginPath();
@@ -395,10 +398,11 @@ function drawBackBanner(ctx, ball, pendant, currentTime, alpha) {
   const backCenter = add(ball.position, scale(facing, -ball.radius * 1.08));
   const halfWidth = ball.radius * 0.48;
   const length = ball.radius * (0.78 + Math.sin(currentTime * 7) * 0.04);
+  const bannerColor = getBallPrimaryColor(ball, pendant.color);
 
   ctx.save();
   ctx.globalAlpha = alpha * 0.74;
-  ctx.fillStyle = pendant.color;
+  ctx.fillStyle = bannerColor;
   ctx.beginPath();
   moveToVector(ctx, add(backCenter, scale(side, -halfWidth)));
   lineToVector(ctx, add(backCenter, scale(side, halfWidth)));
@@ -407,6 +411,14 @@ function drawBackBanner(ctx, ball, pendant, currentTime, alpha) {
   ctx.closePath();
   ctx.fill();
   ctx.restore();
+}
+
+function getBallPrimaryColor(ball, fallbackColor) {
+  return ball.visual?.color || fallbackColor;
+}
+
+function getBallAccentColor(ball, fallbackColor) {
+  return ball.visual?.accentColor || fallbackColor;
 }
 
 function drawImpactBurst(ctx, effect, progress, alpha) {
