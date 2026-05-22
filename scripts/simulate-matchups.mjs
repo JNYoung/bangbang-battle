@@ -434,7 +434,8 @@ function handleWallAbility(ball, contact, currentTime, hazards, webLinks) {
       ...hazards,
       {
         owner: ball,
-        position: clampArenaPoint(add(contact.point, scale(getWallNormal(contact.wall), ball.radius + spike.radius * 0.2))),
+        wall: contact.wall,
+        position: getWallAnchoredPoint(contact.wall, contact.point, spike.radius),
         radius: spike.radius,
         damage: spike.damage,
         poisonDamagePerSecond: spike.poisonDamagePerSecond,
@@ -447,10 +448,7 @@ function handleWallAbility(ball, contact, currentTime, hazards, webLinks) {
 
   if (ball.config.webLine) {
     const web = ball.config.webLine;
-    const node = {
-      x: clamp(contact.point.x, web.nodeRadius, ARENA_SIZE - web.nodeRadius),
-      y: clamp(contact.point.y, web.nodeRadius, ARENA_SIZE - web.nodeRadius),
-    };
+    const node = getWallAnchoredPoint(contact.wall, contact.point, web.nodeRadius);
     ball.wallCollisionCount += 1;
     if (ball.wallCollisionCount % 2 === 1 || !ball.pendingWebNode) {
       ball.pendingWebNode = node;
@@ -472,6 +470,27 @@ function handleWallAbility(ball, contact, currentTime, hazards, webLinks) {
   }
 
   return { hazards, webLinks };
+}
+
+function getPendingWebSegment(ball) {
+  const web = ball.config.webLine;
+  if (ball.hp <= 0 || !web || !ball.pendingWebNode) {
+    return null;
+  }
+
+  const toNode = subtract(ball.pendingWebNode, ball.position);
+  const distanceToNode = length(toNode);
+  const edgeDistance = Math.min(distanceToNode, ball.radius * 0.78);
+  const ballAnchor = add(ball.position, scale(normalize(toNode), edgeDistance));
+
+  return {
+    owner: ball,
+    start: ball.pendingWebNode,
+    end: ballAnchor,
+    collisionRadius: web.collisionRadius,
+    damage: web.damage,
+    hitCooldown: web.hitCooldown,
+  };
 }
 
 function updateFlameTrail(ball, currentTime, flames) {
@@ -525,6 +544,23 @@ function updateEnvironmentalHazards(hazards, webLinks, flames, balls, currentTim
       if (hit && currentTime - ball.lastWebHitTime >= web.hitCooldown) {
         ball.lastWebHitTime = currentTime;
         damageBall(ball, web.damage);
+      }
+    }
+  }
+
+  for (const webOwner of balls) {
+    const pendingWeb = getPendingWebSegment(webOwner);
+    if (!pendingWeb) {
+      continue;
+    }
+
+    for (const ball of balls) {
+      const hit = ball !== pendingWeb.owner && ball.hp > 0
+        ? getSegmentCircleHit(ball.position, ball.radius + pendingWeb.collisionRadius, pendingWeb.start, pendingWeb.end)
+        : null;
+      if (hit && currentTime - ball.lastWebHitTime >= pendingWeb.hitCooldown) {
+        ball.lastWebHitTime = currentTime;
+        damageBall(ball, pendingWeb.damage);
       }
     }
   }
@@ -886,11 +922,17 @@ function getWallNormal(wall) {
   return { x: 0, y: -1 };
 }
 
-function clampArenaPoint(point) {
-  return {
-    x: clamp(point.x, 0, ARENA_SIZE),
-    y: clamp(point.y, 0, ARENA_SIZE),
-  };
+function getWallAnchoredPoint(wall, point, inset) {
+  if (wall === "left") {
+    return { x: inset, y: clamp(point.y, inset, ARENA_SIZE - inset) };
+  }
+  if (wall === "right") {
+    return { x: ARENA_SIZE - inset, y: clamp(point.y, inset, ARENA_SIZE - inset) };
+  }
+  if (wall === "top") {
+    return { x: clamp(point.x, inset, ARENA_SIZE - inset), y: inset };
+  }
+  return { x: clamp(point.x, inset, ARENA_SIZE - inset), y: ARENA_SIZE - inset };
 }
 
 function easeOutCubic(value) {

@@ -1343,11 +1343,11 @@ function handleWallCollision(ball, contact, currentTime) {
 
 function createVenomSpike(ball, contact, currentTime) {
   const spike = ball.config.venomSpike;
-  const offset = ball.radius + spike.radius * 0.2;
-  const position = clampArenaPoint(add(contact.point, scale(getWallNormal(contact.wall), offset)));
+  const position = getWallAnchoredPoint(contact.wall, contact.point, spike.radius);
   arenaHazards.push({
     type: "venomSpike",
     owner: ball,
+    wall: contact.wall,
     position,
     radius: spike.radius,
     damage: spike.damage,
@@ -1361,10 +1361,7 @@ function createVenomSpike(ball, contact, currentTime) {
 
 function createSpiderWebNode(ball, contact, currentTime) {
   const web = ball.config.webLine;
-  const node = {
-    x: clamp(contact.point.x, web.nodeRadius, ARENA_SIZE - web.nodeRadius),
-    y: clamp(contact.point.y, web.nodeRadius, ARENA_SIZE - web.nodeRadius),
-  };
+  const node = getWallAnchoredPoint(contact.wall, contact.point, web.nodeRadius);
   ball.wallCollisionCount += 1;
 
   if (ball.wallCollisionCount % 2 === 1 || !ball.pendingWebNode) {
@@ -1384,6 +1381,28 @@ function createSpiderWebNode(ball, contact, currentTime) {
     expiresAt: currentTime + web.duration,
   });
   ball.pendingWebNode = null;
+}
+
+function getPendingWebSegment(ball) {
+  const web = ball.config.webLine;
+  if (ball.hp <= 0 || !web || !ball.pendingWebNode) {
+    return null;
+  }
+
+  const toNode = subtract(ball.pendingWebNode, ball.position);
+  const distanceToNode = length(toNode);
+  const edgeDistance = Math.min(distanceToNode, ball.radius * 0.78);
+  const ballAnchor = add(ball.position, scale(normalize(toNode), edgeDistance));
+
+  return {
+    owner: ball,
+    start: ball.pendingWebNode,
+    end: ballAnchor,
+    nodeRadius: web.nodeRadius,
+    collisionRadius: web.collisionRadius,
+    damage: web.damage,
+    hitCooldown: web.hitCooldown,
+  };
 }
 
 function updateFlameTrailForBall(ball, currentTime) {
@@ -1433,6 +1452,23 @@ function updateEnvironmentalHazards(currentTime) {
       if (hit && currentTime - ball.lastWebHitTime >= web.hitCooldown) {
         ball.lastWebHitTime = currentTime;
         damageBall(ball, web.damage);
+      }
+    }
+  }
+
+  for (const webOwner of balls) {
+    const pendingWeb = getPendingWebSegment(webOwner);
+    if (!pendingWeb) {
+      continue;
+    }
+
+    for (const ball of balls) {
+      const hit = ball !== pendingWeb.owner && ball.hp > 0
+        ? getSegmentCircleHit(ball.position, ball.radius + pendingWeb.collisionRadius, pendingWeb.start, pendingWeb.end)
+        : null;
+      if (hit && currentTime - ball.lastWebHitTime >= pendingWeb.hitCooldown) {
+        ball.lastWebHitTime = currentTime;
+        damageBall(ball, pendingWeb.damage);
       }
     }
   }
@@ -3459,14 +3495,22 @@ function drawArenaHazards(ctx, currentTime) {
 function drawVenomSpike(ctx, hazard) {
   const center = snapVector(hazard.position, 4);
   const radius = hazard.radius;
+  const normal = getWallNormal(hazard.wall);
+  const base = snapVector(subtract(center, scale(normal, radius)), 4);
+  const tip = snapVector(add(center, scale(normal, radius * 1.2)), 4);
+  const side = { x: -normal.y, y: normal.x };
 
   ctx.fillStyle = "#050711";
-  ctx.fillRect(center.x - radius, center.y - radius, radius * 2, radius * 2);
+  ctx.fillRect(base.x - Math.abs(side.x) * radius - 4, base.y - Math.abs(side.y) * radius - 4, Math.max(8, Math.abs(side.x) * radius * 2 + 8), Math.max(8, Math.abs(side.y) * radius * 2 + 8));
+  drawPixelLine(ctx, add(base, scale(side, -radius * 0.72)), tip, 18, "#050711");
+  drawPixelLine(ctx, add(base, scale(side, radius * 0.72)), tip, 18, "#050711");
   ctx.fillStyle = "#39d353";
-  ctx.fillRect(center.x - radius + 4, center.y - radius + 4, radius * 2 - 8, radius * 2 - 8);
+  ctx.fillRect(base.x - Math.abs(side.x) * (radius - 4), base.y - Math.abs(side.y) * (radius - 4), Math.max(8, Math.abs(side.x) * (radius - 4) * 2), Math.max(8, Math.abs(side.y) * (radius - 4) * 2));
+  drawPixelLine(ctx, add(base, scale(side, -radius * 0.56)), tip, 10, "#39d353");
+  drawPixelLine(ctx, add(base, scale(side, radius * 0.56)), tip, 10, "#39d353");
   ctx.fillStyle = "#caff70";
-  ctx.fillRect(center.x - 4, center.y - radius - 8, 8, radius + 12);
-  ctx.fillRect(center.x - radius - 8, center.y - 4, radius + 12, 8);
+  ctx.fillRect(tip.x - 4, tip.y - 4, 8, 8);
+  ctx.fillRect(center.x - 5, center.y - 5, 10, 10);
 }
 
 function drawWebLinks(ctx, currentTime) {
@@ -3481,10 +3525,20 @@ function drawWebLinks(ctx, currentTime) {
     ctx.fillRect(web.end.x - web.nodeRadius / 2, web.end.y - web.nodeRadius / 2, web.nodeRadius, web.nodeRadius);
   }
   for (const ball of balls) {
-    if (ball.pendingWebNode) {
-      ctx.globalAlpha = 0.55;
+    const pendingWeb = getPendingWebSegment(ball);
+    if (pendingWeb) {
+      const shimmer = 0.48 + Math.sin(currentTime * 9) * 0.1;
+      ctx.globalAlpha = shimmer;
+      drawPixelLine(ctx, snapVector(pendingWeb.start, 4), snapVector(pendingWeb.end, 4), 11, "#050711");
+      drawPixelLine(ctx, snapVector(pendingWeb.start, 4), snapVector(pendingWeb.end, 4), 4, "#f8fbff");
+      ctx.globalAlpha = 0.7;
       ctx.fillStyle = "#f0d7ff";
-      ctx.fillRect(ball.pendingWebNode.x - 6, ball.pendingWebNode.y - 6, 12, 12);
+      ctx.fillRect(
+        pendingWeb.start.x - pendingWeb.nodeRadius / 2,
+        pendingWeb.start.y - pendingWeb.nodeRadius / 2,
+        pendingWeb.nodeRadius,
+        pendingWeb.nodeRadius,
+      );
     }
   }
   ctx.restore();
@@ -3796,11 +3850,17 @@ function getWallNormal(wall) {
   return { x: 0, y: -1 };
 }
 
-function clampArenaPoint(point) {
-  return {
-    x: clamp(point.x, 0, ARENA_SIZE),
-    y: clamp(point.y, 0, ARENA_SIZE),
-  };
+function getWallAnchoredPoint(wall, point, inset) {
+  if (wall === "left") {
+    return { x: inset, y: clamp(point.y, inset, ARENA_SIZE - inset) };
+  }
+  if (wall === "right") {
+    return { x: ARENA_SIZE - inset, y: clamp(point.y, inset, ARENA_SIZE - inset) };
+  }
+  if (wall === "top") {
+    return { x: clamp(point.x, inset, ARENA_SIZE - inset), y: inset };
+  }
+  return { x: clamp(point.x, inset, ARENA_SIZE - inset), y: ARENA_SIZE - inset };
 }
 
 function getSafeAreaInsets() {
