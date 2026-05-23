@@ -1,21 +1,11 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Capacitor apps mostly ship minified web assets inside a native WebView.
+# Keep bridge and plugin classes reachable while allowing R8 to shrink the rest.
+-keep class com.getcapacitor.** { *; }
+-keep class com.professionballarena.game.MainActivity { *; }
+-keep class org.apache.cordova.** { *; }
+-keep class androidx.webkit.** { *; }
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+-keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+-dontwarn com.getcapacitor.**
+-dontwarn org.apache.cordova.**

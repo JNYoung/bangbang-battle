@@ -1,6 +1,6 @@
 export const FALLBACK_LOCALE = "zh";
 export const LOCALE_STORAGE_KEY = "bangbang.locale";
-export const SUPPORTED_LOCALES = ["zh", "en", "fr", "de", "ar"];
+export const SUPPORTED_LOCALES = ["zh", "zh-TW", "ja", "en", "fr", "de", "ar"];
 
 const RTL_LOCALES = new Set(["ar"]);
 
@@ -678,6 +678,306 @@ const translations = {
   },
 };
 
+const TRADITIONAL_CHINESE_REPLACEMENTS = [
+  ["职业", "職業"],
+  ["斗技场", "鬥技場"],
+  ["隐私", "隱私"],
+  ["用户", "用戶"],
+  ["协议", "協議"],
+  ["设置", "設定"],
+  ["购买", "購買"],
+  ["应用内", "應用程式內"],
+  ["运营", "運營"],
+  ["联系", "聯繫"],
+  ["菜单", "菜單"],
+  ["后续", "後續"],
+  ["获取", "獲取"],
+  ["本地", "本機"],
+  ["统计", "統計"],
+  ["广告", "廣告"],
+  ["支付", "支付"],
+  ["对战", "對戰"],
+  ["战斗", "戰鬥"],
+  ["轻微", "輕微"],
+  ["评级", "分級"],
+  ["道具", "道具"],
+  ["场景", "場景"],
+  ["英雄", "英雄"],
+  ["模式", "模式"],
+  ["职业", "職業"],
+  ["图腾", "圖騰"],
+  ["链锤", "鏈錘"],
+  ["蝙蝠", "蝙蝠"],
+  ["熔岩", "熔岩"],
+  ["隐", "隱"],
+  ["语", "語"],
+  ["启", "啟"],
+  ["状", "狀"],
+  ["态", "態"],
+  ["战", "戰"],
+  ["请", "請"],
+  ["选", "選"],
+  ["择", "擇"],
+  ["协", "協"],
+  ["议", "議"],
+  ["阅", "閱"],
+  ["读", "讀"],
+  ["确", "確"],
+  ["认", "認"],
+  ["复", "復"],
+  ["购", "購"],
+  ["买", "買"],
+  ["应", "應"],
+  ["内", "內"],
+  ["当", "當"],
+  ["后", "後"],
+  ["场", "場"],
+  ["规", "規"],
+  ["开", "開"],
+  ["户", "戶"],
+  ["仅", "僅"],
+  ["储", "儲"],
+  ["设", "設"],
+  ["备", "備"],
+  ["职", "職"],
+  ["业", "業"],
+  ["项", "項"],
+  ["这", "這"],
+  ["数", "數"],
+  ["据", "據"],
+  ["传", "傳"],
+  ["预", "預"],
+  ["发", "發"],
+  ["会", "會"],
+  ["并", "並"],
+  ["获", "獲"],
+  ["运", "運"],
+  ["营", "營"],
+  ["单", "單"],
+  ["级", "級"],
+  ["问", "問"],
+  ["题", "題"],
+  ["费", "費"],
+  ["虚", "虛"],
+  ["产", "產"],
+  ["扩", "擴"],
+  ["续", "續"],
+  ["为", "為"],
+  ["与", "與"],
+  ["时", "時"],
+  ["览", "覽"],
+  ["联", "聯"],
+  ["络", "絡"],
+  ["换", "換"],
+  ["将", "將"],
+  ["实", "實"],
+  ["际", "際"],
+  ["写", "寫"],
+  ["风", "風"],
+  ["冻", "凍"],
+  ["轮", "輪"],
+  ["头", "頭"],
+  ["臂", "臂"],
+  ["恶", "惡"],
+  ["矮", "矮"],
+  ["王", "王"],
+  ["锤", "錘"],
+  ["击", "擊"],
+  ["复", "復"],
+  ["苏", "蘇"],
+  ["弓", "弓"],
+  ["箭", "箭"],
+  ["闪", "閃"],
+  ["电", "電"],
+  ["枪", "槍"],
+  ["剑", "劍"],
+  ["绳", "繩"],
+  ["网", "網"],
+  ["结", "結"],
+  ["节", "節"],
+  ["点", "點"],
+  ["锋", "鋒"],
+  ["刃", "刃"],
+  ["终", "終"],
+  ["镰", "鐮"],
+  ["刀", "刀"],
+  ["挡", "擋"],
+  ["墙", "牆"],
+  ["卫", "衛"],
+  ["双", "雙"],
+  ["铁", "鐵"],
+  ["星", "星"],
+  ["师", "師"],
+  ["术", "術"],
+  ["岁", "歲"],
+  ["稳", "穩"],
+  ["变", "變"],
+  ["节", "節"],
+  ["触", "觸"],
+  ["导", "導"],
+  ["规", "規"],
+  ["则", "則"],
+  ["码", "碼"],
+  ["扣", "扣"],
+  ["阅", "閱"],
+  ["览", "覽"],
+  ["项", "項"],
+  ["过", "過"],
+  ["还", "還"],
+  ["面", "面"],
+  ["向", "向"],
+  ["儿", "兒"],
+  ["童", "童"],
+  ["专", "專"],
+  ["门", "門"],
+  ["产", "產"],
+  ["品", "品"],
+  ["填", "填"],
+  ["问", "問"],
+  ["卷", "卷"],
+  ["载", "載"],
+  ["请", "請"],
+  ["将", "將"],
+  ["主", "主"],
+  ["体", "體"],
+  ["邮", "郵"],
+  ["箱", "箱"],
+  ["替", "替"],
+  ["换", "換"],
+  ["刚", "剛"],
+  ["则", "則"],
+  ["坏", "壞"],
+  ["压", "壓"],
+];
+
+translations["zh-TW"] = {
+  ...createTraditionalChineseTranslations(translations.zh),
+  language: { self: "繁體中文" },
+};
+
+translations.ja = {
+  language: { self: "日本語" },
+  app: { name: "職業ボール闘技場" },
+  side: { a: "ボール A", b: "ボール B" },
+  common: { enabled: "有効", unavailable: "未設定", iap: "IAP" },
+  status: { playing: "自動バトル中" },
+  messages: {
+    checkAgreement: "先に規約への同意を確認してください",
+    consentWithdrawn: "同意を取り消しました。内容を再確認してください",
+    purchaseRestored: "購入情報を復元しました",
+    purchaseUnavailable: "このビルドではアプリ内購入は設定されていません",
+    selectedProfession: "{side} が {profession} を選択しました",
+    selectedScene: "{scene} に切り替えました",
+  },
+  consent: {
+    subtitle: "公開前の確認",
+    title: "始める前に",
+    intro: "プライバシーポリシーとユーザー規約を読んで同意してください。このビルドは同意状態と職業選択のみを端末内に保存し、実際の分析、広告、決済 SDK は使用しません。",
+    privacy: "プライバシーポリシー",
+    terms: "ユーザー規約",
+    agree: "上記の内容を読み、同意します",
+    enter: "同意して開始",
+    ageRating: "このゲームには軽度のカートゥーン/ファンタジー戦闘表現が含まれ、子ども向けに提供するものではありません。",
+  },
+  main: {
+    subtitle: "メインメニュー",
+    title: "バトル準備",
+    summary: "シーン：{scene}  /  {sideA}：{professionA}  /  {sideB}：{professionB}",
+    itemSummary: "モード：{scene}  /  職業なし、ランダムなアイテムを拾って自動対戦",
+    start: "ゲーム開始",
+    settings: "設定と規約",
+    notice: "このビルドには実際の広告、分析、IAP SDK は含まれていません。ストア提出時は、軽度のカートゥーン/ファンタジー戦闘としてレーティング質問に回答してください。",
+  },
+  setup: {
+    subtitle: "バトル設定",
+    sceneLabel: "シーン",
+    professionHeader: "{side} の職業",
+    itemModeHeader: "アイテムモード",
+    itemModeDescription: "両方のボールは職業なしで、初期 HP は 100 です。アリーナにはアイテムがランダムに出現し、触れるとすぐに装備します。耐久が尽きると次のアイテムを待ちます。",
+    saveBack: "保存して戻る",
+    start: "ゲーム開始",
+  },
+  settings: {
+    subtitle: "設定",
+    languageTitle: "言語",
+    legalTitle: "規約とコンプライアンス",
+    legalInfo: "規約バージョン：{version}。運営主体：{companyName}。連絡先：{contactEmail}。",
+    privacy: "プライバシーポリシー",
+    terms: "ユーザー規約",
+    restore: "購入を復元",
+    withdraw: "同意を取り消す",
+    statsInfo: "分析：{analytics}。広告：{ads}。{iap}：実際の商品は未設定です。このビルドはデータ送信、広告表示、課金を行いません。",
+    sdkNotice: "実際の SDK を追加する前に、プライバシーポリシーを更新し、同意を再取得してください。",
+    backMain: "メインメニューへ",
+  },
+  legal: {
+    back: "戻る",
+    pageUp: "上へ",
+    pageDown: "下へ",
+    scrollHint: "マウスホイールまたはトラックパッドで全文を確認できます。",
+    privacy: {
+      title: "プライバシーポリシー",
+      sections: [
+        { title: "1. 情報の取り扱い", body: "このビルドは、実際の第三者分析、広告、決済 SDK を組み込んでいません。アカウント、位置情報、連絡先、カメラ、マイク、精密な端末識別子などの個人の機微情報を収集しません。ゲームは同意状態、職業選択、基本設定のみを端末内に保存します。" },
+        { title: "2. ローカル保存", body: "次回起動時に選択を保持するため、ゲームは端末のローカルストレージにポリシーバージョン、規約バージョン、ボール A/B の職業選択、設定項目を保存します。これらのデータはサーバーへ送信されません。" },
+        { title: "3. 分析、広告、決済の予約", body: "プロジェクトには分析、広告、アプリ内購入のためのインターフェースが用意されていますが、標準実装ではネットワークリクエスト、広告表示、決済フローを開始しません。将来実際の SDK を導入する場合は、本ポリシーを更新し、必要な同意を再取得します。" },
+        { title: "4. 未成年者とレーティング", body: "このゲームは子ども向け専用の製品ではありません。HP、武器職業、自動戦闘が含まれるため、Apple App Store、Google Play などのレーティング質問には、軽度のカートゥーン/ファンタジー暴力として正確に回答してください。" },
+        { title: "5. お問い合わせ", body: "運営主体：{companyName}。プライバシーに関するお問い合わせは {contactEmail} までご連絡ください。提出前に運営主体とメールアドレスを正式な情報へ差し替えてください。" },
+      ],
+    },
+    terms: {
+      title: "ユーザー規約",
+      sections: [
+        { title: "1. サービス内容", body: "『{appName}』へようこそ。本ゲームは Canvas ベースの 2D 自動対戦体験を提供し、プレイヤーは両陣営の職業を選んで結果を観戦できます。" },
+        { title: "2. ユーザー行動", body: "適用される法令およびアプリストアのルールを遵守してください。本ゲームを妨害、リバース攻撃、チート配布、その他サービスの安定性を損なう行為に利用してはいけません。" },
+        { title: "3. 仮想コンテンツと有料機能の予約", body: "このビルドには実際の有料商品はありません。コード内の IAP 機能は将来拡張のための予約であり、このバージョンで課金は発生しません。将来有料コンテンツを提供する場合は、ストア表示と実際の購入フローが優先されます。" },
+        { title: "4. 免責事項", body: "ゲームは初期バージョンです。職業バランス、ビジュアル、プラットフォーム機能、内容は継続的に調整される場合があります。安定した体験に努めますが、すべての端末で完全に同一の動作を保証するものではありません。" },
+        { title: "5. 規約の更新", body: "規約またはプライバシーポリシーに重要な変更がある場合、ゲームは確認画面を再表示します。続けて利用する前に、更新後の条項を読み、同意する必要があります。" },
+      ],
+    },
+  },
+  result: { draw: "引き分け", winner: "{side}（{profession}）が勝利", winnerNoProfession: "{side} が勝利", again: "もう一戦", setup: "バトル設定", backMain: "メインメニューへ" },
+  scenes: {
+    classic: { name: "クラシック闘技場", description: "小さなマップで自動対戦" },
+    super: { name: "スーパー闘技場", description: "超能職業専用バトル" },
+    items: { name: "アイテムモード", description: "ランダムに武器を拾う" },
+    heroes: { name: "ヒーローモード", description: "HP と MP とスキルで戦うヒーローバトル" },
+  },
+  items: {
+    sword: { name: "刀" },
+    spear: { name: "槍" },
+    bow: { name: "弓" },
+    pistol: { name: "ピストル" },
+    rocket: { name: "ロケットランチャー" },
+    staff: { name: "杖" },
+    spells: { fire: "火球", ice: "氷柱", lightning: "雷撃" },
+  },
+  professions: {
+    bat: { name: "コウモリボール", skill: "牙の吸血", item: "闇翼の牙" },
+    venom: { name: "毒液ボール", skill: "毒針胞子", item: "猛毒の針" },
+    spider: { name: "クモボール", skill: "糸の結界", item: "蜘蛛糸ノード" },
+    lava: { name: "溶岩ボール", skill: "溶火の道", item: "溶岩コア" },
+    reaper: { name: "死神ボール", skill: "鎌刃の収穫", item: "終末の大鎌" },
+    frost: { name: "氷結ボール", skill: "氷輪凍結", item: "周回氷輪" },
+    yoyo: { name: "ヨーヨーボール", skill: "ピクセル回転", item: "ピクセルヨーヨー" },
+    summoner: { name: "召喚師", skill: "熊霊契約", item: "熊呼びトーテム" },
+    spear: { name: "長槍ボール", skill: "正面突き", item: "風切りの長槍" },
+    blade: { name: "大刀ボール", skill: "重斬り", item: "厚刃の大刀" },
+    shield: { name: "盾ボール", skill: "盾壁反撃", item: "守護の方盾" },
+    assassin: { name: "刺客ボール", skill: "双刀連斬", item: "影牙の双刀" },
+    archer: { name: "弓矢ボール", skill: "雲貫きの矢", item: "藤弦の短弓" },
+    chain: { name: "鎖球", skill: "鎖槌の大振り", item: "鉄星の鎖槌" },
+    mage: { name: "魔法師ボール", skill: "三相魔法", item: "三相の杖" },
+  },
+  heroes: {
+    demon: { name: "悪魔人", weapon: "影牙の双刀", skills: { dodge: "回避", manaBurn: "マナ燃焼" } },
+    dwarfKing: { name: "ドワーフ王", weapon: "雷鋳の戦槌", skills: { thunderHammer: "雷神の槌", groundSlam: "地面叩き" } },
+    minotaur: { name: "ミノタウロス", weapon: "戦争トーテム", skills: { warStomp: "戦争の踏みつけ", rebirth: "復生" } },
+    elfKing: { name: "エルフ王", weapon: "森の長弓", skills: { fireArrow: "火矢", forestBlessing: "森の祝福" } },
+    wukong: { name: "孫悟空", weapon: "如意棒", skills: { tripleStaff: "三面六臂", giantStaff: "法天象地" } },
+  },
+};
+
 export function getLocaleOptions() {
   return SUPPORTED_LOCALES.map((locale) => ({
     locale,
@@ -686,13 +986,11 @@ export function getLocaleOptions() {
 }
 
 export function normalizeLocale(locale) {
-  const primaryLocale = String(locale || "").toLowerCase().split(/[-_]/)[0];
-  return SUPPORTED_LOCALES.includes(primaryLocale) ? primaryLocale : FALLBACK_LOCALE;
+  return getCanonicalLocale(locale) ?? FALLBACK_LOCALE;
 }
 
 export function isSupportedLocale(locale) {
-  const primaryLocale = String(locale || "").toLowerCase().split(/[-_]/)[0];
-  return SUPPORTED_LOCALES.includes(primaryLocale);
+  return getCanonicalLocale(locale) !== null;
 }
 
 export function isRtlLocale(locale) {
@@ -763,6 +1061,57 @@ function interpolateDeep(value, replacements) {
     return Object.fromEntries(Object.entries(value).map(([key, nestedValue]) => [key, interpolateDeep(nestedValue, replacements)]));
   }
   return value;
+}
+
+function createTraditionalChineseTranslations(source) {
+  return mapTranslationText(source, toTraditionalChinese);
+}
+
+function mapTranslationText(value, transform) {
+  if (typeof value === "string") {
+    return transform(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => mapTranslationText(item, transform));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, nestedValue]) => [key, mapTranslationText(nestedValue, transform)]));
+  }
+  return value;
+}
+
+function toTraditionalChinese(text) {
+  return TRADITIONAL_CHINESE_REPLACEMENTS.reduce((current, [from, to]) => current.replaceAll(from, to), text);
+}
+
+function getCanonicalLocale(locale) {
+  const normalizedLocale = String(locale || "").trim().replace(/_/g, "-").toLowerCase();
+  if (!normalizedLocale) {
+    return null;
+  }
+
+  const directLocale = SUPPORTED_LOCALES.find((supportedLocale) => supportedLocale.toLowerCase() === normalizedLocale);
+  if (directLocale) {
+    return directLocale;
+  }
+
+  if (
+    normalizedLocale === "zh-hk" ||
+    normalizedLocale === "zh-mo" ||
+    normalizedLocale.startsWith("zh-tw-") ||
+    normalizedLocale.startsWith("zh-hk-") ||
+    normalizedLocale.startsWith("zh-mo-") ||
+    normalizedLocale.startsWith("zh-hant")
+  ) {
+    return "zh-TW";
+  }
+
+  if (normalizedLocale.startsWith("zh-hans")) {
+    return "zh";
+  }
+
+  const primaryLocale = normalizedLocale.split("-")[0];
+  return SUPPORTED_LOCALES.find((supportedLocale) => supportedLocale.toLowerCase() === primaryLocale) ?? null;
 }
 
 function getDefaultStorage() {

@@ -4,3 +4,18 @@ dist/
 release/
 .DS_Store
 npm-debug.log*
+
+# Android signing material must stay local or in CI secrets.
+android/local.properties
+android/keystore.properties
+android/keystores/
+*.jks
+*.keystore
+*.p12
+
+# iOS local signing/export artifacts.
+ios/release.xcconfig
+ios/exportOptions.plist
+ios/build/
+*.xcarchive
+*.ipa
