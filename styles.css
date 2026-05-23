@@ -26,7 +26,7 @@ body {
 body {
   position: fixed;
   inset: 0;
-  font-family: "Courier New", "Microsoft YaHei", monospace;
+  font-family: "Courier New", "Microsoft YaHei", "PingFang TC", "Hiragino Sans", "Noto Sans CJK JP", monospace;
 }
 
 canvas {

@@ -14,8 +14,11 @@ import {
 import { createMemoryStorage } from "../compliance-state.js";
 
 test("i18n exposes the requested locales and fallback behavior", () => {
-  assert.deepEqual(SUPPORTED_LOCALES, ["zh", "en", "fr", "de", "ar"]);
+  assert.deepEqual(SUPPORTED_LOCALES, ["zh", "zh-TW", "ja", "en", "fr", "de", "ar"]);
+  assert.equal(normalizeLocale("zh-Hant-TW"), "zh-TW");
+  assert.equal(normalizeLocale("zh-HK"), "zh-TW");
   assert.equal(normalizeLocale("en-US"), "en");
+  assert.equal(normalizeLocale("ja-JP"), "ja");
   assert.equal(normalizeLocale("fr-FR"), "fr");
   assert.equal(normalizeLocale("de-DE"), "de");
   assert.equal(normalizeLocale("ar-SA"), "ar");
@@ -65,22 +68,38 @@ test("localized legal documents interpolate store metadata", () => {
   assert.equal(document.sections.length > 0, true);
   assert.match(document.sections.at(-1).body, /Example Co\./);
   assert.match(document.sections.at(-1).body, /privacy@example\.com/);
+
+  const traditionalDocument = getLocalizedLegalDocument("zh-TW", "privacy", {
+    appName: "Arena",
+    companyName: "Example Co.",
+    contactEmail: "privacy@example.com",
+  });
+  assert.equal(traditionalDocument.title, "隱私政策");
+
+  const japaneseDocument = getLocalizedLegalDocument("ja-JP", "privacy", {
+    appName: "Arena",
+    companyName: "Example Co.",
+    contactEmail: "privacy@example.com",
+  });
+  assert.equal(japaneseDocument.title, "プライバシーポリシー");
 });
 
 test("locale persistence uses safe storage", () => {
   const storage = createMemoryStorage();
   assert.equal(saveLocale("de-DE", storage), "de");
   assert.equal(getInitialLocale(storage), "de");
+  assert.equal(saveLocale("zh-HK", storage), "zh-TW");
+  assert.equal(getInitialLocale(storage), "zh-TW");
 });
 
 test("browser locale detection skips unsupported languages", () => {
   const originalNavigator = globalThis.navigator;
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
-    value: { languages: ["es-ES", "fr-FR"] },
+    value: { languages: ["es-ES", "ja-JP", "fr-FR"] },
   });
 
-  assert.equal(getInitialLocale(createMemoryStorage()), "fr");
+  assert.equal(getInitialLocale(createMemoryStorage()), "ja");
 
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,

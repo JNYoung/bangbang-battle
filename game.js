@@ -3697,8 +3697,7 @@ function drawConsentScreen() {
   let y = panel.y + 28;
   drawPanelTitle(t("settings.languageTitle"), panel.x + 28, y, panel.width - 56);
   y += 36;
-  drawLanguageSelector(panel.x + 28, y, panel.width - 56);
-  y += 52;
+  y += drawLanguageSelector(panel.x + 28, y, panel.width - 56) + 18;
   drawPanelTitle(t("consent.title"), panel.x + 28, y, panel.width - 56);
   y += 46;
   y = drawWrappedText(
@@ -3866,8 +3865,7 @@ function drawSettingsScreen() {
   let y = panel.y + 28;
   drawPanelTitle(t("settings.languageTitle"), panel.x + 28, y, panel.width - 56);
   y += 36;
-  drawLanguageSelector(panel.x + 28, y, panel.width - 56);
-  y += 52;
+  y += drawLanguageSelector(panel.x + 28, y, panel.width - 56) + 18;
   drawPanelTitle(t("settings.legalTitle"), panel.x + 28, y, panel.width - 56);
   y += 42;
   y = drawWrappedText(
@@ -3988,14 +3986,22 @@ function drawResultOverlay() {
 function drawLanguageSelector(x, y, width) {
   const options = isRtlLocale(currentLocale) ? [...getLocaleOptions()].reverse() : getLocaleOptions();
   const gap = 8;
-  const buttonWidth = (width - gap * (options.length - 1)) / options.length;
+  const buttonHeight = 34;
+  const minButtonWidth = 66;
+  const columns = clamp(Math.floor((width + gap) / (minButtonWidth + gap)), 2, options.length);
+  const rows = Math.ceil(options.length / columns);
+  const buttonWidth = (width - gap * (columns - 1)) / columns;
 
   options.forEach((option, index) => {
-    drawButton(option.label, x + index * (buttonWidth + gap), y, buttonWidth, 34, () => setLocale(option.locale), {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    drawButton(option.label, x + column * (buttonWidth + gap), y + row * (buttonHeight + gap), buttonWidth, buttonHeight, () => setLocale(option.locale), {
       active: currentLocale === option.locale,
       id: `locale-${option.locale}`,
     });
   });
+
+  return rows * buttonHeight + Math.max(0, rows - 1) * gap;
 }
 
 function drawSetupSceneRow(x, y, width) {
@@ -6741,7 +6747,7 @@ function parseCssPixel(value) {
 }
 
 function canvasFont(size, weight = 700) {
-  return `${weight} ${size}px "Courier New", "Microsoft YaHei", monospace`;
+  return `${weight} ${size}px "Courier New", "Microsoft YaHei", "PingFang TC", "Hiragino Sans", "Noto Sans CJK JP", monospace`;
 }
 
 function getFittedFontSize(text, maxWidth, desiredSize, minSize, weight = 700) {
