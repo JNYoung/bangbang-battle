@@ -90,6 +90,46 @@ test("super arena selection uses only super arena professions", () => {
   });
 });
 
+test("hero mode selection uses only hero ids", () => {
+  assert.deepEqual(normalizeSelectedProfessions({ scene: "heroes", a: "spear", b: "mage", ballCount: 4 }), {
+    scene: "heroes",
+    a: "demon",
+    b: "dwarfKing",
+    ballCount: 4,
+  });
+
+  assert.deepEqual(normalizeSelectedProfessions({ scene: "heroes", a: "minotaur", b: "elfKing" }), {
+    scene: "heroes",
+    a: "minotaur",
+    b: "elfKing",
+    ballCount: 2,
+  });
+});
+
+test("item mode selection saves and restores without professions", () => {
+  assert.deepEqual(normalizeSelectedProfessions({ scene: "items", a: "spear", b: "venom", ballCount: 4 }), {
+    scene: "items",
+    a: null,
+    b: null,
+    ballCount: 4,
+  });
+
+  const storage = createMemoryStorage();
+  const state = createComplianceState({ storage });
+  assert.deepEqual(state.saveSelectedProfessions({ scene: "items", a: "blade", b: "frost" }), {
+    scene: "items",
+    a: null,
+    b: null,
+    ballCount: 2,
+  });
+  assert.deepEqual(createComplianceState({ storage }).getSelectedProfessions(), {
+    scene: "items",
+    a: null,
+    b: null,
+    ballCount: 2,
+  });
+});
+
 test("URL-style overrides take precedence over saved professions when valid", () => {
   const storage = createMemoryStorage();
   const state = createComplianceState({ storage });
@@ -101,5 +141,12 @@ test("URL-style overrides take precedence over saved professions when valid", ()
     a: "reaper",
     b: "venom",
     ballCount: 5,
+  });
+
+  assert.deepEqual(state.getSelectedProfessions({ scene: "items", a: "reaper" }), {
+    scene: "items",
+    a: null,
+    b: null,
+    ballCount: 4,
   });
 });

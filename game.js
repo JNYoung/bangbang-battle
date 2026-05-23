@@ -5,14 +5,25 @@ import {
   ATTACK_COOLDOWN_MULTIPLIER,
   BALL_RADIUS_MULTIPLIER,
   COLORS,
+  HERO_SCENE_ID,
+  HeroConfig,
+  ITEM_SCENE_ID,
+  ItemModeBallConfig,
+  ItemSpawnConfig,
+  ItemWeaponConfig,
   MAX_DELTA_TIME,
   MAX_DEVICE_PIXEL_RATIO,
   ProfessionConfig,
   SceneConfig,
   SIDE_VISUAL_CONFIG,
   getAttackAnimationConfig,
+  getItemInitialCount,
+  getItemMaxActiveCount,
+  getItemSpawnInterval,
   getSceneProfessionIds,
   getSpeedMultiplier,
+  isHeroScene,
+  isItemScene,
 } from "./game-config.js";
 import { LegalConfig, getLegalDocument } from "./legal-config.js";
 import { GamePlatform, initializePlatform } from "./platform.js";
@@ -53,6 +64,10 @@ const complianceState = createComplianceState();
 const sceneIds = Object.keys(SceneConfig);
 const ARENA_TERRAIN_TILE_SIZE = 40;
 const BACKDROP_TERRAIN_TILE_SIZE = 48;
+const PROFESSION_SCROLL_DRAG_THRESHOLD = 6;
+const DAMAGE_TEXT_DURATION = 0.86;
+const DAMAGE_TEXT_MERGE_WINDOW = 0.22;
+const SCENE_DROPDOWN_BREAKPOINT = 560;
 
 let balls = [];
 let gameOver = false;
@@ -72,12 +87,23 @@ let selectedProfessions = complianceState.getSelectedProfessions(getUrlProfessio
 let serviceMessage = "";
 let pointerDownElementId = null;
 let interactiveElements = [];
+let professionScrollOffset = 0;
+let professionScrollArea = null;
+let professionScrollPointer = null;
+let sceneDropdownOpen = false;
+let sceneDropdownLayout = null;
 let attackEffectInstances = [];
 let projectiles = [];
 let spellTrajectories = [];
 let arenaHazards = [];
 let webLinks = [];
 let flameTrails = [];
+let damageIndicators = [];
+let droppedItems = [];
+let itemExplosions = [];
+let heroEffectInstances = [];
+let nextItemSpawnTime = 0;
+let itemSpawnCounter = 0;
 let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
@@ -282,6 +308,113 @@ function createVoxelAssets() {
         {
           M: "#525660",
           N: "#b8bdc7",
+        },
+      ),
+      hammer: createVoxelSprite(
+        [
+          "........HHHHHHHH....",
+          ".......HHSSSSSSHH...",
+          "......HHSSSSSSSSHH..",
+          ".......HHSSSSSSHH...",
+          "........HHHHHHHH....",
+          "............WW......",
+          "...........WW.......",
+          "..........WW........",
+          ".........WW.........",
+          "........WW..........",
+          ".......WW...........",
+        ],
+        {
+          H: "#050711",
+          S: "#b8bdc7",
+          W: "#8d5a2e",
+        },
+      ),
+      totem: createVoxelSprite(
+        [
+          "......BBBBBB......",
+          ".....BWWWWWWB.....",
+          ".....BWRRYYWB.....",
+          ".....BWYYYYWB.....",
+          ".....BWRRYYWB.....",
+          ".....BWWWWWWB.....",
+          "......BBBBBB......",
+          "........WW........",
+          "........WW........",
+          "........WW........",
+          "........WW........",
+        ],
+        {
+          B: "#050711",
+          W: "#8d5a2e",
+          R: "#7c2d12",
+          Y: "#facc15",
+        },
+      ),
+      pistol: createVoxelSprite(
+        [
+          "................",
+          "..BBBBBBBBB.....",
+          ".BSSSSSSSSB.....",
+          ".BSSBBBBBBBTT...",
+          "..BBB....BBTT...",
+          ".........BB.....",
+          "........BBS.....",
+          ".......BBS......",
+          "......BBS.......",
+        ],
+        {
+          B: "#050711",
+          S: "#b8bdc7",
+          T: "#ffe66d",
+        },
+      ),
+      rocketLauncher: createVoxelSprite(
+        [
+          "....................",
+          "..GGGGGGGGGGGGG.....",
+          ".GBBBBBBBBBBBBGTT...",
+          "GBBSSSSSSSSSSBBTTT..",
+          ".GBBBBBBBBBBBBGTT...",
+          "..GGGGGGGGGGGGG.....",
+          "......HHHH..........",
+          ".....HHHH...........",
+          "....HHHH............",
+        ],
+        {
+          G: "#3f6b31",
+          B: "#050711",
+          S: "#8a9a87",
+          T: "#ff6b24",
+          H: "#6b4326",
+        },
+      ),
+      bullet: createVoxelSprite(
+        [
+          "YYYY",
+          "YWWY",
+          "YYYY",
+        ],
+        {
+          Y: "#ffe66d",
+          W: "#fff6d6",
+        },
+      ),
+      rocket: createVoxelSprite(
+        [
+          "............RR",
+          "..........RRRO",
+          "GGGGGGGGGRRROO",
+          "GBBBBBBBBRRROO",
+          "GGGGGGGGGRRROO",
+          "..........RRRO",
+          "............RR",
+        ],
+        {
+          G: "#5f963c",
+          B: "#050711",
+          R: "#d8e0e5",
+          O: "#ff6b24",
         },
       ),
     },
@@ -507,15 +640,19 @@ function terrainNoise(seed, column, row, salt = 0) {
 }
 
 class Ball {
-  constructor({ label, profession, x, y, direction }) {
+  constructor({ label, profession, x, y, direction, config = null }) {
     this.label = label;
     this.profession = profession;
-    this.config = ProfessionConfig[profession];
+    this.config = config || getCombatantConfig(profession);
+    this.isHero = isHeroId(profession);
     this.position = { x, y };
     this.velocity = scale(normalize(direction), this.config.moveSpeed);
     this.radius = this.config.radius * BALL_RADIUS_MULTIPLIER;
     this.hp = this.config.maxHp;
     this.maxHp = this.config.maxHp;
+    this.mp = this.config.maxMp || 0;
+    this.maxMp = this.config.maxMp || 0;
+    this.manaRegen = this.config.manaRegen || 0;
     this.attackDamage = this.config.attackDamage;
     this.attackCooldown = this.config.attackCooldown * ATTACK_COOLDOWN_MULTIPLIER;
     this.weaponRange = this.config.weaponRange;
@@ -531,6 +668,8 @@ class Ball {
     this.frozenUntil = 0;
     this.poisonUntil = 0;
     this.poisonDamagePerSecond = 0;
+    this.slowUntil = 0;
+    this.slowMultiplier = 1;
     this.lastCollisionAbilityTime = -Infinity;
     this.lastHazardHitTime = -Infinity;
     this.lastWebHitTime = -Infinity;
@@ -539,12 +678,16 @@ class Ball {
     this.lastFlameDropTime = -Infinity;
     this.wallCollisionCount = 0;
     this.pendingWebNode = null;
+    this.equippedItem = null;
+    this.heroSkillCooldowns = {};
+    this.rebirthUsed = false;
     this.chainWeaponState = createChainWeaponState(this);
     this.frostOrbitState = createFrostOrbitState(this);
     this.cosmeticState = createCosmeticState();
   }
 
   update(deltaTime, currentTime) {
+    regenerateHeroMana(this, deltaTime);
     this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this));
     if (!isBallFrozen(this, currentTime)) {
       this.position.x += this.velocity.x * deltaTime;
@@ -585,11 +728,15 @@ class Ball {
   }
 
   canAttack(currentTime) {
+    if (isCurrentItemMode() && !this.equippedItem) {
+      return false;
+    }
+
     return (
       this.hp > 0 &&
       !this.attackState &&
       !isBallControlLocked(this, currentTime) &&
-      currentTime - this.lastAttackTime >= this.attackCooldown
+      currentTime - this.lastAttackTime >= getBallAttackCooldown(this)
     );
   }
 
@@ -598,8 +745,11 @@ class Ball {
       return false;
     }
 
-    const attackConfig = getAttackAnimationConfig(this.profession);
-    const variant = this.config.getAttackVariant?.(this, defender, currentTime) || null;
+    const itemWeapon = getEquippedItemWeapon(this);
+    const variant = itemWeapon
+      ? getItemAttackVariant(itemWeapon, this, defender, currentTime)
+      : getHeroAttackVariant(this, defender, currentTime) || this.config.getAttackVariant?.(this, defender, currentTime) || null;
+    const attackConfig = itemWeapon ? getItemAttackAnimationConfig(itemWeapon) : getBallAttackAnimationConfig(this);
     const direction = getAttackDirection(this, defender, variant);
     this.attackState = {
       defender,
@@ -608,9 +758,13 @@ class Ball {
       hitFrame: attackConfig.hitFrame,
       direction,
       variant,
+      itemWeaponId: itemWeapon?.id || null,
       didDealDamage: false,
     };
     this.lastAttackTime = currentTime;
+    if (itemWeapon) {
+      consumeEquippedItemDurability(this);
+    }
     return true;
   }
 
@@ -619,11 +773,15 @@ class Ball {
       return 0;
     }
 
-    const damage = this.config.getDamage(this, defender, normalFromAttackerToDefender, attackVariant);
+    const damage = attackVariant?.damage || this.config.getDamage(this, defender, normalFromAttackerToDefender, attackVariant);
     return damageBall(defender, damage);
   }
 
   isSkillHit(defender, normalFromAttackerToDefender, damage, attackVariant = null) {
+    if (this.attackState?.itemWeaponId || attackVariant?.itemWeaponId) {
+      return Boolean(attackVariant?.castType || attackVariant?.isSkillHit);
+    }
+
     return this.config.isSkillHit(this, defender, normalFromAttackerToDefender, damage, attackVariant);
   }
 
@@ -645,10 +803,21 @@ class Ball {
     ctx.strokeText(hpText, this.position.x, this.position.y);
     ctx.fillText(hpText, this.position.x, this.position.y);
     ctx.restore();
+
+    if (this.equippedItem) {
+      drawEquippedItemDurability(ctx, this);
+    }
+    if (this.maxMp > 0) {
+      drawHeroManaBar(ctx, this);
+    }
   }
 }
 
 function createInitialBalls() {
+  if (isCurrentItemMode()) {
+    return createInitialItemModeBalls();
+  }
+
   return [
     new Ball({
       label: "A",
@@ -667,6 +836,39 @@ function createInitialBalls() {
   ];
 }
 
+function createInitialItemModeBalls() {
+  const ballCount = selectedProfessions.ballCount || 2;
+  return Array.from({ length: ballCount }, (_, index) => {
+    const slot = getItemModeBallStart(index, ballCount);
+    return new Ball({
+      label: getBallLabel(index),
+      profession: null,
+      config: ItemModeBallConfig,
+      x: slot.x,
+      y: slot.y,
+      direction: slot.direction,
+    });
+  });
+}
+
+function getItemModeBallStart(index, ballCount) {
+  const angle = -Math.PI / 2 + (index * Math.PI * 2) / ballCount;
+  const spawnRadius = ballCount <= 2 ? 285 : 255;
+  const x = ARENA_SIZE / 2 + Math.cos(angle) * spawnRadius;
+  const y = ARENA_SIZE / 2 + Math.sin(angle) * spawnRadius;
+  const tangent = vectorFromAngle(angle + Math.PI / 2);
+  const inward = normalize(subtract({ x: ARENA_SIZE / 2, y: ARENA_SIZE / 2 }, { x, y }));
+  return {
+    x,
+    y,
+    direction: normalize(add(inward, scale(tangent, index % 2 === 0 ? 0.32 : -0.32))),
+  };
+}
+
+function getBallLabel(index) {
+  return String.fromCharCode("A".charCodeAt(0) + index);
+}
+
 function getUrlProfessionOverrides() {
   const params = new URLSearchParams(window.location.search);
   return {
@@ -680,6 +882,36 @@ function getActiveProfessionIds() {
   return getSceneProfessionIds(selectedProfessions.scene);
 }
 
+function isCurrentItemMode() {
+  return isItemScene(selectedProfessions.scene);
+}
+
+function isCurrentHeroMode() {
+  return isHeroScene(selectedProfessions.scene);
+}
+
+function isHeroId(id) {
+  return Object.hasOwn(HeroConfig, id);
+}
+
+function getCombatantConfig(id) {
+  return HeroConfig[id] || ProfessionConfig[id] || null;
+}
+
+function resetProfessionScroll() {
+  professionScrollOffset = 0;
+  professionScrollPointer = null;
+}
+
+function setActiveProfessionSide(side) {
+  if (activeProfessionSide === side) {
+    return;
+  }
+
+  activeProfessionSide = side;
+  resetProfessionScroll();
+}
+
 function setSelectedScene(sceneId) {
   selectedProfessions = normalizeSelectedProfessions(
     {
@@ -689,6 +921,8 @@ function setSelectedScene(sceneId) {
     ProfessionConfig,
   );
   activeProfessionSide = "a";
+  resetProfessionScroll();
+  sceneDropdownOpen = false;
   serviceMessage = t("messages.selectedScene", { scene: getSceneName(selectedProfessions.scene) });
 }
 
@@ -724,11 +958,23 @@ function applyLocaleToDocument() {
 }
 
 function getProfessionName(professionId) {
+  if (isHeroId(professionId)) {
+    return t(HeroConfig[professionId].nameKey);
+  }
+
   return t(`professions.${professionId}.name`) || ProfessionConfig[professionId]?.name || professionId;
 }
 
 function getSideLabel(side) {
-  return side === "a" || side === "A" ? t("side.a") : t("side.b");
+  if (side === "a" || side === "A") {
+    return t("side.a");
+  }
+  if (side === "b" || side === "B") {
+    return t("side.b");
+  }
+
+  const label = String(side).toUpperCase();
+  return currentLocale === "zh-CN" ? `球 ${label}` : `Ball ${label}`;
 }
 
 function getTextAlignStart() {
@@ -779,6 +1025,11 @@ function setScreen(nextScreen) {
   screen = nextScreen;
   pointerDownElementId = null;
   legalScrollOffset = 0;
+  sceneDropdownOpen = false;
+  sceneDropdownLayout = null;
+  if (nextScreen !== Screen.PROFESSION_SELECT) {
+    resetProfessionScroll();
+  }
 }
 
 function openLegalDocument(type, returnScreen = screen) {
@@ -801,6 +1052,8 @@ function acceptLegalAndEnterMenu() {
 function openMatchSetup() {
   activeProfessionSide = "a";
   serviceMessage = "";
+  resetProfessionScroll();
+  sceneDropdownOpen = false;
   setScreen(Screen.PROFESSION_SELECT);
 }
 
@@ -820,10 +1073,19 @@ function restartGame() {
   arenaHazards = [];
   webLinks = [];
   flameTrails = [];
+  damageIndicators = [];
+  droppedItems = [];
+  itemExplosions = [];
+  heroEffectInstances = [];
+  itemSpawnCounter = 0;
+  nextItemSpawnTime = 0;
   gameOver = false;
   resultMessage = "";
   matchElapsedTimeSeconds = 0;
   lastFrameTime = performance.now();
+  if (isCurrentItemMode()) {
+    spawnInitialItems(lastFrameTime / 1000);
+  }
   GamePlatform.setLoadingProgress(100);
 }
 
@@ -835,6 +1097,12 @@ function returnToMenu() {
   arenaHazards = [];
   webLinks = [];
   flameTrails = [];
+  damageIndicators = [];
+  droppedItems = [];
+  itemExplosions = [];
+  heroEffectInstances = [];
+  nextItemSpawnTime = 0;
+  itemSpawnCounter = 0;
   gameOver = false;
   resultMessage = "";
   setScreen(Screen.MAIN_MENU);
@@ -957,32 +1225,528 @@ function gameLoop(timestamp) {
     update(deltaTime, elapsedTimeSeconds);
   }
 
+  damageIndicators = updateDamageIndicators(damageIndicators, elapsedTimeSeconds);
   draw();
   requestAnimationFrame(gameLoop);
 }
 
 function update(deltaTime, currentTime) {
-  balls.forEach((ball) => ball.update(deltaTime, currentTime));
+  balls.forEach((ball) => {
+    if (ball.hp > 0) {
+      ball.update(deltaTime, currentTime);
+    }
+  });
+  if (isCurrentItemMode()) {
+    updateItemMode(deltaTime, currentTime);
+  }
+  if (isCurrentHeroMode()) {
+    updateHeroMode(currentTime);
+  }
   updateStatusEffects(deltaTime, currentTime);
   attackEffectInstances = updateAttackEffectInstances(attackEffectInstances, currentTime);
   spellTrajectories = updateSpellTrajectories(currentTime);
   arenaHazards = arenaHazards.filter((hazard) => hazard.expiresAt > currentTime);
   webLinks = webLinks.filter((web) => web.expiresAt > currentTime);
   flameTrails = flameTrails.filter((flame) => flame.expiresAt > currentTime);
-  resolveBallCollision(balls[0], balls[1], currentTime);
+  itemExplosions = itemExplosions.filter((explosion) => explosion.expiresAt > currentTime);
+  heroEffectInstances = updateHeroEffectInstances(heroEffectInstances, currentTime);
+  forEachAliveBallPair((ballA, ballB) => {
+    resolveBallCollision(ballA, ballB, currentTime);
+  });
   updateEnvironmentalHazards(currentTime);
   updateProjectiles(deltaTime, currentTime);
-  updateChainWeapon(balls[0], deltaTime);
-  updateChainWeapon(balls[1], deltaTime);
-  updateChainWeaponForPair(balls[0], balls[1], currentTime);
-  updateChainWeaponForPair(balls[1], balls[0], currentTime);
-  updateFrostOrbit(balls[0], deltaTime);
-  updateFrostOrbit(balls[1], deltaTime);
-  updateFrostOrbitForPair(balls[0], balls[1], currentTime);
-  updateFrostOrbitForPair(balls[1], balls[0], currentTime);
-  updateAttackForPair(balls[0], balls[1], currentTime);
-  updateAttackForPair(balls[1], balls[0], currentTime);
+  for (const ball of balls) {
+    if (ball.hp > 0) {
+      updateChainWeapon(ball, deltaTime);
+      updateFrostOrbit(ball, deltaTime);
+    }
+  }
+  forEachOrderedAliveBallPair((attacker, defender) => {
+    updateChainWeaponForPair(attacker, defender, currentTime);
+    updateFrostOrbitForPair(attacker, defender, currentTime);
+    updateAttackForPair(attacker, defender, currentTime);
+  });
   checkGameOver();
+}
+
+function forEachAliveBallPair(callback) {
+  for (let aIndex = 0; aIndex < balls.length; aIndex += 1) {
+    const ballA = balls[aIndex];
+    if (ballA.hp <= 0) {
+      continue;
+    }
+
+    for (let bIndex = aIndex + 1; bIndex < balls.length; bIndex += 1) {
+      const ballB = balls[bIndex];
+      if (ballB.hp > 0) {
+        callback(ballA, ballB);
+      }
+    }
+  }
+}
+
+function forEachOrderedAliveBallPair(callback) {
+  for (const attacker of balls) {
+    if (attacker.hp <= 0) {
+      continue;
+    }
+
+    for (const defender of balls) {
+      if (defender !== attacker && defender.hp > 0) {
+        callback(attacker, defender);
+      }
+    }
+  }
+}
+
+function updateDamageIndicators(indicators, currentTime) {
+  return indicators.filter((indicator) => indicator.expiresAt > currentTime);
+}
+
+function updateHeroMode(currentTime) {
+  for (const hero of balls) {
+    useHeroAutoSkills(hero, currentTime);
+  }
+}
+
+function useHeroAutoSkills(hero, currentTime) {
+  if (!hero.isHero || hero.hp <= 0 || isBallControlLocked(hero, currentTime)) {
+    return false;
+  }
+
+  const skills = [...(hero.config.skills || [])].sort(getHeroAutoSkillPriority);
+  for (const skill of skills) {
+    const handler = getHeroAutoSkillHandler(skill);
+    if (handler && handler(hero, skill, currentTime)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getHeroAutoSkillPriority(skillA, skillB) {
+  return (skillA.autoPriority ?? 99) - (skillB.autoPriority ?? 99);
+}
+
+function getHeroAutoSkillHandler(skill) {
+  if (skill.type === "aoeBurn") {
+    return useHeroManaBurn;
+  }
+
+  if (skill.type === "homingProjectile") {
+    return useHeroThunderHammer;
+  }
+
+  if (skill.type === "groundSlam" || skill.type === "warStomp") {
+    return useHeroAreaControlSkill;
+  }
+
+  if (skill.type === "heal") {
+    return useHeroForestBlessing;
+  }
+
+  return null;
+}
+
+function regenerateHeroMana(ball, deltaTime) {
+  if (!ball.maxMp || ball.hp <= 0) {
+    return;
+  }
+
+  ball.mp = Math.min(ball.maxMp, ball.mp + ball.manaRegen * deltaTime);
+}
+
+function useHeroManaBurn(hero, skill, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const targets = getHeroSkillTargetsInRange(hero, skill);
+  if (targets.length === 0) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  for (const enemy of targets) {
+    const manaBurned = drainMana(enemy, skill.manaDamage);
+    const variant = createHeroSkillVariant(hero, skill, {
+      damage: skill.damage + Math.floor(manaBurned * 0.25),
+      knockbackMultiplier: skill.knockbackMultiplier,
+    });
+    resolveAttackHit(hero, enemy, getDirectionBetween(hero, enemy), currentTime, variant);
+  }
+  pushHeroEffect("manaBurn", hero.position, skill.range, currentTime, hero.visual.accentColor);
+  return true;
+}
+
+function useHeroThunderHammer(hero, skill, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestAliveOpponent(hero);
+  if (!enemy) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  const direction = getProjectileAimDirection(hero, enemy, skill.speed);
+  const position = add(hero.position, scale(direction, hero.radius + skill.spawnOffset));
+  projectiles.push({
+    owner: hero,
+    target: enemy,
+    kind: "thunderHammer",
+    position,
+    previousPosition: { ...position },
+    direction,
+    speed: skill.speed,
+    headRadius: skill.headRadius,
+    collisionRadius: skill.headRadius,
+    shaftLength: skill.shaftLength,
+    shaftRadius: 12,
+    color: "#fde68a",
+    darkColor: "#050711",
+    featherColor: hero.visual.color,
+    homingStrength: 0.12,
+    variant: createHeroSkillVariant(hero, skill, {
+      damage: skill.damage,
+      stunDuration: skill.stunDuration,
+      knockbackMultiplier: skill.knockbackMultiplier,
+    }),
+  });
+  pushHeroEffect("cast", hero.position, 90, currentTime, skill.color || hero.visual.accentColor);
+  return true;
+}
+
+function useHeroAreaControlSkill(hero, skill, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const targets = getHeroSkillTargetsInRange(hero, skill);
+  if (targets.length === 0) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  for (const enemy of targets) {
+    const normal = getDirectionBetween(hero, enemy);
+    const variant = createHeroSkillVariant(hero, skill, {
+      damage: skill.damage,
+      slowMultiplier: skill.slowMultiplier,
+      slowDuration: skill.slowDuration,
+      stunDuration: skill.stunDuration,
+      knockbackMultiplier: skill.knockbackMultiplier,
+    });
+    resolveAttackHit(hero, enemy, normal, currentTime, variant);
+  }
+  pushHeroEffect(skill.type, hero.position, skill.range, currentTime, getHeroSkillEffectColor(hero, skill));
+  return true;
+}
+
+function getHeroSkillEffectColor(hero, skill) {
+  if (skill.color) {
+    return skill.color;
+  }
+
+  if (skill.type === "groundSlam") {
+    return "#fde68a";
+  }
+
+  if (skill.type === "warStomp") {
+    return "#facc15";
+  }
+
+  return hero.visual.accentColor;
+}
+
+function useHeroForestBlessing(hero, skill, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  if (hero.hp / hero.maxHp > skill.triggerHpRatio) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  healBall(hero, skill.heal);
+  pushHeroEffect("heal", hero.position, 92, currentTime, "#bbf7d0");
+  return true;
+}
+
+function getHeroSkillTargetsInRange(hero, skill) {
+  return getAliveOpponents(hero)
+    .filter((enemy) => isInHeroSkillRange(hero, enemy, skill.range))
+    .sort((enemyA, enemyB) => {
+      return length(subtract(enemyA.position, hero.position)) - length(subtract(enemyB.position, hero.position));
+    });
+}
+
+function getAliveOpponents(ball) {
+  return balls.filter((candidate) => candidate !== ball && candidate.hp > 0);
+}
+
+function isInHeroSkillRange(hero, enemy, range) {
+  return Number.isFinite(range) && length(subtract(enemy.position, hero.position)) <= range + hero.radius + enemy.radius;
+}
+
+function getHeroSkill(hero, skillId) {
+  return hero.config.skills?.find((skill) => skill.id === skillId) || null;
+}
+
+function canUseHeroSkill(hero, skill, currentTime) {
+  if (hero.mp < skill.manaCost) {
+    return false;
+  }
+
+  const lastUsedAt = hero.heroSkillCooldowns[skill.id] ?? -Infinity;
+  return currentTime - lastUsedAt >= skill.cooldown;
+}
+
+function spendHeroSkill(hero, skill, currentTime) {
+  hero.mp = Math.max(0, hero.mp - skill.manaCost);
+  hero.heroSkillCooldowns[skill.id] = currentTime;
+}
+
+function createHeroSkillVariant(hero, skill, extra = {}) {
+  return {
+    heroSkillId: skill.id,
+    heroId: hero.profession,
+    isSkillHit: true,
+    ...skill,
+    ...extra,
+  };
+}
+
+function drainMana(ball, amount) {
+  if (!ball.maxMp || amount <= 0) {
+    return 0;
+  }
+
+  const drained = Math.min(ball.mp, amount);
+  ball.mp = Math.max(0, ball.mp - drained);
+  return drained;
+}
+
+function applySlow(ball, slowMultiplier, slowDuration, currentTime) {
+  ball.slowMultiplier = Math.min(ball.slowMultiplier, slowMultiplier);
+  ball.slowUntil = Math.max(ball.slowUntil, currentTime + slowDuration);
+  keepSpeed(ball);
+}
+
+function pushHeroEffect(type, position, radius, currentTime, color) {
+  heroEffectInstances.push({
+    type,
+    position: { ...position },
+    radius,
+    color,
+    createdAt: currentTime,
+    expiresAt: currentTime + 0.55,
+  });
+}
+
+function updateHeroEffectInstances(effects, currentTime) {
+  return effects.filter((effect) => effect.expiresAt > currentTime);
+}
+
+function updateItemMode(deltaTime, currentTime) {
+  const maxActiveItems = getItemMaxActiveCount(selectedProfessions.ballCount);
+  if (droppedItems.length < maxActiveItems && currentTime >= nextItemSpawnTime) {
+    spawnDroppedItem(currentTime);
+  }
+
+  resolveItemPickups(currentTime);
+}
+
+function spawnInitialItems(currentTime) {
+  droppedItems = [];
+  const initialItemCount = getItemInitialCount(selectedProfessions.ballCount);
+  for (let index = 0; index < initialItemCount; index += 1) {
+    spawnDroppedItem(currentTime, index);
+  }
+  nextItemSpawnTime = currentTime + getItemSpawnInterval(selectedProfessions.ballCount);
+}
+
+function spawnDroppedItem(currentTime, forcedOffset = 0) {
+  const weaponIds = Object.keys(ItemWeaponConfig);
+  if (weaponIds.length === 0 || droppedItems.length >= getItemMaxActiveCount(selectedProfessions.ballCount)) {
+    return;
+  }
+
+  const spawnIndex = itemSpawnCounter + forcedOffset;
+  const weaponNoise = terrainNoise(terrainState.seed, spawnIndex + 17, droppedItems.length + 23, 733);
+  const weaponId = weaponIds[Math.floor(weaponNoise * weaponIds.length) % weaponIds.length];
+  const position = createItemSpawnPosition(spawnIndex);
+
+  droppedItems.push({
+    id: `item-${itemSpawnCounter}`,
+    weaponId,
+    position,
+    spawnedAt: currentTime,
+  });
+  itemSpawnCounter += 1;
+  nextItemSpawnTime = currentTime + getItemSpawnInterval(selectedProfessions.ballCount);
+}
+
+function createItemSpawnPosition(spawnIndex) {
+  const padding = ItemSpawnConfig.edgePadding;
+  const span = ARENA_SIZE - padding * 2;
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const x = padding + terrainNoise(terrainState.seed, spawnIndex, attempt, 811) * span;
+    const y = padding + terrainNoise(terrainState.seed, spawnIndex, attempt, 823) * span;
+    const position = { x, y };
+    const tooCloseToBall = balls.some((ball) => {
+      return ball.hp > 0 && length(subtract(ball.position, position)) < ItemSpawnConfig.avoidBallRadius;
+    });
+    if (!tooCloseToBall) {
+      return position;
+    }
+  }
+
+  return {
+    x: padding + terrainNoise(terrainState.seed, spawnIndex, 0, 839) * span,
+    y: padding + terrainNoise(terrainState.seed, spawnIndex, 0, 853) * span,
+  };
+}
+
+function resolveItemPickups(currentTime) {
+  droppedItems = droppedItems.filter((item) => {
+    const picker = balls.find((ball) => {
+      return ball.hp > 0 && length(subtract(ball.position, item.position)) <= ball.radius + ItemSpawnConfig.pickupRadius;
+    });
+
+    if (!picker) {
+      return true;
+    }
+
+    equipItemWeapon(picker, item.weaponId, currentTime);
+    return false;
+  });
+}
+
+function equipItemWeapon(ball, weaponId, currentTime) {
+  const weapon = ItemWeaponConfig[weaponId];
+  if (!weapon) {
+    return;
+  }
+
+  ball.attackState = null;
+  ball.equippedItem = {
+    weaponId,
+    durability: weapon.durability,
+    pickedAt: currentTime,
+  };
+  ball.lastAttackTime = Math.min(ball.lastAttackTime, currentTime - weapon.cooldown * 0.5);
+}
+
+function consumeEquippedItemDurability(ball) {
+  if (!ball.equippedItem) {
+    return;
+  }
+
+  ball.equippedItem.durability -= 1;
+  if (ball.equippedItem.durability <= 0) {
+    ball.equippedItem = null;
+  }
+}
+
+function getEquippedItemWeapon(ball) {
+  return ball.equippedItem ? ItemWeaponConfig[ball.equippedItem.weaponId] || null : null;
+}
+
+function getActiveItemWeaponId(ball) {
+  return ball.attackState?.itemWeaponId || ball.equippedItem?.weaponId || null;
+}
+
+function getActiveItemWeapon(ball) {
+  const weaponId = getActiveItemWeaponId(ball);
+  return weaponId ? ItemWeaponConfig[weaponId] || null : null;
+}
+
+function getBallAttackCooldown(ball) {
+  return getEquippedItemWeapon(ball)?.cooldown || ball.attackCooldown;
+}
+
+function getBallWeaponRange(ball) {
+  return getEquippedItemWeapon(ball)?.range ?? ball.weaponRange;
+}
+
+function getBallAttackAnimationConfig(ball) {
+  if (!ball.isHero) {
+    return getAttackAnimationConfig(ball.profession);
+  }
+
+  if (ball.config.attackMode === "projectile") {
+    return getAttackAnimationConfig("archer");
+  }
+
+  if (ball.config.attackMode === "dualBlade") {
+    return getAttackAnimationConfig("assassin");
+  }
+
+  if (ball.config.attackMode === "hammer" || ball.config.attackMode === "cone") {
+    return getAttackAnimationConfig("blade");
+  }
+
+  return getAttackAnimationConfig("default");
+}
+
+function getItemAttackAnimationConfig(weapon) {
+  return {
+    duration: weapon.duration || ATTACK_ANIMATION_CONFIG.default.duration,
+    hitFrame: weapon.hitFrame || ATTACK_ANIMATION_CONFIG.default.hitFrame,
+  };
+}
+
+function getItemAttackVariant(weapon, attacker, defender, currentTime) {
+  if (weapon.kind !== "spell") {
+    return {
+      ...weapon,
+      itemWeaponId: weapon.id,
+      damage: weapon.damage,
+    };
+  }
+
+  const spells = weapon.spellBook || [];
+  const seed = Math.sin((currentTime + attacker.position.x * 0.13 + defender.position.y * 0.17) * 97.3) * 10000;
+  const spell = spells[Math.abs(Math.floor(seed)) % spells.length] || null;
+  return spell
+    ? {
+        ...spell,
+        itemWeaponId: weapon.id,
+        sourceWeaponId: weapon.id,
+      }
+    : {
+        ...weapon,
+        itemWeaponId: weapon.id,
+    };
+}
+
+function getHeroAttackVariant(attacker, defender, currentTime) {
+  if (attacker.profession !== "elfKing") {
+    return null;
+  }
+
+  const skill = getHeroSkill(attacker, "fireArrow");
+  if (!skill || !canUseHeroSkill(attacker, skill, currentTime)) {
+    return null;
+  }
+
+  spendHeroSkill(attacker, skill, currentTime);
+  return createHeroSkillVariant(attacker, skill, {
+    id: "fire",
+    damage: skill.damage,
+    castType: "projectile",
+    speed: skill.speed,
+    headRadius: skill.headRadius,
+    shaftLength: skill.shaftLength,
+    spawnOffset: skill.spawnOffset,
+    color: skill.color,
+    knockbackMultiplier: skill.knockbackMultiplier,
+  });
 }
 
 function resolveBallCollision(ballA, ballB, currentTime) {
@@ -1013,7 +1777,14 @@ function updateAttackForPair(attacker, defender, currentTime) {
 
   updateAttackState(attacker, currentTime);
 
-  const canStartAttack = attacker.config.attackMode === "projectile" || isInAttackRange(attacker, defender);
+  const equippedWeapon = getEquippedItemWeapon(attacker);
+  const canStartAttack =
+    equippedWeapon?.kind === "projectile" ||
+    equippedWeapon?.kind === "rocket" ||
+    (equippedWeapon?.kind === "spell" && isInAttackRange(attacker, defender)) ||
+    attacker.config.attackMode === "projectile" ||
+    (attacker.config.attackMode === "cone" && isInHeroConeRange(attacker, defender)) ||
+    isInAttackRange(attacker, defender);
   if (!attacker.attackState && canStartAttack) {
     attacker.startAttack(defender, currentTime);
   }
@@ -1033,7 +1804,9 @@ function updateAttackState(attacker, currentTime) {
 
   const progress = getAttackProgressFromState(attackState, currentTime);
 
-  if (attacker.config.attackMode === "projectile") {
+  if (attackState.itemWeaponId) {
+    updateItemAttackState(attacker, currentTime, progress);
+  } else if (attacker.config.attackMode === "projectile") {
     if (!attackState.didFireProjectile && progress >= attackState.hitFrame) {
       attackState.didFireProjectile = true;
       attackState.didDealDamage = true;
@@ -1054,6 +1827,11 @@ function updateAttackState(attacker, currentTime) {
         resolveAttackHit(attacker, defender, hit.normal, currentTime);
       }
     }
+  } else if (attacker.config.attackMode === "cone") {
+    if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
+      attackState.didDealDamage = true;
+      resolveHeroConeAttack(attacker, attackState.defender, currentTime);
+    }
   } else if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
     const defender = attackState.defender;
     const normal = normalize(attackState.direction);
@@ -1066,19 +1844,51 @@ function updateAttackState(attacker, currentTime) {
   }
 }
 
+function updateItemAttackState(attacker, currentTime, progress) {
+  const attackState = attacker.attackState;
+  const weapon = ItemWeaponConfig[attackState.itemWeaponId];
+  const defender = attackState.defender;
+
+  if (!weapon) {
+    attackState.didDealDamage = true;
+    return;
+  }
+
+  if ((weapon.kind === "projectile" || weapon.kind === "rocket") && !attackState.didFireProjectile && progress >= attackState.hitFrame) {
+    attackState.didFireProjectile = true;
+    attackState.didDealDamage = true;
+    fireItemProjectile(attacker, defender, weapon, currentTime, attackState.variant);
+    return;
+  }
+
+  if (weapon.kind === "spell" && !attackState.didCastSpell && progress >= attackState.hitFrame) {
+    attackState.didCastSpell = true;
+    attackState.didDealDamage = true;
+    castItemSpell(attacker, defender, weapon, currentTime, attackState.variant);
+    return;
+  }
+
+  if (weapon.kind === "melee" && !attackState.didDealDamage && progress >= attackState.hitFrame) {
+    const normal = normalize(attackState.direction);
+    attackState.didDealDamage = true;
+    resolveAttackHit(attacker, defender, normal, currentTime, attackState.variant);
+  }
+}
+
 function fireProjectile(attacker, defender, currentTime) {
   if (attacker.hp <= 0 || defender.hp <= 0 || !attacker.config.projectileWeapon) {
     return;
   }
 
-  const weapon = attacker.config.projectileWeapon;
+  const variant = attacker.attackState?.variant;
+  const weapon = variant?.heroSkillId === "fireArrow" ? variant : attacker.config.projectileWeapon;
   const direction = getProjectileAimDirection(attacker, defender, weapon.speed);
   const position = add(attacker.position, scale(direction, attacker.radius + weapon.spawnOffset));
   attacker.attackState.direction = direction;
   attacker.lastAttackTime = currentTime;
   projectiles.push({
     owner: attacker,
-    kind: "arrow",
+    kind: variant?.heroSkillId === "fireArrow" ? "fire" : "arrow",
     position,
     previousPosition: { ...position },
     direction,
@@ -1087,11 +1897,52 @@ function fireProjectile(attacker, defender, currentTime) {
     collisionRadius: weapon.headRadius,
     shaftLength: weapon.shaftLength,
     shaftRadius: 3,
-    color: attacker.visual.accentColor,
+    color: variant?.color || attacker.visual.accentColor,
     darkColor: "#050711",
     featherColor: attacker.visual.color,
-    variant: null,
+    variant: variant || null,
   });
+}
+
+function fireItemProjectile(attacker, defender, weapon, currentTime, variant = null) {
+  if (attacker.hp <= 0 || defender.hp <= 0 || !weapon) {
+    return;
+  }
+
+  const direction = getProjectileAimDirection(attacker, defender, weapon.speed);
+  const position = add(attacker.position, scale(direction, attacker.radius + (weapon.spawnOffset || 28)));
+  attacker.attackState.direction = direction;
+  projectiles.push({
+    owner: attacker,
+    kind: weapon.projectileKind || "bullet",
+    position,
+    previousPosition: { ...position },
+    direction,
+    speed: weapon.speed,
+    headRadius: weapon.headRadius,
+    collisionRadius: weapon.headRadius,
+    shaftLength: weapon.shaftLength,
+    shaftRadius: weapon.shaftRadius || 4,
+    color: weapon.id === "rocket" ? "#ff6b24" : attacker.visual.accentColor,
+    darkColor: "#050711",
+    featherColor: attacker.visual.color,
+    variant: variant || weapon,
+    explosionRadius: weapon.explosionRadius || 0,
+    explosionDamage: weapon.explosionDamage || 0,
+  });
+}
+
+function castItemSpell(attacker, defender, weapon, currentTime, variant = null) {
+  if (!variant) {
+    return;
+  }
+
+  if (variant.castType === "trajectory") {
+    castMageTrajectorySpell(attacker, defender, variant, currentTime);
+    return;
+  }
+
+  castMageProjectileSpell(attacker, defender, variant, currentTime);
 }
 
 function castMageSpell(attacker, defender, currentTime) {
@@ -1160,6 +2011,7 @@ function castMageTrajectorySpell(attacker, defender, variant, currentTime) {
 function updateProjectiles(deltaTime, currentTime) {
   projectiles = projectiles.filter((projectile) => {
     projectile.previousPosition = { ...projectile.position };
+    updateHomingProjectileDirection(projectile);
     projectile.position = add(projectile.position, scale(projectile.direction, projectile.speed * deltaTime));
 
     if (!isProjectileInArena(projectile)) {
@@ -1172,8 +2024,48 @@ function updateProjectiles(deltaTime, currentTime) {
     }
 
     resolveAttackHit(projectile.owner, defender, projectile.direction, currentTime, projectile.variant);
+    if (projectile.explosionRadius > 0) {
+      resolveProjectileExplosion(projectile, currentTime, defender);
+    }
     return false;
   });
+}
+
+function resolveProjectileExplosion(projectile, currentTime, directHitDefender = null) {
+  itemExplosions.push({
+    position: { ...projectile.position },
+    radius: projectile.explosionRadius,
+    createdAt: currentTime,
+    expiresAt: currentTime + 0.32,
+  });
+
+  for (const ball of balls) {
+    if (ball === projectile.owner || ball.hp <= 0) {
+      continue;
+    }
+
+    const distanceToExplosion = length(subtract(ball.position, projectile.position));
+    if (distanceToExplosion > projectile.explosionRadius + ball.radius) {
+      continue;
+    }
+
+    const damage = ball === directHitDefender ? projectile.explosionDamage * 0.45 : projectile.explosionDamage;
+    const appliedDamage = damageBall(ball, damage);
+    if (appliedDamage > 0) {
+      const normal = normalize(subtract(ball.position, projectile.position));
+      ball.velocity = add(ball.velocity, scale(normal, 70));
+      keepSpeed(ball);
+    }
+  }
+}
+
+function updateHomingProjectileDirection(projectile) {
+  if (!projectile.homingStrength || !projectile.target || projectile.target.hp <= 0) {
+    return;
+  }
+
+  const desiredDirection = normalize(subtract(projectile.target.position, projectile.position));
+  projectile.direction = normalize(lerpVector(projectile.direction, desiredDirection, projectile.homingStrength));
 }
 
 function updateSpellTrajectories(currentTime) {
@@ -1497,10 +2389,53 @@ function applyVenomSpikeHit(hazard, ball, currentTime) {
 }
 
 function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime, attackVariant = null) {
+  if (tryHeroDodge(defender, attacker, currentTime, attackVariant)) {
+    return 0;
+  }
+
   const damage = attacker.dealAttackDamageTo(defender, normalFromAttackerToDefender, attackVariant);
+  applyHeroAttackVariantEffects(defender, attackVariant, currentTime);
   applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, attackVariant);
   playHitCosmetics(attacker, defender, normalFromAttackerToDefender, damage, currentTime, attackVariant);
   return damage;
+}
+
+function tryHeroDodge(defender, attacker, currentTime, attackVariant = null) {
+  if (defender.profession !== "demon" || attackVariant?.heroSkillId === "manaBurn") {
+    return false;
+  }
+
+  const skill = getHeroSkill(defender, "dodge");
+  if (!skill || !canUseHeroSkill(defender, skill, currentTime)) {
+    return false;
+  }
+
+  const dodgeRoll = terrainNoise(terrainState.seed, Math.floor(currentTime * 100), defender.label.charCodeAt(0), 991);
+  if (dodgeRoll > skill.chance) {
+    return false;
+  }
+
+  spendHeroSkill(defender, skill, currentTime);
+  const sidestep = normalize({ x: -attacker.velocity.y, y: attacker.velocity.x });
+  defender.velocity = add(defender.velocity, scale(sidestep, defender.config.moveSpeed * 0.62));
+  keepSpeed(defender);
+  pushHeroEffect("dodge", defender.position, 76, currentTime, defender.visual.accentColor);
+  return true;
+}
+
+function applyHeroAttackVariantEffects(defender, attackVariant, currentTime) {
+  if (!attackVariant?.heroSkillId) {
+    return;
+  }
+
+  if (attackVariant.stunDuration > 0) {
+    defender.frozenUntil = Math.max(defender.frozenUntil, currentTime + attackVariant.stunDuration);
+    defender.attackState = null;
+  }
+
+  if (attackVariant.slowDuration > 0 && attackVariant.slowMultiplier > 0) {
+    applySlow(defender, attackVariant.slowMultiplier, attackVariant.slowDuration, currentTime);
+  }
 }
 
 function isInAttackRange(attacker, defender) {
@@ -1508,8 +2443,37 @@ function isInAttackRange(attacker, defender) {
     return false;
   }
 
-  const attackReach = attacker.radius + defender.radius + attacker.weaponRange;
+  const attackReach = attacker.radius + defender.radius + getBallWeaponRange(attacker);
   return length(subtract(defender.position, attacker.position)) <= attackReach;
+}
+
+function isInHeroConeRange(attacker, defender) {
+  if (attacker.hp <= 0 || defender.hp <= 0) {
+    return false;
+  }
+
+  const toDefender = subtract(defender.position, attacker.position);
+  const distanceToDefender = length(toDefender);
+  if (distanceToDefender > attacker.radius + defender.radius + attacker.weaponRange) {
+    return false;
+  }
+
+  const facing = normalize(attacker.attackState?.direction || attacker.velocity);
+  const targetDirection = normalize(toDefender);
+  const minDot = Math.cos((attacker.config.coneAngle || Math.PI / 2) / 2);
+  return dot(facing, targetDirection) >= minDot;
+}
+
+function resolveHeroConeAttack(attacker, defender, currentTime) {
+  if (!isInHeroConeRange(attacker, defender)) {
+    return 0;
+  }
+
+  const normal = getDirectionBetween(attacker, defender);
+  return resolveAttackHit(attacker, defender, normal, currentTime, {
+    damage: attacker.attackDamage,
+    knockbackMultiplier: attacker.config.getKnockbackMultiplier(),
+  });
 }
 
 function playHitCosmetics(attacker, defender, normalFromAttackerToDefender, damage, currentTime, attackVariant = null) {
@@ -1588,7 +2552,62 @@ function damageBall(ball, damage) {
   const appliedDamage = Math.min(ball.hp, damage);
   ball.hp = Math.max(0, ball.hp - appliedDamage);
   ball.hitFlashTime = 0.16;
+  createDamageIndicator(ball, appliedDamage);
+  tryHeroRebirth(ball, elapsedTimeSeconds);
   return appliedDamage;
+}
+
+function tryHeroRebirth(ball, currentTime) {
+  if (ball.hp > 0 || ball.profession !== "minotaur" || ball.rebirthUsed) {
+    return false;
+  }
+
+  const skill = getHeroSkill(ball, "rebirth");
+  if (!skill) {
+    return false;
+  }
+
+  ball.rebirthUsed = true;
+  ball.hp = ball.maxHp;
+  ball.mp = Math.min(ball.maxMp, Math.max(ball.mp, ball.maxMp * 0.35));
+  ball.frozenUntil = 0;
+  ball.attackDisabledUntil = currentTime + 0.35;
+  pushHeroEffect("rebirth", ball.position, 150, currentTime, ball.visual.accentColor);
+  return true;
+}
+
+function createDamageIndicator(ball, amount) {
+  if (!ball || amount <= 0) {
+    return;
+  }
+
+  const currentTime = elapsedTimeSeconds;
+  const existingIndicator = damageIndicators.find((indicator) => {
+    return (
+      indicator.ball === ball &&
+      indicator.expiresAt > currentTime &&
+      currentTime - indicator.updatedAt <= DAMAGE_TEXT_MERGE_WINDOW
+    );
+  });
+
+  if (existingIndicator) {
+    existingIndicator.amount += amount;
+    existingIndicator.createdAt = currentTime;
+    existingIndicator.updatedAt = currentTime;
+    existingIndicator.expiresAt = currentTime + DAMAGE_TEXT_DURATION;
+    return;
+  }
+
+  const direction = ball.label === "A" ? -1 : 1;
+  const alternatingOffset = damageIndicators.length % 2 === 0 ? 0 : direction * 10;
+  damageIndicators.push({
+    ball,
+    amount,
+    createdAt: currentTime,
+    updatedAt: currentTime,
+    expiresAt: currentTime + DAMAGE_TEXT_DURATION,
+    offsetX: alternatingOffset,
+  });
 }
 
 function healBall(ball, amount) {
@@ -1614,7 +2633,12 @@ function keepSpeed(ball) {
 }
 
 function getCurrentMoveSpeed(ball) {
-  return ball.config.moveSpeed * getSpeedMultiplier(matchElapsedTimeSeconds);
+  const slowMultiplier = ball.slowUntil > elapsedTimeSeconds ? ball.slowMultiplier : 1;
+  if (ball.slowUntil <= elapsedTimeSeconds) {
+    ball.slowMultiplier = 1;
+  }
+
+  return ball.config.moveSpeed * getSpeedMultiplier(matchElapsedTimeSeconds) * slowMultiplier;
 }
 
 function getAttackProgress(ball, currentTime) {
@@ -1715,7 +2739,7 @@ function getReaperBladeGeometry(ball, currentTime) {
   const bladeAngle = baseAngle - attackConfig.sweepAngle / 2 + attackConfig.sweepAngle * swingProgress;
   const bladeDirection = vectorFromAngle(bladeAngle);
   const side = vectorFromAngle(bladeAngle - Math.PI * 0.5);
-  const socket = add(ball.position, scale(bladeDirection, ball.radius + ball.weaponRange * 0.72));
+  const socket = add(ball.position, scale(bladeDirection, ball.radius + ball.weaponRange * 0.48));
   const bladeHalf = ball.config.reaperBlade.edgeLength / 2;
 
   return {
@@ -1737,7 +2761,15 @@ function getReaperBladeHit(attacker, defender, currentTime) {
   );
 
   if (!hit) {
-    return null;
+    const closeRangeMultiplier = defender.profession === "reaper" ? 0.85 : 0.45;
+    const closeRange = length(subtract(defender.position, attacker.position)) <=
+      attacker.radius + defender.radius + attacker.weaponRange * closeRangeMultiplier;
+    return closeRange
+      ? {
+          point: defender.position,
+          normal: normalize(subtract(defender.position, attacker.position)),
+        }
+      : null;
   }
 
   return {
@@ -1821,6 +2853,15 @@ function getSegmentCircleHit(center, radius, start, end) {
 }
 
 function getAttackDirection(attacker, defender, variant = null) {
+  const itemWeapon = getActiveItemWeapon(attacker);
+  if ((itemWeapon?.kind === "projectile" || itemWeapon?.kind === "rocket") && itemWeapon.speed) {
+    return getProjectileAimDirection(attacker, defender, itemWeapon.speed);
+  }
+
+  if (itemWeapon?.kind === "spell" && variant?.castType === "projectile") {
+    return getProjectileAimDirection(attacker, defender, variant.speed);
+  }
+
   if (attacker.config.attackMode === "projectile" && attacker.config.projectileWeapon) {
     return getProjectileAimDirection(attacker, defender, attacker.config.projectileWeapon.speed);
   }
@@ -1880,6 +2921,23 @@ function getThrustExtension(progress, hitFrame) {
 }
 
 function checkGameOver() {
+  if (isCurrentItemMode()) {
+    const aliveBalls = balls.filter((ball) => ball.hp > 0);
+    if (aliveBalls.length > 1) {
+      return;
+    }
+
+    gameOver = true;
+    resultMessage = aliveBalls.length === 0 ? t("result.draw") : t("result.winnerNoProfession", { side: getSideLabel(aliveBalls[0].label) });
+    analytics.track("game_result", {
+      result: resultMessage,
+      scene: selectedProfessions.scene,
+      ballCount: selectedProfessions.ballCount,
+    });
+    setScreen(Screen.RESULT);
+    return;
+  }
+
   const [ballA, ballB] = balls;
   if (ballA.hp > 0 && ballB.hp > 0) {
     return;
@@ -1909,6 +2967,7 @@ function getResultText(ballA, ballB) {
 
 function draw() {
   interactiveElements = [];
+  professionScrollArea = null;
   ctx.clearRect(0, 0, viewport.width, viewport.height);
   drawBackground();
 
@@ -2038,32 +3097,13 @@ function drawConsentScreen() {
 }
 
 function drawMainMenuScreen() {
-  const panel = getPanelRect(620, 430);
-  drawAppTitle(panel.y - 26, t("main.subtitle"));
+  const panel = getPanelRect(620, 210);
   drawPanel(panel);
 
-  const summary = t("main.summary", {
-    sideA: getSideLabel("a"),
-    sideB: getSideLabel("b"),
-    professionA: getProfessionName(selectedProfessions.a),
-    professionB: getProfessionName(selectedProfessions.b),
-    scene: getSceneName(selectedProfessions.scene),
-  });
-  let y = panel.y + 34;
-  drawPanelTitle(t("main.title"), panel.x + 28, y, panel.width - 56);
-  y += 44;
-  y = drawWrappedText(summary, panel.x + 28, y, panel.width - 56, 24, COLORS.text, 18);
-  y += 22;
+  let y = panel.y + 38;
   drawButton(t("main.start"), panel.x + 28, y, panel.width - 56, 52, openMatchSetup, { id: "main-start" });
   y += 70;
   drawButton(t("main.settings"), panel.x + 28, y, panel.width - 56, 46, () => setScreen(Screen.SETTINGS), { id: "main-settings" });
-  y += 72;
-  drawSmallNotice(
-    panel.x + 28,
-    y,
-    panel.width - 56,
-    t("main.notice"),
-  );
 }
 
 function drawProfessionSelectScreen() {
@@ -2074,46 +3114,90 @@ function drawProfessionSelectScreen() {
   let y = panel.y + 24;
   drawSetupSceneRow(panel.x + 28, y, panel.width - 56);
   y += 88;
+  const actionY = panel.y + panel.height - 70;
+
+  if (isCurrentItemMode()) {
+    drawItemModeSetup(panel, y, actionY);
+    drawSetupActionButtons(panel, actionY);
+    drawSceneDropdownOverlay();
+    return;
+  }
 
   const tabWidth = (panel.width - 68) / 2;
   drawButton(`${getSideLabel("a")}: ${getProfessionName(selectedProfessions.a)}`, panel.x + 28, y, tabWidth, 42, () => {
-    activeProfessionSide = "a";
+    setActiveProfessionSide("a");
   }, { active: activeProfessionSide === "a", id: "setup-side-a" });
   drawButton(`${getSideLabel("b")}: ${getProfessionName(selectedProfessions.b)}`, panel.x + 40 + tabWidth, y, tabWidth, 42, () => {
-    activeProfessionSide = "b";
+    setActiveProfessionSide("b");
   }, { active: activeProfessionSide === "b", id: "setup-side-b" });
   y += 62;
 
   drawListHeader(t("setup.professionHeader", { side: getSideLabel(activeProfessionSide) }), panel.x + 28, y, panel.width - 56);
   y += 30;
 
-  const actionY = panel.y + panel.height - 70;
   const gridGap = 12;
   const gridWidth = panel.width - 56;
   const gridBottom = actionY - 20;
+  const gridArea = {
+    x: panel.x + 28,
+    y,
+    width: gridWidth,
+    height: Math.max(0, gridBottom - y),
+  };
   const columns = panel.width >= 520 ? 3 : 2;
   const activeProfessionIds = getActiveProfessionIds();
   const rows = Math.ceil(activeProfessionIds.length / columns);
   const cellWidth = (gridWidth - gridGap * (columns - 1)) / columns;
-  const cellHeight = clamp((gridBottom - y - gridGap * (rows - 1)) / rows, 88, 142);
+  const cellHeight = getProfessionGridCellHeight(gridArea.height, rows, gridGap, panel.width);
+  const contentHeight = rows * cellHeight + Math.max(0, rows - 1) * gridGap;
+  const maxScroll = Math.max(0, contentHeight - gridArea.height);
+  professionScrollOffset = clamp(professionScrollOffset, 0, maxScroll);
+  professionScrollArea = { ...gridArea, maxScroll };
 
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(gridArea.x, gridArea.y, gridArea.width, gridArea.height);
+  ctx.clip();
   activeProfessionIds.forEach((professionId, index) => {
     const column = index % columns;
     const row = Math.floor(index / columns);
     drawProfessionGridItem(
-      panel.x + 28 + column * (cellWidth + gridGap),
-      y + row * (cellHeight + gridGap),
+      gridArea.x + column * (cellWidth + gridGap),
+      gridArea.y + row * (cellHeight + gridGap) - professionScrollOffset,
       cellWidth,
       cellHeight,
       professionId,
+      { clipRect: gridArea },
     );
   });
+  ctx.restore();
+  drawProfessionScrollFrame(gridArea, maxScroll);
 
+  drawSetupActionButtons(panel, actionY);
+  drawSceneDropdownOverlay();
+}
+
+function drawSetupActionButtons(panel, actionY) {
   drawButton(t("setup.saveBack"), panel.x + 28, actionY, (panel.width - 68) / 2, 46, () => {
     selectedProfessions = complianceState.saveSelectedProfessions(selectedProfessions);
     setScreen(Screen.MAIN_MENU);
   }, { id: "setup-save-back" });
   drawButton(t("setup.start"), panel.x + 40 + (panel.width - 68) / 2, actionY, (panel.width - 68) / 2, 46, startGame, { id: "setup-start" });
+}
+
+function drawItemModeSetup(panel, y, actionY) {
+  drawListHeader(t("setup.itemModeHeader"), panel.x + 28, y, panel.width - 56);
+  y += 34;
+  y = drawWrappedText(t("setup.itemModeDescription"), panel.x + 28, y, panel.width - 56, 20, COLORS.text, 14);
+  y += 18;
+
+  const previewArea = {
+    x: panel.x + 28,
+    y,
+    width: panel.width - 56,
+    height: Math.max(120, actionY - y - 22),
+  };
+  drawItemWeaponPreviewGrid(previewArea);
 }
 
 function drawSettingsScreen() {
@@ -2257,15 +3341,32 @@ function drawLanguageSelector(x, y, width) {
 }
 
 function drawSetupSceneRow(x, y, width) {
+  const useDropdown = width < SCENE_DROPDOWN_BREAKPOINT && sceneIds.length > 2;
+  if (useDropdown) {
+    sceneDropdownLayout = {
+      x,
+      y,
+      width,
+      height: 68,
+    };
+    drawSceneDropdownTrigger(sceneDropdownLayout);
+    return;
+  }
+
+  sceneDropdownLayout = null;
   const gap = 12;
   const cardWidth = (width - gap * (sceneIds.length - 1)) / sceneIds.length;
+  const compact = width < 520 && sceneIds.length > 2;
 
   sceneIds.forEach((sceneId, index) => {
     const cardX = x + index * (cardWidth + gap);
     const selected = selectedProfessions.scene === sceneId;
-    const iconX = isRtlLocale(currentLocale) ? cardX + cardWidth - 48 : cardX + 16;
-    const textX = isRtlLocale(currentLocale) ? cardX + cardWidth - 16 : cardX + 62;
-    const textWidth = cardWidth - 78;
+    const iconSize = compact ? 24 : 32;
+    const iconX = isRtlLocale(currentLocale)
+      ? cardX + cardWidth - iconSize - 12
+      : cardX + (compact ? 10 : 16);
+    const textX = isRtlLocale(currentLocale) ? cardX + cardWidth - 12 : cardX + (compact ? 42 : 62);
+    const textWidth = compact ? cardWidth - 54 : cardWidth - 78;
 
     ctx.save();
     drawPixelFrame(cardX, y, cardWidth, 68, {
@@ -2274,23 +3375,23 @@ function drawSetupSceneRow(x, y, width) {
       shadow: "#050711",
       texture: selected ? voxelAssets.blocks.glowstone : voxelAssets.blocks.deepslate,
     });
-    drawPixelArenaIcon(iconX, y + 18, 32, sceneId);
+    drawPixelArenaIcon(iconX, y + (compact ? 22 : 18), iconSize, sceneId);
 
     ctx.fillStyle = COLORS.muted;
-    ctx.font = canvasFont(12, 800);
+    ctx.font = canvasFont(compact ? 10 : 12, 800);
     setCanvasDirection(ctx);
     ctx.textAlign = getTextAlignStart();
     ctx.textBaseline = "top";
-    ctx.fillText(t("setup.sceneLabel"), textX, y + 10);
+    ctx.fillText(t("setup.sceneLabel"), textX, y + (compact ? 9 : 10));
 
     ctx.fillStyle = COLORS.text;
     const sceneName = getSceneName(sceneId);
-    ctx.font = canvasFont(getFittedFontSize(sceneName, textWidth, 16, 10, 900), 900);
-    ctx.fillText(sceneName, textX, y + 26);
+    ctx.font = canvasFont(getFittedFontSize(sceneName, textWidth, compact ? 13 : 16, 9, 900), 900);
+    ctx.fillText(sceneName, textX, y + (compact ? 25 : 26));
 
     ctx.fillStyle = COLORS.muted;
-    ctx.font = canvasFont(12, 700);
-    drawSingleLineText(getSceneDescription(sceneId), isRtlLocale(currentLocale) ? cardX + 16 : textX, y + 48, textWidth);
+    ctx.font = canvasFont(compact ? 10 : 12, 700);
+    drawSingleLineText(getSceneDescription(sceneId), isRtlLocale(currentLocale) ? cardX + 12 : textX, y + 48, textWidth);
     ctx.restore();
 
     addInteractiveElement({
@@ -2299,6 +3400,140 @@ function drawSetupSceneRow(x, y, width) {
       action: () => setSelectedScene(sceneId),
     });
   });
+}
+
+function drawSceneDropdownTrigger(rect) {
+  const sceneId = selectedProfessions.scene;
+  const iconSize = 32;
+  const arrowSize = 28;
+  const iconX = isRtlLocale(currentLocale) ? rect.x + rect.width - iconSize - 16 : rect.x + 16;
+  const arrowX = isRtlLocale(currentLocale) ? rect.x + 14 : rect.x + rect.width - arrowSize - 14;
+  const textX = isRtlLocale(currentLocale) ? rect.x + rect.width - 60 : rect.x + 62;
+  const textEndPadding = isRtlLocale(currentLocale) ? 62 : 58;
+  const textWidth = rect.width - textEndPadding - 62;
+
+  ctx.save();
+  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
+    fill: "#12364b",
+    border: sceneDropdownOpen ? "#d9aa55" : "#4bcfff",
+    shadow: "#050711",
+    texture: sceneDropdownOpen ? voxelAssets.blocks.glowstone : voxelAssets.blocks.deepslate,
+  });
+  drawPixelArenaIcon(iconX, rect.y + 18, iconSize, sceneId);
+
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "top";
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(12, 800);
+  ctx.fillText(t("setup.sceneLabel"), getTextStartX(textX, textWidth), rect.y + 10);
+
+  ctx.fillStyle = COLORS.text;
+  const sceneName = getSceneName(sceneId);
+  ctx.font = canvasFont(getFittedFontSize(sceneName, textWidth, 18, 12, 900), 900);
+  drawSingleLineText(sceneName, textX, rect.y + 27, textWidth);
+
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(11, 700);
+  drawSingleLineText(getSceneDescription(sceneId), textX, rect.y + 49, textWidth);
+
+  drawPixelFrame(arrowX, rect.y + 20, arrowSize, arrowSize, {
+    fill: sceneDropdownOpen ? "#d9aa55" : "#202834",
+    border: sceneDropdownOpen ? "#fff4cf" : "#5c6462",
+    shadow: "#050711",
+    texture: voxelAssets.blocks.deepslate,
+  });
+  drawDropdownChevron(arrowX + arrowSize / 2, rect.y + arrowSize / 2 + 20, sceneDropdownOpen);
+  ctx.restore();
+
+  addInteractiveElement({
+    id: "scene-dropdown-toggle",
+    rect,
+    action: () => {
+      sceneDropdownOpen = !sceneDropdownOpen;
+    },
+  });
+}
+
+function drawSceneDropdownOverlay() {
+  if (!sceneDropdownOpen || !sceneDropdownLayout) {
+    return;
+  }
+
+  addInteractiveElement({
+    id: "scene-dropdown-backdrop",
+    rect: { x: 0, y: 0, width: viewport.width, height: viewport.height },
+    action: () => {
+      sceneDropdownOpen = false;
+    },
+  });
+
+  const gap = 6;
+  const panelPadding = 8;
+  const top = sceneDropdownLayout.y + sceneDropdownLayout.height + 8;
+  const maxOptionHeight = 54;
+  const availableHeight = Math.max(44, viewport.height - top - 16 - panelPadding * 2);
+  const optionHeight = clamp(Math.floor((availableHeight - gap * (sceneIds.length - 1)) / sceneIds.length), 44, maxOptionHeight);
+  const panelHeight = panelPadding * 2 + sceneIds.length * optionHeight + gap * (sceneIds.length - 1);
+
+  ctx.save();
+  drawPixelFrame(sceneDropdownLayout.x, top, sceneDropdownLayout.width, panelHeight, {
+    fill: "#111a2f",
+    border: "#d9aa55",
+    shadow: "#050711",
+    texture: voxelAssets.blocks.deepslate,
+  });
+
+  sceneIds.forEach((sceneId, index) => {
+    const optionY = top + panelPadding + index * (optionHeight + gap);
+    drawSceneDropdownOption(sceneId, sceneDropdownLayout.x + panelPadding, optionY, sceneDropdownLayout.width - panelPadding * 2, optionHeight);
+  });
+  ctx.restore();
+}
+
+function drawSceneDropdownOption(sceneId, x, y, width, height) {
+  const selected = selectedProfessions.scene === sceneId;
+  const iconSize = Math.min(30, height - 14);
+  const iconX = isRtlLocale(currentLocale) ? x + width - iconSize - 10 : x + 10;
+  const textX = isRtlLocale(currentLocale) ? x + width - 52 : x + 52;
+  const textWidth = width - 62;
+
+  drawPixelFrame(x, y, width, height, {
+    fill: selected ? "#384f2b" : "#202834",
+    border: selected ? "#d9aa55" : "#5c6462",
+    shadow: "#050711",
+    texture: selected ? voxelAssets.blocks.grassDark : voxelAssets.blocks.deepslate,
+  });
+  drawPixelArenaIcon(iconX, y + (height - iconSize) / 2, iconSize, sceneId);
+
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(getSceneName(sceneId), textWidth, 15, 10, 900), 900);
+  ctx.fillText(getSceneName(sceneId), getTextStartX(textX, textWidth), y + height / 2 - 7);
+
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(10, 700);
+  drawSingleLineText(getSceneDescription(sceneId), textX, y + height / 2 + 6, textWidth);
+
+  addInteractiveElement({
+    id: `scene-dropdown-${sceneId}`,
+    rect: { x, y, width, height },
+    action: () => setSelectedScene(sceneId),
+  });
+}
+
+function drawDropdownChevron(centerX, centerY, isOpen) {
+  const direction = isOpen ? -1 : 1;
+  ctx.strokeStyle = isOpen ? "#20160c" : COLORS.text;
+  ctx.lineWidth = 4;
+  ctx.lineCap = "square";
+  ctx.beginPath();
+  ctx.moveTo(centerX - 7, centerY - direction * 3);
+  ctx.lineTo(centerX, centerY + direction * 5);
+  ctx.lineTo(centerX + 7, centerY - direction * 3);
+  ctx.stroke();
 }
 
 function drawListHeader(text, x, y, width) {
@@ -2313,7 +3548,46 @@ function drawListHeader(text, x, y, width) {
   ctx.restore();
 }
 
-function drawProfessionGridItem(x, y, width, height, professionId) {
+function getProfessionGridCellHeight(availableHeight, rows, gap, panelWidth) {
+  if (rows <= 0) {
+    return 0;
+  }
+
+  const fittedHeight = (availableHeight - gap * (rows - 1)) / rows;
+  if (fittedHeight >= 88) {
+    return clamp(fittedHeight, 88, 142);
+  }
+
+  return panelWidth < 520 ? 104 : 112;
+}
+
+function drawProfessionScrollFrame(area, maxScroll) {
+  if (area.height <= 0) {
+    return;
+  }
+
+  ctx.save();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "rgba(255, 246, 214, 0.22)";
+  ctx.strokeRect(area.x + 1, area.y + 1, area.width - 2, area.height - 2);
+
+  if (maxScroll > 0 && area.height > 34) {
+    const trackWidth = 5;
+    const trackX = isRtlLocale(currentLocale) ? area.x + 8 : area.x + area.width - 13;
+    const trackY = area.y + 8;
+    const trackHeight = area.height - 16;
+    const thumbHeight = clamp((area.height / (area.height + maxScroll)) * trackHeight, 24, trackHeight);
+    const thumbY = trackY + (professionScrollOffset / maxScroll) * (trackHeight - thumbHeight);
+
+    ctx.fillStyle = "rgba(5, 7, 17, 0.62)";
+    ctx.fillRect(trackX, trackY, trackWidth, trackHeight);
+    ctx.fillStyle = "#d9aa55";
+    ctx.fillRect(trackX, thumbY, trackWidth, thumbHeight);
+  }
+  ctx.restore();
+}
+
+function drawProfessionGridItem(x, y, width, height, professionId, options = {}) {
   const isSelected = selectedProfessions[activeProfessionSide] === professionId;
   const sideLabel = getSideLabel(activeProfessionSide);
   const professionName = getProfessionName(professionId);
@@ -2347,6 +3621,7 @@ function drawProfessionGridItem(x, y, width, height, professionId) {
   addInteractiveElement({
     id: `profession-${activeProfessionSide}-${professionId}`,
     rect: { x, y, width, height },
+    clipRect: options.clipRect,
     action: () => {
       selectedProfessions = {
         ...selectedProfessions,
@@ -2357,9 +3632,139 @@ function drawProfessionGridItem(x, y, width, height, professionId) {
   });
 }
 
+function drawItemWeaponPreviewGrid(area) {
+  const weaponIds = Object.keys(ItemWeaponConfig);
+  const gap = 10;
+  const columns = area.width >= 520 ? 3 : 2;
+  const cellWidth = (area.width - gap * (columns - 1)) / columns;
+  const rows = Math.ceil(weaponIds.length / columns);
+  const cellHeight = Math.min(88, (area.height - gap * Math.max(0, rows - 1)) / rows);
+
+  weaponIds.forEach((weaponId, index) => {
+    const weapon = ItemWeaponConfig[weaponId];
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = area.x + column * (cellWidth + gap);
+    const y = area.y + row * (cellHeight + gap);
+
+    drawPixelFrame(x, y, cellWidth, cellHeight, {
+      fill: "#202834",
+      border: "#5c6462",
+      shadow: "#050711",
+      texture: voxelAssets.blocks.deepslate,
+    });
+    drawItemWeaponIcon(weapon, x + 18, y + 14, Math.min(42, cellHeight - 32));
+    ctx.save();
+    ctx.fillStyle = COLORS.text;
+    ctx.font = canvasFont(getFittedFontSize(t(weapon.nameKey), cellWidth - 70, 15, 10, 900), 900);
+    setCanvasDirection(ctx);
+    ctx.textAlign = getTextAlignStart();
+    ctx.textBaseline = "middle";
+    ctx.fillText(t(weapon.nameKey), getTextStartX(x + 66, cellWidth - 78), y + cellHeight / 2 - 8);
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = canvasFont(11, 700);
+    const statText = `x${weapon.durability} / ${weapon.damage}`;
+    ctx.fillText(statText, getTextStartX(x + 66, cellWidth - 78), y + cellHeight / 2 + 13);
+    ctx.restore();
+  });
+}
+
+function drawDroppedItems(context, currentTime) {
+  if (!isCurrentItemMode()) {
+    return;
+  }
+
+  for (const item of droppedItems) {
+    const weapon = ItemWeaponConfig[item.weaponId];
+    if (!weapon) {
+      continue;
+    }
+
+    const bob = Math.sin((currentTime - item.spawnedAt) * 5.2) * 4;
+    const size = 44;
+    const x = item.position.x - size / 2;
+    const y = item.position.y - size / 2 + bob;
+    context.save();
+    context.globalAlpha = 0.92;
+    drawPixelFrame(x, y, size, size, {
+      fill: "#111a2f",
+      border: "#d9aa55",
+      shadow: "#050711",
+      texture: voxelAssets.blocks.glowstone,
+    });
+    drawItemWeaponIcon(weapon, x + 8, y + 8, size - 16);
+    context.restore();
+  }
+}
+
+function drawItemWeaponIcon(weapon, x, y, size) {
+  const sprite = voxelAssets.items[weapon.sprite] || voxelAssets.items.sword;
+  drawRotatedVoxelSprite(ctx, sprite, { x: x + size / 2, y: y + size / 2 }, size, -0.42, {
+    shadowOffset: 2,
+  });
+}
+
+function drawEquippedItemDurability(context, ball) {
+  const weapon = getEquippedItemWeapon(ball);
+  if (!weapon) {
+    return;
+  }
+
+  const text = `x${ball.equippedItem.durability}`;
+  context.save();
+  context.font = canvasFont(14, 900);
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.strokeStyle = "rgba(5, 7, 17, 0.95)";
+  context.lineWidth = 5;
+  context.fillStyle = "#ffd166";
+  context.strokeText(text, ball.position.x, ball.position.y + ball.radius + 20);
+  context.fillText(text, ball.position.x, ball.position.y + ball.radius + 20);
+  context.restore();
+}
+
+function drawHeroManaBar(context, ball) {
+  const width = ball.radius * 2.2;
+  const height = 7;
+  const x = ball.position.x - width / 2;
+  const y = ball.position.y + ball.radius + 31;
+  const ratio = clamp(ball.mp / Math.max(1, ball.maxMp), 0, 1);
+
+  context.save();
+  context.fillStyle = "rgba(5, 7, 17, 0.9)";
+  context.fillRect(x - 2, y - 2, width + 4, height + 4);
+  context.fillStyle = "#0c2f5f";
+  context.fillRect(x, y, width, height);
+  context.fillStyle = "#38bdf8";
+  context.fillRect(x, y, width * ratio, height);
+  context.fillStyle = "#dffcff";
+  context.fillRect(x, y, Math.max(0, width * ratio - 3), 2);
+  context.restore();
+}
+
 function drawPixelArenaIcon(x, y, size, sceneId = selectedProfessions.scene) {
   const cell = Math.max(2, Math.floor(size / 8));
   const iconSize = cell * 8;
+  if (sceneId === ITEM_SCENE_ID) {
+    drawTiledVoxelTexture(ctx, voxelAssets.blocks.plank, x, y, iconSize, iconSize, cell * 4);
+    ctx.fillStyle = "#050711";
+    ctx.fillRect(x + cell, y + cell, cell * 6, cell * 6);
+    drawItemWeaponIcon(ItemWeaponConfig.sword, x + cell * 1.2, y + cell * 1.2, cell * 5.6);
+    return;
+  }
+  if (sceneId === HERO_SCENE_ID) {
+    drawTiledVoxelTexture(ctx, voxelAssets.blocks.obsidian, x, y, iconSize, iconSize, cell * 4);
+    ctx.fillStyle = "#0c2f5f";
+    ctx.fillRect(x + cell, y + cell, cell * 6, cell * 6);
+    ctx.fillStyle = "#38bdf8";
+    ctx.fillRect(x + cell * 2, y + cell * 3, cell * 4, cell * 2);
+    ctx.fillStyle = "#facc15";
+    ctx.fillRect(x + cell * 3, y + cell, cell * 2, cell * 6);
+    ctx.fillStyle = "#ff7a45";
+    ctx.fillRect(x + cell, y + cell, cell, cell);
+    ctx.fillRect(x + cell * 6, y + cell * 6, cell, cell);
+    return;
+  }
   drawTiledVoxelTexture(ctx, sceneId === "super" ? voxelAssets.blocks.obsidian : voxelAssets.blocks.grass, x, y, iconSize, iconSize, cell * 4);
   ctx.strokeStyle = "#171324";
   ctx.lineWidth = cell;
@@ -2376,7 +3781,11 @@ function drawPixelArenaIcon(x, y, size, sceneId = selectedProfessions.scene) {
 }
 
 function drawPixelProfessionIcon(x, y, size, professionId, isSelected) {
-  const config = ProfessionConfig[professionId];
+  const config = getCombatantConfig(professionId);
+  if (!config) {
+    return;
+  }
+
   const cell = Math.max(3, Math.floor(size / 16));
   const iconSize = cell * 16;
   const left = Math.round(x + (size - iconSize) / 2);
@@ -2439,7 +3848,9 @@ function drawPixelProfessionIcon(x, y, size, professionId, isSelected) {
     H: accent,
   });
 
-  if (professionId === "bat") {
+  if (isHeroId(professionId)) {
+    drawHeroProfessionIconDetails(professionId, left, top, cell);
+  } else if (professionId === "bat") {
     drawPixelCells(left, top, cell, [
       "................",
       "..WW........WW..",
@@ -2630,9 +4041,86 @@ function drawPixelProfessionIcon(x, y, size, professionId, isSelected) {
   }
 }
 
+function drawHeroProfessionIconDetails(professionId, left, top, cell) {
+  if (professionId === "demon") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "..HH........HH..",
+      ".HHH........HHH.",
+      "..H...RRRR...H..",
+      "......R..R......",
+      ".....MMMMMM.....",
+      ".......MM.......",
+    ], {
+      H: "#050711",
+      R: "#ff385c",
+      M: "#ffd166",
+    });
+    return;
+  }
+
+  if (professionId === "dwarfKing") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "....CCCCCCCC....",
+      "...CYYYYYYYYC...",
+      ".....EEEEEE.....",
+      "....BBBBBBBB....",
+      "...BBBBBBBBBB...",
+      ".....MMMMMM.....",
+    ], {
+      C: "#050711",
+      Y: "#fde68a",
+      E: "#f8fbff",
+      B: "#6b3419",
+      M: "#b8bdc7",
+    });
+    return;
+  }
+
+  if (professionId === "minotaur") {
+    drawPixelCells(left, top, cell, [
+      ".HH..........HH.",
+      "..HH........HH..",
+      "...H........H...",
+      "......EEEE......",
+      ".....SSSSSS.....",
+      "......SSSS......",
+      ".....YYYYYY.....",
+    ], {
+      H: "#f8fbff",
+      E: "#050711",
+      S: "#c76f36",
+      Y: "#facc15",
+    });
+    return;
+  }
+
+  if (professionId === "elfKing") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "....LLLLLLLL....",
+      "...LYLYLYLYL....",
+      "......EEEE......",
+      "....VVVVVVVV....",
+      "...V........V...",
+      ".......YY.......",
+    ], {
+      L: "#bbf7d0",
+      Y: "#facc15",
+      E: "#050711",
+      V: "#14532d",
+    });
+  }
+}
+
 function getProfessionItemSprite(professionId) {
   const items = voxelAssets.items;
   const itemMap = {
+    demon: { sprite: items.dagger, angle: -0.72, scale: 0.76 },
+    dwarfKing: { sprite: items.hammer, angle: -0.72, scale: 0.78 },
+    minotaur: { sprite: items.totem, angle: -0.42, scale: 0.68 },
+    elfKing: { sprite: items.bow, angle: 0, scale: 0.7 },
     bat: null,
     venom: null,
     spider: null,
@@ -2883,22 +4371,7 @@ function wrapTextLines(text, maxWidth, font) {
   const paragraphs = String(text).split("\n");
 
   for (const paragraph of paragraphs) {
-    if (paragraph.includes(" ")) {
-      lines.push(...wrapWords(paragraph, maxWidth));
-      continue;
-    }
-
-    let line = "";
-    for (const char of paragraph) {
-      const nextLine = line + char;
-      if (line && ctx.measureText(nextLine).width > maxWidth) {
-        lines.push(line);
-        line = char;
-      } else {
-        line = nextLine;
-      }
-    }
-    lines.push(line);
+    lines.push(...wrapWords(paragraph, maxWidth));
   }
 
   ctx.restore();
@@ -2906,7 +4379,7 @@ function wrapTextLines(text, maxWidth, font) {
 }
 
 function wrapWords(paragraph, maxWidth) {
-  const words = paragraph.split(/(\s+)/).filter((word) => word.length > 0);
+  const words = getWrapTokens(paragraph);
   const lines = [];
   let line = "";
 
@@ -2922,6 +4395,14 @@ function wrapWords(paragraph, maxWidth) {
 
   lines.push(line.trimEnd());
   return lines;
+}
+
+function getWrapTokens(paragraph) {
+  return (
+    String(paragraph).match(
+      /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]|[^\s\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]+|\s+/g,
+    ) || [""]
+  );
 }
 
 function getPanelRect(maxWidth, maxHeight) {
@@ -2943,7 +4424,7 @@ function addInteractiveElement(element) {
 function getInteractiveElementAt(point) {
   for (let index = interactiveElements.length - 1; index >= 0; index -= 1) {
     const element = interactiveElements[index];
-    if (isInsideRect(point, element.rect)) {
+    if (isInsideRect(point, element.rect) && (!element.clipRect || isInsideRect(point, element.clipRect))) {
       return element;
     }
   }
@@ -3009,6 +4490,11 @@ function drawBallBody(ctx, ball) {
 }
 
 function drawProfessionBodyDetails(ctx, ball, x, y, cell) {
+  if (ball.isHero) {
+    drawHeroBodyDetails(ctx, ball, x, y, cell);
+    return;
+  }
+
   if (ball.profession === "bat") {
     ctx.fillStyle = "#f8fbff";
     ctx.fillRect(x + cell * 5, y + cell * 7, cell, cell * 2);
@@ -3037,9 +4523,93 @@ function drawProfessionBodyDetails(ctx, ball, x, y, cell) {
   }
 }
 
+function drawHeroBodyDetails(ctx, ball, x, y, cell) {
+  const pattern = ball.config.bodyPattern || ball.profession;
+
+  if (pattern === "demon") {
+    drawPixelCells(x, y, cell, [
+      "..H......H..",
+      ".HH......HH.",
+      "..H.RRRR.H..",
+      "....R..R....",
+      "...MMMMMM...",
+      ".....MM.....",
+    ], {
+      H: "#050711",
+      R: "#ff385c",
+      M: "#ffd166",
+    });
+    return;
+  }
+
+  if (pattern === "dwarfKing") {
+    drawPixelCells(x, y, cell, [
+      "...CCCCCC...",
+      "..CYYYYYYC..",
+      "....EEEE....",
+      "...BBBBBB...",
+      "..BBBBBBBB..",
+      "...BBBBBB...",
+      "....MMMM....",
+    ], {
+      C: "#050711",
+      Y: "#fde68a",
+      E: "#f8fbff",
+      B: "#6b3419",
+      M: "#b8bdc7",
+    });
+    return;
+  }
+
+  if (pattern === "minotaur") {
+    drawPixelCells(x, y, cell, [
+      "HH........HH",
+      ".HH......HH.",
+      "..H......H..",
+      "....EEEE....",
+      "...SSSSSS...",
+      "....SSSS....",
+      "...YYYYYY...",
+    ], {
+      H: "#f8fbff",
+      E: "#050711",
+      S: "#c76f36",
+      Y: "#facc15",
+    });
+    return;
+  }
+
+  if (pattern === "elfKing") {
+    drawPixelCells(x, y, cell, [
+      "...LLLLLL...",
+      "..LYLYLYL..",
+      "....EEEE....",
+      "...VVVVVV...",
+      "..V......V..",
+      ".....YY.....",
+    ], {
+      L: "#bbf7d0",
+      Y: "#facc15",
+      E: "#050711",
+      V: "#14532d",
+    });
+  }
+}
+
 function drawWeapon(ctx, ball, currentTime, target) {
   const direction = getWeaponDirection(ball, target);
   const progress = getAttackProgress(ball, currentTime);
+  const itemWeapon = getActiveItemWeapon(ball);
+
+  if (itemWeapon) {
+    drawItemWeapon(ctx, ball, itemWeapon, direction, progress);
+    return;
+  }
+
+  if (ball.isHero) {
+    drawHeroWeapon(ctx, ball, direction, progress);
+    return;
+  }
 
   if (ball.profession === "bat") {
     drawBatWingWeapon(ctx, ball, direction, progress);
@@ -3098,6 +4668,30 @@ function drawWeapon(ctx, ball, currentTime, target) {
 
   if (ball.profession === "mage") {
     drawMageWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  drawSpearWeapon(ctx, ball, direction, progress);
+}
+
+function drawHeroWeapon(ctx, ball, direction, progress) {
+  if (ball.config.attackMode === "dualBlade") {
+    drawDualBladeWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (ball.config.attackMode === "hammer") {
+    drawHammerWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (ball.config.attackMode === "cone") {
+    drawTotemWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (ball.config.attackMode === "projectile") {
+    drawBowWeapon(ctx, ball, direction, progress);
     return;
   }
 
@@ -3183,6 +4777,143 @@ function drawLavaCoreWeapon(ctx, ball, direction, progress) {
   ctx.restore();
 }
 
+function drawHammerWeapon(ctx, ball, direction, progress) {
+  const baseAngle = angleOf(direction);
+  const swing = progress === null ? -0.18 + Math.sin(elapsedTimeSeconds * 3.4) * 0.08 : lerp(-0.92, 0.58, easeOutCubic(progress));
+  const hammerAngle = baseAngle + swing;
+  const hammerDirection = vectorFromAngle(hammerAngle);
+  const start = snapVector(add(ball.position, scale(hammerDirection, ball.radius * 0.28)), 4);
+  const end = snapVector(add(ball.position, scale(hammerDirection, ball.radius + ball.weaponRange * 0.82)), 4);
+  const headCenter = snapVector(add(end, scale(hammerDirection, ball.radius * 0.12)), 4);
+
+  ctx.save();
+  drawPixelLine(ctx, start, end, 15, "#050711");
+  drawPixelLine(ctx, start, end, 8, "#8d5a2e");
+  drawRotatedVoxelSprite(ctx, voxelAssets.items.hammer, headCenter, ball.radius * 1.72, hammerAngle, {
+    anchorX: 0.72,
+    anchorY: 0.5,
+    shadowOffset: 4,
+  });
+  if (progress !== null && progress > 0.42 && progress < 0.78) {
+    ctx.globalAlpha = 0.32;
+    ctx.fillStyle = ball.visual.accentColor;
+    ctx.fillRect(headCenter.x - 16, headCenter.y - 16, 32, 32);
+  }
+  ctx.restore();
+}
+
+function drawTotemWeapon(ctx, ball, direction, progress) {
+  const baseAngle = angleOf(direction);
+  const attackEase = progress === null ? 0 : easeOutCubic(progress);
+  const extension = progress === null ? 0.8 : lerp(0.7, 1.08, attackEase);
+  const center = snapVector(add(ball.position, scale(direction, ball.radius + ball.weaponRange * 0.48 * extension)), 4);
+  const coneAngle = ball.config.coneAngle || Math.PI / 2;
+
+  ctx.save();
+  if (progress !== null) {
+    ctx.globalAlpha = 0.16 * (1 - attackEase);
+    ctx.fillStyle = ball.visual.accentColor;
+    ctx.beginPath();
+    moveToVector(ctx, ball.position);
+    ctx.arc(ball.position.x, ball.position.y, ball.radius + ball.weaponRange, baseAngle - coneAngle / 2, baseAngle + coneAngle / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  drawRotatedVoxelSprite(ctx, voxelAssets.items.totem, center, ball.radius * 1.88, baseAngle, {
+    anchorX: 0.52,
+    anchorY: 0.55,
+    shadowOffset: 4,
+  });
+
+  const grip = snapVector(add(ball.position, scale(direction, ball.radius * 0.62)), 4);
+  drawPixelLine(ctx, grip, center, 11, "#050711");
+  drawPixelLine(ctx, grip, center, 5, "#8d5a2e");
+  ctx.restore();
+}
+
+function drawItemWeapon(ctx, ball, weapon, direction, progress) {
+  if (weapon.id === "sword") {
+    drawItemSwordWeapon(ctx, ball, weapon, direction, progress);
+    return;
+  }
+
+  if (weapon.id === "spear") {
+    drawItemSpearWeapon(ctx, ball, weapon, direction, progress);
+    return;
+  }
+
+  if (weapon.id === "bow") {
+    drawBowWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (weapon.id === "staff") {
+    drawMageWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  drawItemGunWeapon(ctx, ball, weapon, direction, progress);
+}
+
+function drawItemSwordWeapon(ctx, ball, weapon, direction, progress) {
+  const baseAngle = angleOf(direction);
+  const sweepAngle = ATTACK_ANIMATION_CONFIG.blade.sweepAngle;
+  const attackEase = progress === null ? null : easeOutCubic(progress);
+  const bladeAngle = progress === null ? baseAngle : baseAngle - sweepAngle / 2 + sweepAngle * attackEase;
+  const bladeDirection = vectorFromAngle(bladeAngle);
+  const weaponStart = snapVector(add(ball.position, scale(bladeDirection, ball.radius * 0.46)), 4);
+  const weaponEnd = snapVector(add(ball.position, scale(bladeDirection, ball.radius + weapon.range * 0.92)), 4);
+  const hilt = snapVector(add(ball.position, scale(bladeDirection, ball.radius * 0.34)), 4);
+
+  ctx.save();
+  drawPixelLine(ctx, weaponStart, weaponEnd, 18, "#050711");
+  drawPixelLine(ctx, weaponStart, weaponEnd, 11, ball.visual.accentColor);
+  drawRotatedVoxelSprite(ctx, voxelAssets.items.sword, hilt, length(subtract(weaponEnd, hilt)) + 20, bladeAngle, {
+    anchorX: 0,
+    anchorY: 0.5,
+    shadow: false,
+  });
+  ctx.restore();
+}
+
+function drawItemSpearWeapon(ctx, ball, weapon, direction, progress) {
+  const hitFrame = ball.attackState?.hitFrame || weapon.hitFrame || ATTACK_ANIMATION_CONFIG.default.hitFrame;
+  const extension = progress === null ? 0.9 : getThrustExtension(progress, hitFrame);
+  const weaponStart = snapVector(add(ball.position, scale(direction, ball.radius * 0.52)), 4);
+  const weaponEnd = snapVector(add(ball.position, scale(direction, ball.radius + weapon.range * extension)), 4);
+  const spearTip = snapVector(add(weaponEnd, scale(direction, 10)), 4);
+
+  ctx.save();
+  drawRotatedVoxelSprite(ctx, voxelAssets.items.spear, weaponStart, length(subtract(spearTip, weaponStart)), angleOf(direction), {
+    anchorX: 0,
+    anchorY: 0.5,
+    shadowOffset: 4,
+  });
+  ctx.restore();
+}
+
+function drawItemGunWeapon(ctx, ball, weapon, direction, progress) {
+  const sprite = weapon.id === "rocket" ? voxelAssets.items.rocketLauncher : voxelAssets.items.pistol;
+  const width = weapon.id === "rocket" ? ball.radius * 2.2 : ball.radius * 1.55;
+  const center = add(ball.position, scale(direction, ball.radius * 0.88));
+  const recoil = progress === null ? 0 : Math.sin(progress * Math.PI) * 8;
+
+  ctx.save();
+  drawRotatedVoxelSprite(ctx, sprite, subtract(center, scale(direction, recoil)), width, angleOf(direction), {
+    anchorX: 0.2,
+    anchorY: 0.5,
+    shadowOffset: 4,
+  });
+  if (progress !== null && progress > 0.25 && progress < 0.62) {
+    const muzzle = add(center, scale(direction, width * 0.7));
+    ctx.fillStyle = "#ffe66d";
+    ctx.fillRect(muzzle.x - 5, muzzle.y - 5, 10, 10);
+  }
+  ctx.restore();
+}
+
 function drawDualBladeWeapon(ctx, ball, direction, progress) {
   const baseAngle = angleOf(direction);
   const swing = progress === null ? 0.34 : lerp(-0.72, 0.72, easeOutCubic(progress));
@@ -3195,7 +4926,7 @@ function drawDualBladeWeapon(ctx, ball, direction, progress) {
     const bladeDirection = vectorFromAngle(angle);
     const sideVector = vectorFromAngle(baseAngle + side * Math.PI * 0.5);
     const start = snapVector(add(add(ball.position, scale(sideVector, ball.radius * 0.42)), scale(direction, ball.radius * 0.2)), 4);
-    const end = snapVector(add(start, scale(bladeDirection, ball.radius + ball.weaponRange * 0.72)), 4);
+    const end = snapVector(add(start, scale(bladeDirection, ball.radius + ball.weaponRange * 0.48)), 4);
 
     ctx.strokeStyle = "#050711";
     ctx.lineWidth = 11;
@@ -3356,7 +5087,45 @@ function drawProjectiles(ctx) {
   }
 }
 
+function drawDamageIndicators(ctx, currentTime) {
+  for (const indicator of damageIndicators) {
+    const progress = clamp((currentTime - indicator.createdAt) / DAMAGE_TEXT_DURATION, 0, 1);
+    const alpha = 1 - easeInCubic(progress);
+    const ball = indicator.ball;
+    const fontSize = clamp(ball.radius * 0.62, 18, 25);
+    const text = `-${formatDamageAmount(indicator.amount)}`;
+    const x = clamp(ball.position.x + indicator.offsetX, 18, ARENA_SIZE - 18);
+    const y = clamp(ball.position.y - ball.radius - 18 - progress * 30, 18, ARENA_SIZE - 10);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = canvasFont(fontSize, 900);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.strokeStyle = "rgba(5, 7, 17, 0.95)";
+    ctx.lineWidth = 6;
+    ctx.fillStyle = indicator.amount >= 10 ? "#ffd166" : "#ff6b6b";
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+}
+
+function formatDamageAmount(amount) {
+  return String(Math.max(1, Math.round(amount)));
+}
+
 function drawProjectile(ctx, projectile) {
+  if (projectile.kind === "bullet") {
+    drawBulletProjectile(ctx, projectile);
+    return;
+  }
+
+  if (projectile.kind === "rocket") {
+    drawRocketProjectile(ctx, projectile);
+    return;
+  }
+
   if (projectile.kind === "fire") {
     drawFireballProjectile(ctx, projectile);
     return;
@@ -3368,6 +5137,32 @@ function drawProjectile(ctx, projectile) {
   }
 
   drawArrowProjectile(ctx, projectile);
+}
+
+function drawBulletProjectile(ctx, projectile) {
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  drawPixelLine(ctx, snapVector(projectile.previousPosition, 4), snapVector(projectile.position, 4), 6, "#ffe66d");
+  ctx.globalAlpha = 1;
+  drawVoxelSpriteCentered(ctx, voxelAssets.items.bullet, snapVector(projectile.position, 4), 14, {
+    angle: angleOf(projectile.direction),
+    shadowOffset: 2,
+  });
+  ctx.restore();
+}
+
+function drawRocketProjectile(ctx, projectile) {
+  const tail = snapVector(add(projectile.position, scale(projectile.direction, -projectile.shaftLength)), 4);
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  drawPixelLine(ctx, snapVector(projectile.previousPosition, 4), tail, 14, "#ff6b24");
+  ctx.globalAlpha = 1;
+  drawRotatedVoxelSprite(ctx, voxelAssets.items.rocket, projectile.position, projectile.shaftLength + 24, angleOf(projectile.direction), {
+    anchorX: 1,
+    anchorY: 0.5,
+    shadowOffset: 4,
+  });
+  ctx.restore();
 }
 
 function drawArrowProjectile(ctx, projectile) {
@@ -3560,6 +5355,47 @@ function drawFlameTrails(ctx, currentTime) {
   }
 }
 
+function drawItemExplosions(ctx, currentTime) {
+  for (const explosion of itemExplosions) {
+    const progress = clamp((currentTime - explosion.createdAt) / Math.max(0.001, explosion.expiresAt - explosion.createdAt), 0, 1);
+    const radius = explosion.radius * easeOutCubic(progress);
+    ctx.save();
+    ctx.globalAlpha = 1 - progress;
+    ctx.fillStyle = "#9f2d17";
+    ctx.fillRect(explosion.position.x - radius, explosion.position.y - radius, radius * 2, radius * 2);
+    ctx.fillStyle = "#ff6b24";
+    ctx.fillRect(explosion.position.x - radius * 0.62, explosion.position.y - radius * 0.62, radius * 1.24, radius * 1.24);
+    ctx.fillStyle = "#ffd166";
+    ctx.fillRect(explosion.position.x - radius * 0.25, explosion.position.y - radius * 0.25, radius * 0.5, radius * 0.5);
+    ctx.restore();
+  }
+}
+
+function drawHeroEffects(ctx, currentTime) {
+  for (const effect of heroEffectInstances) {
+    const progress = clamp((currentTime - effect.createdAt) / Math.max(0.001, effect.expiresAt - effect.createdAt), 0, 1);
+    const radius = effect.radius * easeOutCubic(progress);
+    ctx.save();
+    ctx.globalAlpha = 1 - progress;
+    ctx.strokeStyle = "#050711";
+    ctx.lineWidth = effect.type === "dodge" ? 10 : 14;
+    ctx.beginPath();
+    ctx.arc(effect.position.x, effect.position.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = effect.color;
+    ctx.lineWidth = effect.type === "dodge" ? 4 : 6;
+    ctx.beginPath();
+    ctx.arc(effect.position.x, effect.position.y, radius * 0.9, 0, Math.PI * 2);
+    ctx.stroke();
+    if (effect.type === "rebirth" || effect.type === "heal") {
+      ctx.fillStyle = effect.color;
+      ctx.fillRect(effect.position.x - 6, effect.position.y - radius * 0.6, 12, radius * 1.2);
+      ctx.fillRect(effect.position.x - radius * 0.6, effect.position.y - 6, radius * 1.2, 12);
+    }
+    ctx.restore();
+  }
+}
+
 function drawChainWeapon(ctx, ball, direction, progress) {
   const geometry = getChainWeaponGeometry(ball);
   const start = snapVector(geometry.start, 4);
@@ -3706,14 +5542,40 @@ function drawArenaScene() {
   ctx.translate(layout.arena.x, layout.arena.y);
   ctx.scale(layout.arena.scale, layout.arena.scale);
   drawArena();
+  drawDroppedItems(ctx, elapsedTimeSeconds);
   drawFlameTrails(ctx, elapsedTimeSeconds);
   drawWebLinks(ctx, elapsedTimeSeconds);
   drawArenaHazards(ctx, elapsedTimeSeconds);
-  balls.forEach((ball, index) => ball.draw(ctx, elapsedTimeSeconds, balls[index === 0 ? 1 : 0]));
+  balls.forEach((ball) => {
+    if (ball.hp > 0 || !isCurrentItemMode()) {
+      ball.draw(ctx, elapsedTimeSeconds, getNearestAliveOpponent(ball));
+    }
+  });
   drawProjectiles(ctx);
   drawSpellTrajectories(ctx, elapsedTimeSeconds);
+  drawItemExplosions(ctx, elapsedTimeSeconds);
+  drawHeroEffects(ctx, elapsedTimeSeconds);
   renderAttackEffectInstances(ctx, attackEffectInstances, elapsedTimeSeconds);
+  drawDamageIndicators(ctx, elapsedTimeSeconds);
   ctx.restore();
+}
+
+function getNearestAliveOpponent(ball) {
+  let nearest = null;
+  let nearestDistance = Infinity;
+  for (const candidate of balls) {
+    if (candidate === ball || candidate.hp <= 0) {
+      continue;
+    }
+
+    const distance = length(subtract(candidate.position, ball.position));
+    if (distance < nearestDistance) {
+      nearest = candidate;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
 }
 
 function drawArena() {
@@ -3771,26 +5633,93 @@ function handlePointerDown(event) {
   const point = getPointerPoint(event);
   const element = getInteractiveElementAt(point);
   pointerDownElementId = element?.id || null;
+  professionScrollPointer = null;
+
+  if (screen === Screen.PROFESSION_SELECT && canScrollProfessionGridAt(point)) {
+    professionScrollPointer = {
+      id: event.pointerId,
+      lastY: point.y,
+      startY: point.y,
+      didScroll: false,
+    };
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // Pointer capture is best-effort; scrolling still works without it.
+    }
+  }
+}
+
+function handlePointerMove(event) {
+  if (!professionScrollPointer || professionScrollPointer.id !== event.pointerId) {
+    return;
+  }
+
+  const point = getPointerPoint(event);
+  const dragDelta = professionScrollPointer.lastY - point.y;
+  const totalDrag = Math.abs(point.y - professionScrollPointer.startY);
+
+  if (professionScrollPointer.didScroll || totalDrag >= PROFESSION_SCROLL_DRAG_THRESHOLD) {
+    scrollProfessionGridBy(dragDelta);
+    professionScrollPointer.didScroll = true;
+    pointerDownElementId = null;
+    event.preventDefault();
+  }
+
+  professionScrollPointer.lastY = point.y;
 }
 
 function handlePointerUp(event) {
   const point = getPointerPoint(event);
   const element = getInteractiveElementAt(point);
-  const shouldRunAction = element && pointerDownElementId === element.id;
+  const didScrollProfessionGrid = professionScrollPointer?.id === event.pointerId && professionScrollPointer.didScroll;
+  const shouldRunAction = !didScrollProfessionGrid && element && pointerDownElementId === element.id;
   pointerDownElementId = null;
+  professionScrollPointer = null;
 
   if (shouldRunAction) {
     element.action();
+  } else if (didScrollProfessionGrid) {
+    event.preventDefault();
   }
 }
 
 function handleWheel(event) {
+  if (screen === Screen.PROFESSION_SELECT) {
+    const point = getPointerPoint(event);
+    if (canScrollProfessionGridAt(point)) {
+      scrollProfessionGridBy(event.deltaY);
+      event.preventDefault();
+    }
+    return;
+  }
+
   if (screen !== Screen.LEGAL_DOCUMENT) {
     return;
   }
 
   legalScrollOffset = Math.max(0, legalScrollOffset + event.deltaY);
   event.preventDefault();
+}
+
+function canScrollProfessionGridAt(point) {
+  return Boolean(
+    professionScrollArea &&
+      professionScrollArea.maxScroll > 0 &&
+      isInsideRect(point, professionScrollArea),
+  );
+}
+
+function scrollProfessionGridBy(deltaY) {
+  if (!professionScrollArea || professionScrollArea.maxScroll <= 0) {
+    return;
+  }
+
+  professionScrollOffset = clamp(
+    professionScrollOffset + deltaY,
+    0,
+    professionScrollArea.maxScroll,
+  );
 }
 
 function handleKeyDown(event) {
@@ -4082,6 +6011,13 @@ function lerp(start, end, progress) {
   return start + (end - start) * clamp(progress, 0, 1);
 }
 
+function lerpVector(start, end, progress) {
+  return {
+    x: lerp(start.x, end.x, progress),
+    y: lerp(start.y, end.y, progress),
+  };
+}
+
 function easeOutCubic(progress) {
   const safeProgress = clamp(progress, 0, 1);
   return 1 - (1 - safeProgress) ** 3;
@@ -4106,9 +6042,11 @@ async function bootGame() {
 window.addEventListener("resize", resizeCanvas);
 window.visualViewport?.addEventListener("resize", resizeCanvas);
 canvas.addEventListener("pointerdown", handlePointerDown);
+canvas.addEventListener("pointermove", handlePointerMove, { passive: false });
 canvas.addEventListener("pointerup", handlePointerUp);
 canvas.addEventListener("pointercancel", () => {
   pointerDownElementId = null;
+  professionScrollPointer = null;
 });
 canvas.addEventListener("wheel", handleWheel, { passive: false });
 canvas.addEventListener("contextmenu", (event) => event.preventDefault());

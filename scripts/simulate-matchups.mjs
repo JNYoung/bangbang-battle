@@ -2,16 +2,80 @@ import {
   ARENA_SIZE,
   ATTACK_COOLDOWN_MULTIPLIER,
   BALL_RADIUS_MULTIPLIER,
+  ITEM_SCENE_ID,
+  ItemModeBallConfig,
+  ItemSpawnConfig,
+  ItemWeaponConfig,
   ProfessionConfig,
   SceneConfig,
   getAttackAnimationConfig,
+  getItemInitialCount,
+  getItemMaxActiveCount,
+  getItemSpawnInterval,
   getSpeedMultiplier,
 } from "../game-config.js";
 
 const TARGET_MIN_SECONDS = 18;
 const TARGET_MAX_SECONDS = 75;
-const SIMULATION_LIMIT_SECONDS = 90;
+const SIMULATION_LIMIT_SECONDS = 120;
 const STEP_SECONDS = 1 / 60;
+const MATCHUP_SEEDS = Array.from({ length: 12 }, (_, index) => index + 1);
+const PROFESSION_MIN_WIN_RATE = 0.25;
+const PROFESSION_MAX_WIN_RATE = 0.75;
+const ITEM_MODE_BALL_COUNTS = [2, 3, 4, 5, 6];
+const ITEM_MODE_SEEDS = Array.from({ length: 20 }, (_, index) => index + 1);
+const ITEM_MODE_MAX_WINNER_SHARE = 0.75;
+
+const DUEL_STARTS = [
+  {
+    a: { x: 190, y: 210, direction: { x: 1, y: 0.64 } },
+    b: { x: 610, y: 590, direction: { x: -0.95, y: -0.48 } },
+  },
+  {
+    a: { x: 610, y: 210, direction: { x: -1, y: 0.58 } },
+    b: { x: 190, y: 590, direction: { x: 0.95, y: -0.52 } },
+  },
+  {
+    a: { x: 210, y: 610, direction: { x: 0.88, y: -0.7 } },
+    b: { x: 590, y: 190, direction: { x: -0.74, y: 0.82 } },
+  },
+  {
+    a: { x: 410, y: 150, direction: { x: 0.32, y: 1 } },
+    b: { x: 390, y: 650, direction: { x: -0.36, y: -1 } },
+  },
+  {
+    a: { x: 150, y: 410, direction: { x: 1, y: -0.28 } },
+    b: { x: 650, y: 390, direction: { x: -1, y: 0.34 } },
+  },
+  {
+    a: { x: 260, y: 260, direction: { x: 0.76, y: 0.98 } },
+    b: { x: 540, y: 540, direction: { x: -0.84, y: -0.72 } },
+  },
+  {
+    a: { x: 540, y: 260, direction: { x: -0.82, y: 0.92 } },
+    b: { x: 260, y: 540, direction: { x: 0.78, y: -0.8 } },
+  },
+  {
+    a: { x: 250, y: 400, direction: { x: 0.94, y: 0.22 } },
+    b: { x: 550, y: 400, direction: { x: -0.92, y: -0.26 } },
+  },
+  {
+    a: { x: 400, y: 250, direction: { x: -0.2, y: 0.98 } },
+    b: { x: 400, y: 550, direction: { x: 0.24, y: -0.98 } },
+  },
+  {
+    a: { x: 180, y: 520, direction: { x: 0.98, y: -0.44 } },
+    b: { x: 620, y: 280, direction: { x: -0.9, y: 0.58 } },
+  },
+  {
+    a: { x: 620, y: 520, direction: { x: -0.96, y: -0.5 } },
+    b: { x: 180, y: 280, direction: { x: 0.92, y: 0.62 } },
+  },
+  {
+    a: { x: 330, y: 150, direction: { x: 0.58, y: 1 } },
+    b: { x: 470, y: 650, direction: { x: -0.54, y: -1 } },
+  },
+];
 
 class SimulatedBall {
   constructor({ profession, x, y, direction }) {
@@ -112,20 +176,77 @@ class SimulatedBall {
   }
 }
 
-const results = [];
-for (const scene of Object.values(SceneConfig)) {
-  for (const aProfession of scene.professionIds) {
-    for (const bProfession of scene.professionIds) {
-      results.push(simulateMatch(scene.id, aProfession, bProfession));
+class SimulatedItemBall {
+  constructor({ label, x, y, direction }) {
+    this.label = label;
+    this.profession = null;
+    this.config = ItemModeBallConfig;
+    this.position = { x, y };
+    this.velocity = scale(normalize(direction), this.config.moveSpeed);
+    this.radius = this.config.radius * BALL_RADIUS_MULTIPLIER;
+    this.hp = this.config.maxHp;
+    this.equippedItem = null;
+    this.lastAttackTime = -Infinity;
+  }
+
+  update(deltaTime, elapsedSeconds) {
+    this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this, elapsedSeconds));
+    this.position.x += this.velocity.x * deltaTime;
+    this.position.y += this.velocity.y * deltaTime;
+    this.bounceOffWalls();
+  }
+
+  bounceOffWalls() {
+    if (this.position.x - this.radius < 0) {
+      this.position.x = this.radius;
+      this.velocity.x = Math.abs(this.velocity.x);
+    } else if (this.position.x + this.radius > ARENA_SIZE) {
+      this.position.x = ARENA_SIZE - this.radius;
+      this.velocity.x = -Math.abs(this.velocity.x);
+    }
+
+    if (this.position.y - this.radius < 0) {
+      this.position.y = this.radius;
+      this.velocity.y = Math.abs(this.velocity.y);
+    } else if (this.position.y + this.radius > ARENA_SIZE) {
+      this.position.y = ARENA_SIZE - this.radius;
+      this.velocity.y = -Math.abs(this.velocity.y);
     }
   }
 }
 
-printResults(results);
+const matchupSummaries = [];
+const matchupRuns = [];
+for (const scene of Object.values(SceneConfig)) {
+  if (scene.type !== "professions") {
+    continue;
+  }
 
-const failures = results.filter((result) => !isWithinCurve(result));
+  for (const aProfession of scene.professionIds) {
+    for (const bProfession of scene.professionIds) {
+      const runs = MATCHUP_SEEDS.map((seed) => simulateMatch(scene.id, aProfession, bProfession, seed));
+      matchupRuns.push(...runs);
+      matchupSummaries.push(getMatchupSummary(scene.id, aProfession, bProfession, runs));
+    }
+  }
+}
 
-if (failures.length > 0) {
+const professionSummaries = getProfessionBalanceSummaries(matchupRuns);
+const itemResults = ITEM_MODE_BALL_COUNTS.flatMap((ballCount) => {
+  return ITEM_MODE_SEEDS.map((seed) => simulateItemMode(seed, ballCount));
+});
+const itemSummaries = ITEM_MODE_BALL_COUNTS.map((ballCount) => {
+  return getItemModeSummary(itemResults.filter((result) => result.ballCount === ballCount), ballCount);
+});
+
+printResults(matchupSummaries, professionSummaries);
+printItemResults(itemSummaries);
+
+const matchupFailures = matchupSummaries.filter((summary) => !isMatchupSummaryWithinCurve(summary));
+const professionFailures = professionSummaries.filter((summary) => !isProfessionSummaryWithinCurve(summary));
+const itemFailures = itemSummaries.filter((summary) => !isItemSummaryWithinCurve(summary));
+
+if (matchupFailures.length > 0 || professionFailures.length > 0 || itemFailures.length > 0) {
   process.exitCode = 1;
 }
 
@@ -153,23 +274,20 @@ function createFrostOrbitState(ball) {
   };
 }
 
-function simulateMatch(sceneId, aProfession, bProfession) {
+function simulateMatch(sceneId, aProfession, bProfession, seed = 1) {
   let elapsedSeconds = 0;
   let projectiles = [];
   let hazards = [];
   let webLinks = [];
   let flames = [];
+  const start = getDuelStart(seed);
   const ballA = new SimulatedBall({
     profession: aProfession,
-    x: 190,
-    y: 210,
-    direction: { x: 1, y: 0.64 },
+    ...start.a,
   });
   const ballB = new SimulatedBall({
     profession: bProfession,
-    x: 610,
-    y: 590,
-    direction: { x: -0.95, y: -0.48 },
+    ...start.b,
   });
 
   for (let step = 0; step < SIMULATION_LIMIT_SECONDS / STEP_SECONDS; step += 1) {
@@ -201,7 +319,7 @@ function simulateMatch(sceneId, aProfession, bProfession) {
     updateAttackForPair(ballB, ballA, elapsedSeconds, projectiles);
 
     if (ballA.hp <= 0 || ballB.hp <= 0) {
-      return getResult(sceneId, aProfession, bProfession, elapsedSeconds, ballA, ballB);
+      return getResult(sceneId, aProfession, bProfession, seed, elapsedSeconds, ballA, ballB);
     }
   }
 
@@ -209,6 +327,7 @@ function simulateMatch(sceneId, aProfession, bProfession) {
     sceneId,
     aProfession,
     bProfession,
+    seed,
     timeSeconds: elapsedSeconds,
     winner: "timeout",
     winnerProfession: "timeout",
@@ -217,19 +336,334 @@ function simulateMatch(sceneId, aProfession, bProfession) {
   };
 }
 
-function getResult(sceneId, aProfession, bProfession, elapsedSeconds, ballA, ballB) {
+function getDuelStart(seed) {
+  const start = DUEL_STARTS[(seed - 1) % DUEL_STARTS.length];
+  const aPosition = jitterDuelPosition(start.a, seed, 101);
+  const bPosition = jitterDuelPosition(start.b, seed, 211);
+
+  return {
+    a: {
+      ...aPosition,
+      direction: getJitteredDuelDirection(aPosition, bPosition, seed, 101),
+    },
+    b: {
+      ...bPosition,
+      direction: getJitteredDuelDirection(bPosition, aPosition, seed, 211),
+    },
+  };
+}
+
+function jitterDuelPosition(slot, seed, salt) {
+  return {
+    x: clamp(slot.x + (seededNoise(seed, salt, 1, 557) - 0.5) * 28, 120, ARENA_SIZE - 120),
+    y: clamp(slot.y + (seededNoise(seed, salt, 2, 563) - 0.5) * 28, 120, ARENA_SIZE - 120),
+  };
+}
+
+function getJitteredDuelDirection(source, target, seed, salt) {
+  const baseAngle = Math.atan2(target.y - source.y, target.x - source.x);
+  return vectorFromAngle(baseAngle + (seededNoise(seed, salt, 0, 541) - 0.5) * 0.34);
+}
+
+function getResult(sceneId, aProfession, bProfession, seed, elapsedSeconds, ballA, ballB) {
   const winner = ballA.hp <= 0 && ballB.hp <= 0 ? "draw" : ballA.hp <= 0 ? "B" : "A";
 
   return {
     sceneId,
     aProfession,
     bProfession,
+    seed,
     timeSeconds: elapsedSeconds,
     winner,
     winnerProfession: winner === "A" ? aProfession : winner === "B" ? bProfession : "draw",
     aHp: ballA.hp,
     bHp: ballB.hp,
   };
+}
+
+function simulateItemMode(seed, ballCount = 2) {
+  let elapsedSeconds = 0;
+  let droppedItems = [];
+  const stats = createItemModeStats();
+  const spawnState = {
+    counter: 0,
+    nextSpawnTime: 0,
+    maxActive: getItemMaxActiveCount(ballCount),
+    spawnInterval: getItemSpawnInterval(ballCount),
+  };
+  const balls = createSimulatedItemBalls(seed, ballCount);
+
+  for (let index = 0; index < getItemInitialCount(ballCount); index += 1) {
+    droppedItems = spawnSimulatedItem(seed, elapsedSeconds, balls, droppedItems, spawnState);
+  }
+  spawnState.nextSpawnTime = spawnState.spawnInterval;
+
+  for (let step = 0; step < SIMULATION_LIMIT_SECONDS / STEP_SECONDS; step += 1) {
+    elapsedSeconds += STEP_SECONDS;
+    for (const ball of balls) {
+      if (ball.hp > 0) {
+        ball.update(STEP_SECONDS, elapsedSeconds);
+      }
+    }
+    forEachBallPair(balls, (ballA, ballB) => {
+      resolveBallCollision(ballA, ballB, elapsedSeconds);
+    });
+    droppedItems = updateSimulatedItems(seed, elapsedSeconds, balls, droppedItems, spawnState, stats);
+    forEachOrderedBallPair(balls, (attacker, defender) => {
+      updateItemAttackForPair(attacker, defender, elapsedSeconds, seed, stats);
+    });
+
+    if (balls.filter((ball) => ball.hp > 0).length <= 1) {
+      return getItemModeResult(seed, ballCount, elapsedSeconds, balls, stats);
+    }
+  }
+
+  return {
+    sceneId: ITEM_SCENE_ID,
+    seed,
+    ballCount,
+    timeSeconds: elapsedSeconds,
+    winner: "timeout",
+    winnerProfession: "timeout",
+    aHp: balls[0]?.hp || 0,
+    bHp: balls[1]?.hp || 0,
+    remainingHp: getRemainingHpByLabel(balls),
+    stats,
+  };
+}
+
+function createSimulatedItemBalls(seed, ballCount) {
+  return Array.from({ length: ballCount }, (_, index) => {
+    const start = getItemBallStart(seed, index, ballCount);
+    return new SimulatedItemBall({
+      label: getBallLabel(index),
+      ...start,
+    });
+  });
+}
+
+function getItemBallStart(seed, index, ballCount) {
+  const rotation = seededNoise(seed, ballCount, 0, 401) * Math.PI * 2;
+  const angleJitter = (seededNoise(seed, index, ballCount, 421) - 0.5) * 0.22;
+  const angle = -Math.PI / 2 + rotation + (index * Math.PI * 2) / ballCount + angleJitter;
+  const spawnRadius = ballCount <= 2 ? 285 : 255;
+  const x = ARENA_SIZE / 2 + Math.cos(angle) * spawnRadius;
+  const y = ARENA_SIZE / 2 + Math.sin(angle) * spawnRadius;
+  const inward = normalize(subtract({ x: ARENA_SIZE / 2, y: ARENA_SIZE / 2 }, { x, y }));
+  const tangent = vectorFromAngle(angle + Math.PI / 2);
+  const tangentBias = index % 2 === 0 ? 0.34 : -0.34;
+
+  return {
+    x,
+    y,
+    direction: normalize(add(inward, scale(tangent, tangentBias))),
+  };
+}
+
+function getBallLabel(index) {
+  return String.fromCharCode("A".charCodeAt(0) + index);
+}
+
+function forEachBallPair(balls, callback) {
+  for (let aIndex = 0; aIndex < balls.length; aIndex += 1) {
+    const ballA = balls[aIndex];
+    if (ballA.hp <= 0) {
+      continue;
+    }
+
+    for (let bIndex = aIndex + 1; bIndex < balls.length; bIndex += 1) {
+      const ballB = balls[bIndex];
+      if (ballB.hp > 0) {
+        callback(ballA, ballB);
+      }
+    }
+  }
+}
+
+function forEachOrderedBallPair(balls, callback) {
+  for (const attacker of balls) {
+    if (attacker.hp <= 0) {
+      continue;
+    }
+
+    for (const defender of balls) {
+      if (defender !== attacker && defender.hp > 0) {
+        callback(attacker, defender);
+      }
+    }
+  }
+}
+
+function createItemModeStats() {
+  return {
+    pickups: 0,
+    uses: 0,
+    pickupByWeapon: Object.fromEntries(Object.keys(ItemWeaponConfig).map((id) => [id, 0])),
+    usesByWeapon: Object.fromEntries(Object.keys(ItemWeaponConfig).map((id) => [id, 0])),
+    spellsById: { fire: 0, ice: 0, lightning: 0 },
+  };
+}
+
+function updateSimulatedItems(seed, currentTime, balls, droppedItems, spawnState, stats) {
+  let nextDroppedItems = droppedItems;
+  if (nextDroppedItems.length < spawnState.maxActive && currentTime >= spawnState.nextSpawnTime) {
+    nextDroppedItems = spawnSimulatedItem(seed, currentTime, balls, nextDroppedItems, spawnState);
+  }
+
+  return resolveSimulatedItemPickups(currentTime, balls, nextDroppedItems, stats);
+}
+
+function spawnSimulatedItem(seed, currentTime, balls, droppedItems, spawnState) {
+  if (droppedItems.length >= spawnState.maxActive) {
+    return droppedItems;
+  }
+
+  const weaponIds = Object.keys(ItemWeaponConfig);
+  const spawnIndex = spawnState.counter;
+  const weaponNoise = seededNoise(seed, spawnIndex + 17, droppedItems.length + 23, 733);
+  const weaponId = weaponIds[Math.floor(weaponNoise * weaponIds.length) % weaponIds.length];
+  const position = createSimulatedItemPosition(seed, spawnIndex, balls);
+  spawnState.counter += 1;
+  spawnState.nextSpawnTime = currentTime + spawnState.spawnInterval;
+
+  return [
+    ...droppedItems,
+    {
+      id: `item-${seed}-${spawnIndex}`,
+      weaponId,
+      position,
+    },
+  ];
+}
+
+function createSimulatedItemPosition(seed, spawnIndex, balls) {
+  const padding = ItemSpawnConfig.edgePadding;
+  const span = ARENA_SIZE - padding * 2;
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const position = {
+      x: padding + seededNoise(seed, spawnIndex, attempt, 811) * span,
+      y: padding + seededNoise(seed, spawnIndex, attempt, 823) * span,
+    };
+    const tooCloseToBall = balls.some((ball) => {
+      return ball.hp > 0 && length(subtract(ball.position, position)) < ItemSpawnConfig.avoidBallRadius;
+    });
+    if (!tooCloseToBall) {
+      return position;
+    }
+  }
+
+  return {
+    x: padding + seededNoise(seed, spawnIndex, 0, 839) * span,
+    y: padding + seededNoise(seed, spawnIndex, 0, 853) * span,
+  };
+}
+
+function resolveSimulatedItemPickups(currentTime, balls, droppedItems, stats) {
+  return droppedItems.filter((item) => {
+    const picker = balls.find((ball) => {
+      return ball.hp > 0 && length(subtract(ball.position, item.position)) <= ball.radius + ItemSpawnConfig.pickupRadius;
+    });
+
+    if (!picker) {
+      return true;
+    }
+
+    equipSimulatedItem(picker, item.weaponId, currentTime);
+    stats.pickups += 1;
+    stats.pickupByWeapon[item.weaponId] += 1;
+    return false;
+  });
+}
+
+function equipSimulatedItem(ball, weaponId, currentTime) {
+  const weapon = ItemWeaponConfig[weaponId];
+  if (!weapon) {
+    return;
+  }
+
+  ball.equippedItem = {
+    weaponId,
+    durability: weapon.durability,
+  };
+  ball.lastAttackTime = Math.min(ball.lastAttackTime, currentTime - weapon.cooldown * 0.5);
+}
+
+function updateItemAttackForPair(attacker, defender, currentTime, seed, stats) {
+  const weapon = attacker.equippedItem ? ItemWeaponConfig[attacker.equippedItem.weaponId] : null;
+  if (!weapon || attacker.hp <= 0 || defender.hp <= 0 || currentTime - attacker.lastAttackTime < weapon.cooldown) {
+    return;
+  }
+
+  if (!isSimulatedItemInRange(attacker, defender, weapon)) {
+    return;
+  }
+
+  const attackVariant = getSimulatedItemAttackVariant(weapon, attacker, defender, currentTime, seed, stats);
+  const normal = getDirectionBetween(attacker, defender);
+  const damage = damageBall(defender, attackVariant.damage);
+  applySimulatedItemKnockback(attacker, defender, normal, damage, attackVariant, currentTime);
+
+  if (weapon.kind === "rocket" && weapon.explosionDamage > 0) {
+    const explosionDamage = damageBall(defender, weapon.explosionDamage * 0.45);
+    applySimulatedItemKnockback(attacker, defender, normal, explosionDamage, weapon, currentTime);
+  }
+
+  attacker.lastAttackTime = currentTime;
+  attacker.equippedItem.durability -= 1;
+  stats.uses += 1;
+  stats.usesByWeapon[weapon.id] += 1;
+  if (attacker.equippedItem.durability <= 0) {
+    attacker.equippedItem = null;
+  }
+}
+
+function isSimulatedItemInRange(attacker, defender, weapon) {
+  return length(subtract(defender.position, attacker.position)) <= attacker.radius + defender.radius + weapon.range;
+}
+
+function getSimulatedItemAttackVariant(weapon, attacker, defender, currentTime, seed, stats) {
+  if (weapon.kind !== "spell") {
+    return weapon;
+  }
+
+  const spellNoise = seededNoise(seed, Math.floor(currentTime * 11), attacker.label.charCodeAt(0), 919);
+  const spell = weapon.spellBook[Math.floor(spellNoise * weapon.spellBook.length) % weapon.spellBook.length];
+  stats.spellsById[spell.id] += 1;
+  return spell;
+}
+
+function applySimulatedItemKnockback(attacker, defender, normalFromAttackerToDefender, damage, attackVariant, elapsedSeconds) {
+  if (damage <= 0) {
+    return;
+  }
+
+  const push = 56 * (attackVariant.knockbackMultiplier || 0.9);
+  defender.velocity = add(defender.velocity, scale(normalFromAttackerToDefender, push));
+  keepSpeed(attacker, elapsedSeconds);
+  keepSpeed(defender, elapsedSeconds);
+}
+
+function getItemModeResult(seed, ballCount, elapsedSeconds, balls, stats) {
+  const aliveBalls = balls.filter((ball) => ball.hp > 0);
+  const winner = aliveBalls.length === 0 ? "draw" : aliveBalls[0].label;
+
+  return {
+    sceneId: ITEM_SCENE_ID,
+    seed,
+    ballCount,
+    timeSeconds: elapsedSeconds,
+    winner,
+    winnerProfession: winner === "draw" ? "draw" : `Ball ${winner}`,
+    aHp: balls[0]?.hp || 0,
+    bHp: balls[1]?.hp || 0,
+    remainingHp: getRemainingHpByLabel(balls),
+    stats,
+  };
+}
+
+function getRemainingHpByLabel(balls) {
+  return Object.fromEntries(balls.map((ball) => [ball.label, Math.ceil(ball.hp)]));
 }
 
 function updateAttackForPair(attacker, defender, currentTime, projectiles) {
@@ -671,7 +1105,7 @@ function getReaperBladeGeometry(ball, currentTime) {
   const bladeAngle = baseAngle - attackConfig.sweepAngle / 2 + attackConfig.sweepAngle * easeOutCubic(progress);
   const bladeDirection = vectorFromAngle(bladeAngle);
   const side = vectorFromAngle(bladeAngle - Math.PI * 0.5);
-  const socket = add(ball.position, scale(bladeDirection, ball.radius + ball.weaponRange * 0.72));
+  const socket = add(ball.position, scale(bladeDirection, ball.radius + ball.weaponRange * 0.48));
   const bladeHalf = ball.config.reaperBlade.edgeLength / 2;
 
   return {
@@ -691,7 +1125,15 @@ function getReaperBladeHit(attacker, defender, currentTime) {
   );
 
   if (!hit) {
-    return null;
+    const closeRangeMultiplier = defender.profession === "reaper" ? 0.85 : 0.45;
+    const closeRange = length(subtract(defender.position, attacker.position)) <=
+      attacker.radius + defender.radius + attacker.weaponRange * closeRangeMultiplier;
+    return closeRange
+      ? {
+          point: defender.position,
+          normal: normalize(subtract(defender.position, attacker.position)),
+        }
+      : null;
   }
 
   return {
@@ -786,34 +1228,214 @@ function getCurrentMoveSpeed(ball, elapsedSeconds) {
   return ball.config.moveSpeed * getSpeedMultiplier(elapsedSeconds);
 }
 
-function isWithinCurve(result) {
+function getMatchupSummary(sceneId, aProfession, bProfession, runs) {
+  const winsA = runs.filter((result) => result.winner === "A").length;
+  const winsB = runs.filter((result) => result.winner === "B").length;
+  const draws = runs.filter((result) => result.winner === "draw").length;
+  const timeouts = runs.filter((result) => result.winner === "timeout").length;
+  const averageSeconds = getAverageSeconds(runs);
+  const decisiveRuns = winsA + winsB;
+
+  return {
+    sceneId,
+    aProfession,
+    bProfession,
+    runs: runs.length,
+    winsA,
+    winsB,
+    draws,
+    timeouts,
+    averageSeconds,
+    minSeconds: Math.min(...runs.map((result) => result.timeSeconds)),
+    maxSeconds: Math.max(...runs.map((result) => result.timeSeconds)),
+    aWinRate: decisiveRuns > 0 ? winsA / decisiveRuns : 0,
+  };
+}
+
+function getProfessionBalanceSummaries(runs) {
+  const summariesByKey = new Map();
+
+  for (const result of runs) {
+    if (result.winner === "timeout") {
+      addProfessionResult(summariesByKey, result.sceneId, result.aProfession, "timeout");
+      addProfessionResult(summariesByKey, result.sceneId, result.bProfession, "timeout");
+      continue;
+    }
+
+    if (result.winner === "draw") {
+      addProfessionResult(summariesByKey, result.sceneId, result.aProfession, "draw");
+      addProfessionResult(summariesByKey, result.sceneId, result.bProfession, "draw");
+      continue;
+    }
+
+    addProfessionResult(summariesByKey, result.sceneId, result.aProfession, result.winner === "A" ? "win" : "loss");
+    addProfessionResult(summariesByKey, result.sceneId, result.bProfession, result.winner === "B" ? "win" : "loss");
+  }
+
+  return [...summariesByKey.values()].map((summary) => {
+    const decisiveGames = summary.wins + summary.losses;
+    return {
+      ...summary,
+      winRate: decisiveGames > 0 ? summary.wins / decisiveGames : 0,
+    };
+  });
+}
+
+function addProfessionResult(summariesByKey, sceneId, profession, result) {
+  const key = `${sceneId}:${profession}`;
+  if (!summariesByKey.has(key)) {
+    summariesByKey.set(key, {
+      sceneId,
+      profession,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      timeouts: 0,
+    });
+  }
+
+  const summary = summariesByKey.get(key);
+  if (result === "win") {
+    summary.wins += 1;
+  } else if (result === "loss") {
+    summary.losses += 1;
+  } else if (result === "draw") {
+    summary.draws += 1;
+  } else {
+    summary.timeouts += 1;
+  }
+}
+
+function isMatchupSummaryWithinCurve(summary) {
   return (
-    result.winner !== "timeout" &&
-    result.timeSeconds >= TARGET_MIN_SECONDS &&
-    result.timeSeconds <= TARGET_MAX_SECONDS
+    summary.averageSeconds >= TARGET_MIN_SECONDS &&
+    summary.averageSeconds <= TARGET_MAX_SECONDS
   );
 }
 
-function printResults(matchupResults) {
-  console.log(`Target curve: ${TARGET_MIN_SECONDS}-${TARGET_MAX_SECONDS}s`);
-  console.log("matchup          time   winner  hp(A/B)  status");
+function isProfessionSummaryWithinCurve(summary) {
+  return (
+    summary.winRate >= PROFESSION_MIN_WIN_RATE &&
+    summary.winRate <= PROFESSION_MAX_WIN_RATE
+  );
+}
 
-  for (const result of matchupResults) {
-    const status = isWithinCurve(result) ? "PASS" : "FAIL";
+function printResults(matchupSummaries, professionSummaries) {
+  console.log(`Target curve: ${TARGET_MIN_SECONDS}-${TARGET_MAX_SECONDS}s`);
+  console.log(`Profession matchup seeds per pair: ${MATCHUP_SEEDS.length}`);
+  console.log("matchup          avg    min/max      A/B     status");
+
+  for (const summary of matchupSummaries) {
+    const status = isMatchupSummaryWithinCurve(summary) ? "PASS" : "FAIL";
     console.log(
-      `${formatMatchup(result).padEnd(16)} ${result.timeSeconds.toFixed(1).padStart(5)}s  ${result.winnerProfession.padEnd(
-        7,
-      )}  ${formatHp(result).padEnd(7)}  ${status}`,
+      `${formatMatchup(summary).padEnd(16)} ${summary.averageSeconds.toFixed(1).padStart(5)}s  ${formatSecondsRange(
+        summary,
+      ).padEnd(11)} ${String(summary.winsA).padStart(2)}/${String(summary.winsB).padEnd(2)}  ${status}`,
     );
   }
+
+  console.log("");
+  console.log(`Profession win-rate target: ${(PROFESSION_MIN_WIN_RATE * 100).toFixed(0)}%-${(PROFESSION_MAX_WIN_RATE * 100).toFixed(0)}%`);
+  console.log("profession       wins/losses  winRate  status");
+  for (const summary of professionSummaries) {
+    const status = isProfessionSummaryWithinCurve(summary) ? "PASS" : "FAIL";
+    console.log(
+      `${`${summary.sceneId}:${summary.profession}`.padEnd(16)} ${String(summary.wins).padStart(3)}/${String(summary.losses).padEnd(
+        3,
+      )}      ${(summary.winRate * 100).toFixed(1).padStart(5)}%  ${status}`,
+    );
+  }
+}
+
+function getItemModeSummary(itemModeResults, ballCount) {
+  const completed = itemModeResults.filter((result) => result.winner !== "timeout");
+  const winnerCounts = {};
+  for (const result of itemModeResults) {
+    winnerCounts[result.winner] = (winnerCounts[result.winner] || 0) + 1;
+  }
+  const averageSeconds = getAverageSeconds(itemModeResults);
+  const totals = itemModeResults.reduce(
+    (summary, result) => {
+      summary.pickups += result.stats.pickups;
+      summary.uses += result.stats.uses;
+      for (const [weaponId, count] of Object.entries(result.stats.pickupByWeapon)) {
+        summary.pickupByWeapon[weaponId] += count;
+      }
+      for (const [weaponId, count] of Object.entries(result.stats.usesByWeapon)) {
+        summary.usesByWeapon[weaponId] += count;
+      }
+      for (const [spellId, count] of Object.entries(result.stats.spellsById)) {
+        summary.spellsById[spellId] += count;
+      }
+      return summary;
+    },
+    createItemModeStats(),
+  );
+
+  return {
+    ballCount,
+    runs: itemModeResults.length,
+    completed: completed.length,
+    timeouts: itemModeResults.length - completed.length,
+    averageSeconds,
+    draws: itemModeResults.filter((result) => result.winner === "draw").length,
+    minSeconds: Math.min(...itemModeResults.map((result) => result.timeSeconds)),
+    maxSeconds: Math.max(...itemModeResults.map((result) => result.timeSeconds)),
+    winnerCounts,
+    maxWinnerShare: Math.max(...Object.values(winnerCounts)) / Math.max(1, itemModeResults.length),
+    totals,
+  };
+}
+
+function isItemSummaryWithinCurve(summary) {
+  return (
+    summary.timeouts === 0 &&
+    summary.averageSeconds >= TARGET_MIN_SECONDS &&
+    summary.averageSeconds <= TARGET_MAX_SECONDS &&
+    summary.maxWinnerShare <= ITEM_MODE_MAX_WINNER_SHARE
+  );
+}
+
+function printItemResults(itemSummaries) {
+  console.log("");
+  console.log(`Item mode seeds per ball count: ${ITEM_MODE_SEEDS.length}`);
+  console.log("balls  avg    min/max      winners             items       status");
+
+  for (const summary of itemSummaries) {
+    const status = isItemSummaryWithinCurve(summary) ? "PASS" : "FAIL";
+    console.log(
+      `${String(summary.ballCount).padStart(5)}  ${summary.averageSeconds.toFixed(1).padStart(5)}s  ${formatSecondsRange(
+        summary,
+      ).padEnd(11)} ${formatCountMap(summary.winnerCounts).padEnd(19)} ${String(summary.totals.pickups).padStart(4)}/${String(
+        summary.totals.uses,
+      ).padEnd(4)}  ${status}`,
+    );
+    console.log(`       pickups: ${formatCountMap(summary.totals.pickupByWeapon)}`);
+    console.log(`       uses:    ${formatCountMap(summary.totals.usesByWeapon)}`);
+    console.log(`       spells:  ${formatCountMap(summary.totals.spellsById)}`);
+  }
+}
+
+function getAverageSeconds(results) {
+  return results.reduce((total, result) => total + result.timeSeconds, 0) / Math.max(1, results.length);
 }
 
 function formatMatchup(result) {
   return `${result.sceneId}:${result.aProfession}>${result.bProfession}`;
 }
 
+function formatSecondsRange(summary) {
+  return `${summary.minSeconds.toFixed(1)}-${summary.maxSeconds.toFixed(1)}s`;
+}
+
 function formatHp(result) {
   return `${Math.ceil(result.aHp)}/${Math.ceil(result.bHp)}`;
+}
+
+function formatCountMap(countMap) {
+  return Object.entries(countMap)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(", ");
 }
 
 function getDirectionBetween(source, target) {
@@ -933,6 +1555,11 @@ function getWallAnchoredPoint(wall, point, inset) {
     return { x: clamp(point.x, inset, ARENA_SIZE - inset), y: inset };
   }
   return { x: clamp(point.x, inset, ARENA_SIZE - inset), y: ARENA_SIZE - inset };
+}
+
+function seededNoise(seed, x, y, salt = 0) {
+  const value = Math.sin(seed * 92821.91 + x * 127.1 + y * 311.7 + salt * 74.7) * 43758.5453;
+  return value - Math.floor(value);
 }
 
 function easeOutCubic(value) {
