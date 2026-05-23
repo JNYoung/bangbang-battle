@@ -222,6 +222,36 @@ export const ProfessionCosmeticConfig = {
       },
     ],
   },
+  yoyo: {
+    profession: "yoyo",
+    skinPacks: ["default", "pixel-loop"],
+    pendants: [
+      {
+        id: "yoyo-pixel-trail",
+        name: "回旋像素尾迹",
+        type: PendantType.TRAIL,
+        trigger: CosmeticTrigger.ALWAYS,
+        effect: "motionTrail",
+        color: "#ff7ab6",
+        duration: 0,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+    attackEffects: [
+      {
+        id: "yoyo-line-snap",
+        name: "像素线割击",
+        type: AttackEffectType.CHAIN,
+        trigger: CosmeticTrigger.SKILL,
+        effect: "slashArc",
+        color: "#fff1a8",
+        duration: 0.24,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+  },
   spear: {
     profession: "spear",
     skinPacks: ["default", "sky-guard"],

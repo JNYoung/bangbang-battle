@@ -62,6 +62,11 @@ export const ATTACK_ANIMATION_CONFIG = {
     duration: 0.48,
     hitFrame: 0.62,
   },
+  staff: {
+    duration: 0.38,
+    hitFrame: 0.7,
+    sweepAngle: (Math.PI * 148) / 180,
+  },
   default: {
     duration: 0.24,
     hitFrame: 0.5,
@@ -495,6 +500,69 @@ export const HeroConfig = {
       return Boolean(attackVariant?.heroSkillId);
     },
   },
+  wukong: {
+    id: "wukong",
+    nameKey: "heroes.wukong.name",
+    maxHp: 122,
+    maxMp: 104,
+    manaRegen: 4.6,
+    radius: 24,
+    moveSpeed: 232,
+    attackDamage: 9,
+    attackCooldown: 0.54,
+    weaponRange: 124,
+    attackMode: "staff",
+    bodyPattern: "wukong",
+    color: "#b45309",
+    accentColor: "#facc15",
+    item: {
+      nameKey: "heroes.wukong.weapon",
+      type: "staff",
+      animation: "金箍棒连击",
+    },
+    skills: [
+      {
+        id: "tripleStaff",
+        nameKey: "heroes.wukong.skills.tripleStaff",
+        type: "staffBuff",
+        manaCost: 30,
+        cooldown: 7.2,
+        autoPriority: 1,
+        exclusiveGroup: "wukongStaffForm",
+        duration: 3.8,
+        triggerRange: 138,
+        staffCount: 3,
+        spreadAngle: Math.PI / 7,
+        damageMultiplier: 1,
+        knockbackMultiplier: 0.74,
+        color: "#f97316",
+      },
+      {
+        id: "giantStaff",
+        nameKey: "heroes.wukong.skills.giantStaff",
+        type: "staffBuff",
+        manaCost: 38,
+        cooldown: 8.5,
+        autoPriority: 2,
+        exclusiveGroup: "wukongStaffForm",
+        duration: 3.4,
+        triggerRange: 760,
+        rangeMultiplier: 5,
+        damageMultiplier: 1.15,
+        knockbackMultiplier: 1.08,
+        color: "#facc15",
+      },
+    ],
+    getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant) {
+      return attackVariant?.damage || this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || 0.86;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return Boolean(attackVariant?.heroSkillId);
+    },
+  },
 };
 
 export const SceneConfig = {
@@ -514,7 +582,7 @@ export const SceneConfig = {
     type: "professions",
     nameKey: "scenes.super.name",
     descriptionKey: "scenes.super.description",
-    professionIds: ["bat", "venom", "spider", "lava", "reaper", "frost"],
+    professionIds: ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo"],
     defaultProfessions: {
       a: "bat",
       b: "venom",
@@ -537,7 +605,7 @@ export const SceneConfig = {
     type: "heroes",
     nameKey: "scenes.heroes.name",
     descriptionKey: "scenes.heroes.description",
-    professionIds: ["demon", "dwarfKing", "minotaur", "elfKing"],
+    professionIds: ["demon", "dwarfKing", "minotaur", "elfKing", "wukong"],
     defaultProfessions: {
       a: "demon",
       b: "dwarfKing",
@@ -807,6 +875,47 @@ export const ProfessionConfig = {
     },
     isSkillHit() {
       return true;
+    },
+  },
+  yoyo: {
+    id: "yoyo",
+    name: "悠悠球",
+    maxHp: 124,
+    radius: 23,
+    moveSpeed: 218,
+    attackDamage: 8,
+    attackCooldown: 0.82,
+    weaponRange: 118,
+    color: "#ff7ab6",
+    accentColor: "#fff1a8",
+    skillName: "像素回旋",
+    item: {
+      name: "像素悠悠球",
+      type: "yoyo",
+      animation: "定期甩出回旋",
+    },
+    attackMode: "yoyo",
+    yoyoWeapon: {
+      cooldown: 1,
+      extendDuration: 0.2,
+      activeDuration: 1.75,
+      retractDuration: 0.28,
+      orbitRadius: 138,
+      headRadius: 18,
+      lineRadius: 15,
+      spinSpeed: 8.4,
+      lineDamage: 17,
+      headDamage: 24,
+      hitCooldown: 0.2,
+    },
+    getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant = null) {
+      return attackVariant?.damage || this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
+      return attackVariant?.knockbackMultiplier || 0.68;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
+      return attackVariant?.yoyoHit === true;
     },
   },
   spear: {

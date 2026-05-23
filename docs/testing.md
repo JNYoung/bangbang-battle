@@ -54,6 +54,12 @@ ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
 - `test:artifacts`：构建 Web 产物、生成 Meta Instant Games ZIP，并验证 SDK 注入、`fbapp-config.json` 和 ZIP 文件。
 - `test:ci`：串联以上所有检查，适合 GitHub Actions。
 
+## 开发约束
+
+- Canvas 外层页面保持全屏，不依赖浏览器原生页面滚动；任何超出可视区域的列表或面板内容都必须在 Canvas 内实现滚动。
+- 职业选择页在手机宽度下必须保持稳定卡片高度。经典、超能、英雄等模式的职业列表超过可视网格时，使用拖拽/滚轮滚动，不通过压缩卡片、挤压文字或遮挡底部按钮来硬塞进页面。
+- 新增模式或职业后，至少检查一次窄屏职业选择页，确认模式切换、职业列表滚动、底部操作按钮都可达。
+
 ## 新增职业时
 
 新增职业需要同时更新：

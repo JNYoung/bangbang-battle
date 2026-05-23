@@ -40,6 +40,7 @@ test("profession config exposes balanced, testable combat fields", () => {
     "spear",
     "spider",
     "venom",
+    "yoyo",
   ]);
 
   for (const [profession, config] of Object.entries(ProfessionConfig)) {
@@ -71,12 +72,12 @@ test("combat and cosmetic profession lists stay in sync", () => {
 
 test("scene config keeps classic and super profession pools separate", () => {
   assert.deepEqual(SceneConfig.classic.professionIds, ["spear", "blade", "shield", "assassin", "archer", "chain", "mage"]);
-  assert.deepEqual(SceneConfig.super.professionIds, ["bat", "venom", "spider", "lava", "reaper", "frost"]);
+  assert.deepEqual(SceneConfig.super.professionIds, ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo"]);
   assert.equal(SceneConfig[ITEM_SCENE_ID].type, "items");
   assert.deepEqual(getSceneProfessionIds(ITEM_SCENE_ID), []);
   assert.equal(SceneConfig[ITEM_SCENE_ID].ballHp, 100);
   assert.equal(SceneConfig[HERO_SCENE_ID].type, "heroes");
-  assert.deepEqual(SceneConfig[HERO_SCENE_ID].professionIds, ["demon", "dwarfKing", "minotaur", "elfKing"]);
+  assert.deepEqual(SceneConfig[HERO_SCENE_ID].professionIds, ["demon", "dwarfKing", "minotaur", "elfKing", "wukong"]);
   assert.equal(isHeroScene(HERO_SCENE_ID), true);
   assert.equal(isHeroScene("classic"), false);
   assert.equal(isItemScene(ITEM_SCENE_ID), true);
@@ -86,7 +87,7 @@ test("scene config keeps classic and super profession pools separate", () => {
 });
 
 test("hero mode config exposes health, mana, weapons, and skill contracts", () => {
-  assert.deepEqual(Object.keys(HeroConfig).sort(), ["demon", "dwarfKing", "elfKing", "minotaur"]);
+  assert.deepEqual(Object.keys(HeroConfig).sort(), ["demon", "dwarfKing", "elfKing", "minotaur", "wukong"]);
 
   for (const [id, hero] of Object.entries(HeroConfig)) {
     assert.equal(hero.id, id);
@@ -127,6 +128,11 @@ test("hero mode config exposes health, mana, weapons, and skill contracts", () =
   assert.equal(HeroConfig.elfKing.attackMode, "projectile");
   assert.equal(HeroConfig.elfKing.skills.some((skill) => skill.type === "empoweredProjectile" && skill.manaCost > 0), true);
   assert.equal(HeroConfig.elfKing.skills.some((skill) => skill.type === "heal" && skill.heal > 0), true);
+  assert.equal(HeroConfig.wukong.attackMode, "staff");
+  assert.equal(HeroConfig.wukong.weaponRange >= 120, true);
+  assert.equal(HeroConfig.wukong.skills.some((skill) => skill.id === "tripleStaff" && skill.staffCount === 3), true);
+  assert.equal(HeroConfig.wukong.skills.some((skill) => skill.id === "giantStaff" && skill.rangeMultiplier === 5), true);
+  assert.equal(new Set(HeroConfig.wukong.skills.map((skill) => skill.exclusiveGroup)).size, 1);
 });
 
 test("item mode config is data-driven and numerically valid", () => {
@@ -233,6 +239,11 @@ test("super arena professions expose their special combat contracts", () => {
   assert.equal(ProfessionConfig.reaper.attackDamage > ProfessionConfig.blade.attackDamage, true);
   assert.equal(ProfessionConfig.frost.attackMode, "frostOrbit");
   assert.equal(ProfessionConfig.frost.frostOrbit.count >= 3, true);
+  assert.equal(ProfessionConfig.yoyo.attackMode, "yoyo");
+  assert.equal(ProfessionConfig.yoyo.yoyoWeapon.lineDamage > 0, true);
+  assert.equal(ProfessionConfig.yoyo.yoyoWeapon.lineRadius > 0, true);
+  assert.equal(ProfessionConfig.yoyo.yoyoWeapon.cooldown > 0, true);
+  assert.equal(ProfessionConfig.yoyo.yoyoWeapon.activeDuration > ProfessionConfig.yoyo.yoyoWeapon.extendDuration, true);
 });
 
 test("speed ramp and attack animation helpers clamp predictably", () => {
@@ -241,6 +252,7 @@ test("speed ramp and attack animation helpers clamp predictably", () => {
   assert.equal(getSpeedMultiplier(99), 3);
   assert.equal(getAttackAnimationConfig("unknown"), ATTACK_ANIMATION_CONFIG.default);
   assert.equal(getAttackAnimationConfig("blade").sweepAngle > 0, true);
+  assert.equal(getAttackAnimationConfig("staff").sweepAngle > 0, true);
 });
 
 test("side visuals include the fields used by the canvas renderer", () => {

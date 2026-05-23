@@ -89,6 +89,7 @@ let pointerDownElementId = null;
 let interactiveElements = [];
 let professionScrollOffset = 0;
 let professionScrollArea = null;
+let professionScrollInputArea = null;
 let professionScrollPointer = null;
 let sceneDropdownOpen = false;
 let sceneDropdownLayout = null;
@@ -310,6 +311,22 @@ function createVoxelAssets() {
           N: "#b8bdc7",
         },
       ),
+      yoyo: createVoxelSprite(
+        [
+          "....PPPP....",
+          "..PPYYYYPP..",
+          ".PPYYWWYYPP.",
+          ".PYYWYYWYYP.",
+          ".PPYYWWYYPP.",
+          "..PPYYYYPP..",
+          "....PPPP....",
+        ],
+        {
+          P: "#ff7ab6",
+          Y: "#fff1a8",
+          W: "#ffffff",
+        },
+      ),
       hammer: createVoxelSprite(
         [
           "........HHHHHHHH....",
@@ -348,6 +365,17 @@ function createVoxelAssets() {
           B: "#050711",
           W: "#8d5a2e",
           R: "#7c2d12",
+          Y: "#facc15",
+        },
+      ),
+      goldStaff: createVoxelSprite(
+        [
+          "RRRYYYYYYYYYYYYYYYYRRR",
+          "RRRYYYYYYYYYYYYYYYYRRR",
+          "RRRYYYYYYYYYYYYYYYYRRR",
+        ],
+        {
+          R: "#dc2626",
           Y: "#facc15",
         },
       ),
@@ -680,9 +708,11 @@ class Ball {
     this.pendingWebNode = null;
     this.equippedItem = null;
     this.heroSkillCooldowns = {};
+    this.heroSkillEffects = {};
     this.rebirthUsed = false;
     this.chainWeaponState = createChainWeaponState(this);
     this.frostOrbitState = createFrostOrbitState(this);
+    this.yoyoWeaponState = createYoyoWeaponState(this);
     this.cosmeticState = createCosmeticState();
   }
 
@@ -900,6 +930,7 @@ function getCombatantConfig(id) {
 
 function resetProfessionScroll() {
   professionScrollOffset = 0;
+  professionScrollInputArea = null;
   professionScrollPointer = null;
 }
 
@@ -1018,6 +1049,23 @@ function createFrostOrbitState(ball) {
   return {
     rotationAngle: ball.label === "A" ? 0 : Math.PI,
     lastHitTime: -Infinity,
+  };
+}
+
+function createYoyoWeaponState(ball) {
+  if (ball.config.attackMode !== "yoyo") {
+    return null;
+  }
+
+  const throwDelay = ball.label === "A" ? 0.52 : 1.08;
+  return {
+    phase: "idle",
+    phaseStartedAt: elapsedTimeSeconds,
+    nextThrowTime: elapsedTimeSeconds + throwDelay,
+    rotationAngle: ball.label === "A" ? -0.36 : Math.PI + 0.36,
+    spinDirection: ball.label === "A" ? 1 : -1,
+    lastHitTime: -Infinity,
+    wallContact: null,
   };
 }
 
@@ -1259,11 +1307,13 @@ function update(deltaTime, currentTime) {
     if (ball.hp > 0) {
       updateChainWeapon(ball, deltaTime);
       updateFrostOrbit(ball, deltaTime);
+      updateYoyoWeapon(ball, deltaTime, currentTime);
     }
   }
   forEachOrderedAliveBallPair((attacker, defender) => {
     updateChainWeaponForPair(attacker, defender, currentTime);
     updateFrostOrbitForPair(attacker, defender, currentTime);
+    updateYoyoWeaponForPair(attacker, defender, currentTime);
     updateAttackForPair(attacker, defender, currentTime);
   });
   checkGameOver();
@@ -1305,6 +1355,7 @@ function updateDamageIndicators(indicators, currentTime) {
 
 function updateHeroMode(currentTime) {
   for (const hero of balls) {
+    expireHeroSkillEffects(hero, currentTime);
     useHeroAutoSkills(hero, currentTime);
   }
 }
@@ -1344,6 +1395,10 @@ function getHeroAutoSkillHandler(skill) {
 
   if (skill.type === "heal") {
     return useHeroForestBlessing;
+  }
+
+  if (skill.type === "staffBuff") {
+    return useHeroStaffBuff;
   }
 
   return null;
@@ -1476,6 +1531,46 @@ function useHeroForestBlessing(hero, skill, currentTime) {
   return true;
 }
 
+function useHeroStaffBuff(hero, skill, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestAliveOpponent(hero);
+  if (!enemy || !isInHeroSkillRange(hero, enemy, skill.triggerRange)) {
+    return false;
+  }
+
+  if (!canUseWukongStaffBuffAtDistance(hero, enemy, skill)) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  activateHeroSkillEffect(hero, skill, currentTime);
+  hero.lastAttackTime = Math.min(hero.lastAttackTime, currentTime - getBallAttackCooldown(hero) * 0.58);
+  pushHeroEffect(skill.id, hero.position, skill.range || skill.triggerRange, currentTime, getHeroSkillEffectColor(hero, skill));
+  return true;
+}
+
+function canUseWukongStaffBuffAtDistance(hero, enemy, skill) {
+  if (hero.profession !== "wukong") {
+    return true;
+  }
+
+  const distanceToEnemy = length(subtract(enemy.position, hero.position));
+  const baseReach = hero.radius + enemy.radius + hero.weaponRange;
+
+  if (skill.id === "tripleStaff") {
+    return distanceToEnemy <= baseReach + 58;
+  }
+
+  if (skill.id === "giantStaff") {
+    return distanceToEnemy > baseReach + 24;
+  }
+
+  return true;
+}
+
 function getHeroSkillTargetsInRange(hero, skill) {
   return getAliveOpponents(hero)
     .filter((enemy) => isInHeroSkillRange(hero, enemy, skill.range))
@@ -1501,6 +1596,10 @@ function canUseHeroSkill(hero, skill, currentTime) {
     return false;
   }
 
+  if (skill.exclusiveGroup && hasActiveHeroSkillInGroup(hero, skill.exclusiveGroup, currentTime)) {
+    return false;
+  }
+
   const lastUsedAt = hero.heroSkillCooldowns[skill.id] ?? -Infinity;
   return currentTime - lastUsedAt >= skill.cooldown;
 }
@@ -1518,6 +1617,56 @@ function createHeroSkillVariant(hero, skill, extra = {}) {
     ...skill,
     ...extra,
   };
+}
+
+function activateHeroSkillEffect(hero, skill, currentTime) {
+  if (!skill.duration || skill.duration <= 0) {
+    return;
+  }
+
+  hero.heroSkillEffects[skill.id] = {
+    id: skill.id,
+    type: skill.type,
+    exclusiveGroup: skill.exclusiveGroup || null,
+    expiresAt: currentTime + skill.duration,
+    staffCount: skill.staffCount || 1,
+    spreadAngle: skill.spreadAngle || 0,
+    rangeMultiplier: skill.rangeMultiplier || 1,
+    damageMultiplier: skill.damageMultiplier || 1,
+    knockbackMultiplier: skill.knockbackMultiplier || null,
+    color: skill.color || hero.visual.accentColor,
+  };
+}
+
+function expireHeroSkillEffects(hero, currentTime) {
+  if (!hero.heroSkillEffects) {
+    return;
+  }
+
+  for (const [skillId, effect] of Object.entries(hero.heroSkillEffects)) {
+    if (effect.expiresAt <= currentTime) {
+      delete hero.heroSkillEffects[skillId];
+    }
+  }
+}
+
+function getActiveHeroSkillEffect(hero, skillId, currentTime = elapsedTimeSeconds) {
+  const effect = hero.heroSkillEffects?.[skillId] || null;
+  if (!effect) {
+    return null;
+  }
+
+  if (effect.expiresAt <= currentTime) {
+    delete hero.heroSkillEffects[skillId];
+    return null;
+  }
+
+  return effect;
+}
+
+function hasActiveHeroSkillInGroup(hero, exclusiveGroup, currentTime) {
+  expireHeroSkillEffects(hero, currentTime);
+  return Object.values(hero.heroSkillEffects || {}).some((effect) => effect.exclusiveGroup === exclusiveGroup);
 }
 
 function drainMana(ball, amount) {
@@ -1671,7 +1820,16 @@ function getBallAttackCooldown(ball) {
 }
 
 function getBallWeaponRange(ball) {
-  return getEquippedItemWeapon(ball)?.range ?? ball.weaponRange;
+  const itemRange = getEquippedItemWeapon(ball)?.range;
+  if (itemRange !== undefined) {
+    return itemRange;
+  }
+
+  if (ball.config.attackMode === "staff") {
+    return getWukongStaffRange(ball);
+  }
+
+  return ball.weaponRange;
 }
 
 function getBallAttackAnimationConfig(ball) {
@@ -1689,6 +1847,10 @@ function getBallAttackAnimationConfig(ball) {
 
   if (ball.config.attackMode === "hammer" || ball.config.attackMode === "cone") {
     return getAttackAnimationConfig("blade");
+  }
+
+  if (ball.config.attackMode === "staff") {
+    return getAttackAnimationConfig("staff");
   }
 
   return getAttackAnimationConfig("default");
@@ -1766,7 +1928,7 @@ function resolveBallCollision(ballA, ballB, currentTime) {
 }
 
 function updateAttackForPair(attacker, defender, currentTime) {
-  if (attacker.config.attackMode === "chainSpin" || attacker.config.attackMode === "frostOrbit") {
+  if (["chainSpin", "frostOrbit", "yoyo"].includes(attacker.config.attackMode)) {
     return;
   }
 
@@ -1831,6 +1993,11 @@ function updateAttackState(attacker, currentTime) {
     if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
       attackState.didDealDamage = true;
       resolveHeroConeAttack(attacker, attackState.defender, currentTime);
+    }
+  } else if (attacker.config.attackMode === "staff") {
+    if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
+      attackState.didDealDamage = true;
+      resolveHeroStaffAttack(attacker, attackState.defender, currentTime);
     }
   } else if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
     const defender = attackState.defender;
@@ -2200,6 +2367,74 @@ function updateFrostOrbitForPair(attacker, defender, currentTime) {
   playHitCosmetics(attacker, defender, hit.normal, orbit.damage, currentTime);
 }
 
+function updateYoyoWeapon(ball, deltaTime, currentTime) {
+  const state = ball.yoyoWeaponState;
+  if (!state || ball.hp <= 0) {
+    return;
+  }
+
+  const weapon = ball.config.yoyoWeapon;
+  if (state.phase === "idle") {
+    if (currentTime >= state.nextThrowTime && !isBallControlLocked(ball, currentTime)) {
+      state.phase = "out";
+      state.phaseStartedAt = currentTime;
+      state.rotationAngle = angleOf(normalize(ball.velocity));
+      state.wallContact = null;
+    }
+    return;
+  }
+
+  state.rotationAngle = normalizeAngle(state.rotationAngle + weapon.spinSpeed * state.spinDirection * deltaTime);
+
+  const contact = getYoyoWeaponWallContact(ball, currentTime);
+  if (contact && contact !== state.wallContact) {
+    state.spinDirection *= -1;
+    state.rotationAngle = normalizeAngle(state.rotationAngle + weapon.spinSpeed * state.spinDirection * deltaTime * 1.4);
+  }
+  state.wallContact = contact;
+
+  const phaseElapsed = currentTime - state.phaseStartedAt;
+  if (phaseElapsed < getYoyoPhaseDuration(weapon, state.phase)) {
+    return;
+  }
+
+  if (state.phase === "out") {
+    state.phase = "spin";
+    state.phaseStartedAt = currentTime;
+    return;
+  }
+
+  if (state.phase === "spin") {
+    state.phase = "in";
+    state.phaseStartedAt = currentTime;
+    return;
+  }
+
+  state.phase = "idle";
+  state.phaseStartedAt = currentTime;
+  state.nextThrowTime = currentTime + weapon.cooldown;
+  state.wallContact = null;
+}
+
+function updateYoyoWeaponForPair(attacker, defender, currentTime) {
+  if (!attacker.yoyoWeaponState || attacker.hp <= 0 || defender.hp <= 0) {
+    return;
+  }
+
+  const weapon = attacker.config.yoyoWeapon;
+  if (currentTime - attacker.yoyoWeaponState.lastHitTime < weapon.hitCooldown) {
+    return;
+  }
+
+  const hit = getYoyoWeaponHit(attacker, defender, currentTime);
+  if (!hit) {
+    return;
+  }
+
+  attacker.yoyoWeaponState.lastHitTime = currentTime;
+  resolveAttackHit(attacker, defender, hit.normal, currentTime, hit.variant);
+}
+
 function resolveCollisionAbilities(ballA, ballB, normalFromAToB, currentTime) {
   resolveBatDrain(ballA, ballB, normalFromAToB, currentTime);
   resolveBatDrain(ballB, ballA, scale(normalFromAToB, -1), currentTime);
@@ -2476,6 +2711,117 @@ function resolveHeroConeAttack(attacker, defender, currentTime) {
   });
 }
 
+function resolveHeroStaffAttack(attacker, defender, currentTime) {
+  if (attacker.hp <= 0 || defender.hp <= 0) {
+    return 0;
+  }
+
+  let totalDamage = 0;
+  for (const staff of getWukongStaffSwingHits(attacker, defender, currentTime)) {
+    if (defender.hp <= 0) {
+      break;
+    }
+
+    const attackVariant = createWukongStaffAttackVariant(attacker, staff.effect, staff.index);
+    totalDamage += resolveAttackHit(attacker, defender, staff.hit.normal, currentTime, attackVariant);
+  }
+
+  return totalDamage;
+}
+
+function createWukongStaffAttackVariant(attacker, effect, staffIndex) {
+  if (!effect) {
+    return null;
+  }
+
+  return {
+    heroSkillId: effect.id,
+    heroId: attacker.profession,
+    isSkillHit: true,
+    damage: Math.max(1, Math.round(attacker.attackDamage * effect.damageMultiplier)),
+    knockbackMultiplier: effect.knockbackMultiplier || attacker.config.getKnockbackMultiplier(),
+    staffIndex,
+  };
+}
+
+function getActiveWukongStaffEffect(ball, currentTime = elapsedTimeSeconds) {
+  return getActiveHeroSkillEffect(ball, "tripleStaff", currentTime) || getActiveHeroSkillEffect(ball, "giantStaff", currentTime);
+}
+
+function getWukongStaffRange(ball, currentTime = elapsedTimeSeconds) {
+  const effect = getActiveHeroSkillEffect(ball, "giantStaff", currentTime);
+  return ball.weaponRange * (effect?.rangeMultiplier || 1);
+}
+
+function getWukongStaffSegments(ball, currentTime = elapsedTimeSeconds, renderDirection = null, renderProgress = null) {
+  const effect = getActiveWukongStaffEffect(ball, currentTime);
+  const attackState = ball.attackState;
+  const direction = normalize(renderDirection || attackState?.direction || ball.velocity);
+  const progress = renderProgress ?? getAttackProgress(ball, currentTime);
+  const staffCount = effect?.staffCount || 1;
+  const spreadAngle = effect?.spreadAngle || 0;
+  const baseAngle = angleOf(direction);
+  const staffConfig = getAttackAnimationConfig("staff");
+  const swingProgress = getWukongStaffSwingProgress(progress, currentTime);
+  const swingAngle = baseAngle - staffConfig.sweepAngle / 2 + staffConfig.sweepAngle * swingProgress;
+  const side = vectorFromAngle(swingAngle + Math.PI * 0.5);
+  const offsets = staffCount === 3 ? [-spreadAngle, 0, spreadAngle] : [0];
+  const range = getWukongStaffRange(ball, currentTime);
+
+  return offsets.map((angleOffset, index) => {
+    const staffDirection = vectorFromAngle(swingAngle + angleOffset);
+    const sideOffset = staffCount === 3 ? (index - 1) * ball.radius * 0.48 : 0;
+    const base = add(ball.position, scale(side, sideOffset));
+    const start = subtract(base, scale(staffDirection, ball.radius * 0.72));
+    const end = add(base, scale(staffDirection, ball.radius + range));
+
+    return {
+      index,
+      effect,
+      direction: staffDirection,
+      start,
+      end,
+      hitRadius: effect?.id === "giantStaff" ? 14 : 10,
+    };
+  });
+}
+
+function getWukongStaffSwingProgress(progress, currentTime) {
+  if (progress === null) {
+    return clamp(0.5 + Math.sin(currentTime * 3.4) * 0.08, 0.38, 0.62);
+  }
+
+  return easeOutCubic(progress);
+}
+
+function getWukongStaffSwingHits(attacker, defender, currentTime) {
+  const attackState = attacker.attackState;
+  const currentProgress = attackState ? getAttackProgressFromState(attackState, currentTime) : 1;
+  const sampleStart = 0;
+  const sampleEnd = clamp(currentProgress, 0, 1);
+  const sampleCount = 7;
+  const hitsByStaff = new Map();
+
+  for (let index = 0; index <= sampleCount; index += 1) {
+    const sampleProgress = lerp(sampleStart, sampleEnd, index / sampleCount);
+    for (const staff of getWukongStaffSegments(attacker, currentTime, attackState?.direction, sampleProgress)) {
+      if (hitsByStaff.has(staff.index)) {
+        continue;
+      }
+
+      const hit = getSegmentCircleHit(defender.position, defender.radius + staff.hitRadius, staff.start, staff.end);
+      if (hit) {
+        hitsByStaff.set(staff.index, {
+          ...staff,
+          hit,
+        });
+      }
+    }
+  }
+
+  return [...hitsByStaff.values()];
+}
+
 function playHitCosmetics(attacker, defender, normalFromAttackerToDefender, damage, currentTime, attackVariant = null) {
   if (damage <= 0) {
     return;
@@ -2730,6 +3076,118 @@ function getFrostOrbitHit(attacker, defender) {
   return null;
 }
 
+function getYoyoWeaponGeometry(ball, currentTime = elapsedTimeSeconds) {
+  const weapon = ball.config.yoyoWeapon;
+  const state = ball.yoyoWeaponState;
+  const idleDirection = normalize(ball.velocity);
+  const direction = state && state.phase !== "idle" ? vectorFromAngle(state.rotationAngle) : idleDirection;
+  const extension = getYoyoWeaponExtension(ball, currentTime);
+  const distance = lerp(ball.radius + weapon.headRadius * 0.55, weapon.orbitRadius, extension);
+
+  return {
+    direction,
+    start: add(ball.position, scale(direction, ball.radius * 0.68)),
+    head: add(ball.position, scale(direction, distance)),
+    headRadius: weapon.headRadius,
+    lineRadius: weapon.lineRadius,
+    extension,
+    active: state?.phase !== "idle",
+  };
+}
+
+function getYoyoWeaponExtension(ball, currentTime = elapsedTimeSeconds) {
+  const state = ball.yoyoWeaponState;
+  const weapon = ball.config.yoyoWeapon;
+  if (!state || state.phase === "idle") {
+    return 0;
+  }
+
+  const phaseElapsed = currentTime - state.phaseStartedAt;
+  if (state.phase === "out") {
+    return easeOutCubic(phaseElapsed / weapon.extendDuration);
+  }
+
+  if (state.phase === "in") {
+    return 1 - easeInCubic(phaseElapsed / weapon.retractDuration);
+  }
+
+  return 1;
+}
+
+function getYoyoPhaseDuration(weapon, phase) {
+  if (phase === "out") {
+    return weapon.extendDuration;
+  }
+  if (phase === "spin") {
+    return weapon.activeDuration;
+  }
+  if (phase === "in") {
+    return weapon.retractDuration;
+  }
+  return weapon.cooldown;
+}
+
+function getYoyoWeaponHit(attacker, defender, currentTime) {
+  if (attacker.yoyoWeaponState?.phase === "idle") {
+    return null;
+  }
+
+  const geometry = getYoyoWeaponGeometry(attacker, currentTime);
+  const headToDefender = subtract(defender.position, geometry.head);
+  if (length(headToDefender) <= geometry.headRadius + defender.radius) {
+    return {
+      normal: normalize(headToDefender),
+      variant: {
+        damage: attacker.config.yoyoWeapon.headDamage,
+        knockbackMultiplier: 0.78,
+        yoyoHit: true,
+        yoyoPart: "head",
+      },
+    };
+  }
+
+  const lineHit = getSegmentCircleHit(
+    defender.position,
+    defender.radius + geometry.lineRadius,
+    geometry.start,
+    geometry.head,
+  );
+  if (!lineHit) {
+    return null;
+  }
+
+  return {
+    normal: lineHit.normal,
+    variant: {
+      damage: attacker.config.yoyoWeapon.lineDamage,
+      knockbackMultiplier: 0.52,
+      yoyoHit: true,
+      yoyoPart: "line",
+    },
+  };
+}
+
+function getYoyoWeaponWallContact(ball, currentTime = elapsedTimeSeconds) {
+  const geometry = getYoyoWeaponGeometry(ball, currentTime);
+  const head = geometry.head;
+  const radius = geometry.headRadius;
+
+  if (head.x - radius <= 0) {
+    return "left";
+  }
+  if (head.x + radius >= ARENA_SIZE) {
+    return "right";
+  }
+  if (head.y - radius <= 0) {
+    return "top";
+  }
+  if (head.y + radius >= ARENA_SIZE) {
+    return "bottom";
+  }
+
+  return null;
+}
+
 function getReaperBladeGeometry(ball, currentTime) {
   const direction = normalize(ball.attackState?.direction || ball.velocity);
   const progress = getAttackProgress(ball, currentTime);
@@ -2968,6 +3426,7 @@ function getResultText(ballA, ballB) {
 function draw() {
   interactiveElements = [];
   professionScrollArea = null;
+  professionScrollInputArea = null;
   ctx.clearRect(0, 0, viewport.width, viewport.height);
   drawBackground();
 
@@ -3148,11 +3607,18 @@ function drawProfessionSelectScreen() {
   const activeProfessionIds = getActiveProfessionIds();
   const rows = Math.ceil(activeProfessionIds.length / columns);
   const cellWidth = (gridWidth - gridGap * (columns - 1)) / columns;
-  const cellHeight = getProfessionGridCellHeight(gridArea.height, rows, gridGap, panel.width);
+  const cellHeight = getProfessionGridCellHeight(gridArea.height, rows, gridGap, panel.width, selectedProfessions.scene);
   const contentHeight = rows * cellHeight + Math.max(0, rows - 1) * gridGap;
   const maxScroll = Math.max(0, contentHeight - gridArea.height);
   professionScrollOffset = clamp(professionScrollOffset, 0, maxScroll);
   professionScrollArea = { ...gridArea, maxScroll };
+  professionScrollInputArea = {
+    x: gridArea.x,
+    y: y - 30,
+    width: gridArea.width,
+    height: gridArea.height + 30,
+    maxScroll,
+  };
 
   ctx.save();
   ctx.beginPath();
@@ -3548,9 +4014,13 @@ function drawListHeader(text, x, y, width) {
   ctx.restore();
 }
 
-function getProfessionGridCellHeight(availableHeight, rows, gap, panelWidth) {
+function getProfessionGridCellHeight(availableHeight, rows, gap, panelWidth, sceneId = selectedProfessions.scene) {
   if (rows <= 0) {
     return 0;
+  }
+
+  if (shouldUseScrollableProfessionGrid(sceneId, rows, panelWidth)) {
+    return panelWidth < 520 ? 112 : 124;
   }
 
   const fittedHeight = (availableHeight - gap * (rows - 1)) / rows;
@@ -3559,6 +4029,10 @@ function getProfessionGridCellHeight(availableHeight, rows, gap, panelWidth) {
   }
 
   return panelWidth < 520 ? 104 : 112;
+}
+
+function shouldUseScrollableProfessionGrid(sceneId, rows, panelWidth) {
+  return panelWidth < 560 && rows >= 3 && !isItemScene(sceneId);
 }
 
 function drawProfessionScrollFrame(area, maxScroll) {
@@ -3922,6 +4396,21 @@ function drawPixelProfessionIcon(x, y, size, professionId, isSelected) {
     ], {
       I: "#f8fbff",
     });
+  } else if (professionId === "yoyo") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      ".....YYYY.......",
+      "....YPPPYY......",
+      "...YPWYWYPP.....",
+      "....YPPPYY......",
+      ".....YYYY.......",
+      "........SSSS....",
+    ], {
+      P: "#ff7ab6",
+      Y: "#fff1a8",
+      W: "#ffffff",
+      S: "#fff1a8",
+    });
   } else if (professionId === "spear") {
     drawPixelCells(left, top, cell, [
       "................",
@@ -4111,6 +4600,25 @@ function drawHeroProfessionIconDetails(professionId, left, top, cell) {
       E: "#050711",
       V: "#14532d",
     });
+    return;
+  }
+
+  if (professionId === "wukong") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "....GGGGGGGG....",
+      "...GRRRRRRRG....",
+      ".....EEEEEE.....",
+      "....MMMMMMMM....",
+      "...MMYYYYMM.....",
+      ".....RRRRRR.....",
+    ], {
+      G: "#facc15",
+      R: "#dc2626",
+      E: "#050711",
+      M: "#92400e",
+      Y: "#fde68a",
+    });
   }
 }
 
@@ -4121,12 +4629,14 @@ function getProfessionItemSprite(professionId) {
     dwarfKing: { sprite: items.hammer, angle: -0.72, scale: 0.78 },
     minotaur: { sprite: items.totem, angle: -0.42, scale: 0.68 },
     elfKing: { sprite: items.bow, angle: 0, scale: 0.7 },
+    wukong: { sprite: items.goldStaff, angle: -0.48, scale: 0.86 },
     bat: null,
     venom: null,
     spider: null,
     lava: null,
     reaper: { sprite: items.sword, angle: -0.78, scale: 0.92 },
     frost: { sprite: items.iceShard, angle: -0.38, scale: 0.62 },
+    yoyo: { sprite: items.yoyo, angle: -0.28, scale: 0.58 },
     spear: { sprite: items.spear, angle: -0.78, scale: 0.9 },
     assassin: { sprite: items.dagger, angle: -0.72, scale: 0.72 },
     blade: { sprite: items.sword, angle: -0.72, scale: 0.78 },
@@ -4520,6 +5030,13 @@ function drawProfessionBodyDetails(ctx, ball, x, y, cell) {
     ctx.strokeStyle = "#f8fbff";
     ctx.lineWidth = Math.max(2, cell);
     ctx.strokeRect(x + cell * 3, y + cell * 3, cell * 6, cell * 6);
+  } else if (ball.profession === "yoyo") {
+    ctx.fillStyle = "#fff1a8";
+    ctx.fillRect(x + cell * 4, y + cell * 4, cell * 4, cell);
+    ctx.fillRect(x + cell * 5, y + cell * 7, cell * 2, cell);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(x + cell * 5, y + cell * 5, cell, cell);
+    ctx.fillRect(x + cell * 7, y + cell * 5, cell, cell);
   }
 }
 
@@ -4593,6 +5110,24 @@ function drawHeroBodyDetails(ctx, ball, x, y, cell) {
       E: "#050711",
       V: "#14532d",
     });
+    return;
+  }
+
+  if (pattern === "wukong") {
+    drawPixelCells(x, y, cell, [
+      "...GGGGGG...",
+      "..GRRRRRG..",
+      "....EEEE....",
+      "...MMMMMM...",
+      "..MYYYYYM...",
+      "....RRRR....",
+    ], {
+      G: "#facc15",
+      R: "#dc2626",
+      E: "#050711",
+      M: "#92400e",
+      Y: "#fde68a",
+    });
   }
 }
 
@@ -4638,6 +5173,11 @@ function drawWeapon(ctx, ball, currentTime, target) {
 
   if (ball.profession === "frost") {
     drawFrostOrbits(ctx, ball);
+    return;
+  }
+
+  if (ball.profession === "yoyo") {
+    drawYoyoWeapon(ctx, ball, currentTime);
     return;
   }
 
@@ -4692,6 +5232,11 @@ function drawHeroWeapon(ctx, ball, direction, progress) {
 
   if (ball.config.attackMode === "projectile") {
     drawBowWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (ball.config.attackMode === "staff") {
+    drawWukongStaffWeapon(ctx, ball, direction, progress);
     return;
   }
 
@@ -4830,6 +5375,38 @@ function drawTotemWeapon(ctx, ball, direction, progress) {
   const grip = snapVector(add(ball.position, scale(direction, ball.radius * 0.62)), 4);
   drawPixelLine(ctx, grip, center, 11, "#050711");
   drawPixelLine(ctx, grip, center, 5, "#8d5a2e");
+  ctx.restore();
+}
+
+function drawWukongStaffWeapon(ctx, ball, direction, progress) {
+  const activeEffect = getActiveWukongStaffEffect(ball);
+  const segments = getWukongStaffSegments(ball, elapsedTimeSeconds, direction, progress);
+  const glowColor = activeEffect?.color || ball.visual.accentColor;
+
+  ctx.save();
+  for (const staff of segments) {
+    const start = snapVector(staff.start, 4);
+    const end = snapVector(staff.end, 4);
+    const staffVector = subtract(end, start);
+    const staffLength = length(staffVector);
+    const staffDirection = staffLength <= 0.0001 ? staff.direction : scale(staffVector, 1 / staffLength);
+    const redCapLength = clamp(staffLength * 0.16, 16, 34);
+    const startCap = add(start, scale(staffDirection, redCapLength));
+    const endCap = subtract(end, scale(staffDirection, redCapLength));
+    const outlineWidth = activeEffect?.id === "giantStaff" ? 18 : 14;
+    const coreWidth = activeEffect?.id === "giantStaff" ? 10 : 8;
+
+    drawPixelLine(ctx, start, end, outlineWidth, "#050711");
+    drawPixelLine(ctx, startCap, endCap, coreWidth, "#facc15");
+    drawPixelLine(ctx, start, startCap, coreWidth, "#dc2626");
+    drawPixelLine(ctx, endCap, end, coreWidth, "#dc2626");
+
+    if (activeEffect) {
+      ctx.globalAlpha = activeEffect.id === "tripleStaff" ? 0.28 : 0.22;
+      drawPixelLine(ctx, start, end, outlineWidth + 8, glowColor);
+      ctx.globalAlpha = 1;
+    }
+  }
   ctx.restore();
 }
 
@@ -5479,6 +6056,46 @@ function drawFrostOrbits(ctx, ball) {
   ctx.restore();
 }
 
+function drawYoyoWeapon(ctx, ball, currentTime) {
+  if (!ball.yoyoWeaponState) {
+    return;
+  }
+
+  const geometry = getYoyoWeaponGeometry(ball, currentTime);
+  const start = snapVector(geometry.start, 4);
+  const end = snapVector(geometry.head, 4);
+  const headRadius = geometry.headRadius;
+  const lineProgress = geometry.active ? 1 : 0.45;
+  const segmentCount = geometry.active ? 8 : 3;
+
+  ctx.save();
+  ctx.globalAlpha = geometry.active ? 1 : 0.78;
+  drawPixelLine(ctx, start, end, geometry.lineRadius * 2 + 6, "#050711");
+  drawPixelLine(ctx, start, end, geometry.lineRadius + 2, ball.visual.accentColor);
+
+  for (let index = 0; index <= segmentCount; index += 1) {
+    const point = add(start, scale(subtract(end, start), (index / segmentCount) * lineProgress));
+    const size = index % 2 === 0 ? 7 : 5;
+    ctx.fillStyle = index % 2 === 0 ? "#ffffff" : ball.visual.color;
+    ctx.fillRect(point.x - size / 2, point.y - size / 2, size, size);
+  }
+
+  const angle = ball.yoyoWeaponState.rotationAngle * 1.8;
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(end.x - headRadius - 4, end.y - headRadius - 4, headRadius * 2 + 8, headRadius * 2 + 8);
+  ctx.fillStyle = ball.visual.color;
+  ctx.fillRect(end.x - headRadius, end.y - headRadius, headRadius * 2, headRadius * 2);
+  ctx.fillStyle = ball.visual.accentColor;
+  ctx.fillRect(end.x - headRadius * 0.5, end.y - headRadius * 0.5, headRadius, headRadius);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(end.x - 4, end.y - 4, 8, 8);
+  drawVoxelSpriteCentered(ctx, voxelAssets.items.yoyo, end, headRadius * 2.22, {
+    angle,
+    shadowOffset: 3,
+  });
+  ctx.restore();
+}
+
 function drawMageWeapon(ctx, ball, direction, progress) {
   const variant = ball.attackState?.variant;
   const spellColor = variant?.color || ball.visual.accentColor;
@@ -5706,7 +6323,7 @@ function canScrollProfessionGridAt(point) {
   return Boolean(
     professionScrollArea &&
       professionScrollArea.maxScroll > 0 &&
-      isInsideRect(point, professionScrollArea),
+      isInsideRect(point, professionScrollInputArea || professionScrollArea),
   );
 }
 
