@@ -252,6 +252,36 @@ export const ProfessionCosmeticConfig = {
       },
     ],
   },
+  summoner: {
+    profession: "summoner",
+    skinPacks: ["default", "bear-pact"],
+    pendants: [
+      {
+        id: "summoner-rune-halo",
+        name: "召唤符文",
+        type: PendantType.HALO,
+        trigger: CosmeticTrigger.ALWAYS,
+        effect: "softHalo",
+        color: "#fde68a",
+        duration: 0,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+    attackEffects: [
+      {
+        id: "summoner-bear-impact",
+        name: "熊灵冲撞",
+        type: AttackEffectType.IMPACT,
+        trigger: CosmeticTrigger.SKILL,
+        effect: "impactBurst",
+        color: "#fbbf24",
+        duration: 0.26,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+  },
   spear: {
     profession: "spear",
     skinPacks: ["default", "sky-guard"],

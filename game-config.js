@@ -571,7 +571,7 @@ export const SceneConfig = {
     type: "professions",
     nameKey: "scenes.classic.name",
     descriptionKey: "scenes.classic.description",
-    professionIds: ["spear", "blade", "shield", "assassin", "archer", "chain", "mage"],
+    professionIds: ["spear", "blade", "shield", "assassin", "archer", "chain", "mage", "summoner"],
     defaultProfessions: {
       a: "spear",
       b: "blade",
@@ -916,6 +916,44 @@ export const ProfessionConfig = {
     },
     isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
       return attackVariant?.yoyoHit === true;
+    },
+  },
+  summoner: {
+    id: "summoner",
+    name: "召唤师",
+    maxHp: 104,
+    radius: 23,
+    moveSpeed: 188,
+    attackDamage: 0,
+    attackCooldown: 1,
+    weaponRange: 84,
+    color: "#7c3aed",
+    accentColor: "#fde68a",
+    skillName: "熊灵契约",
+    item: {
+      name: "召熊图腾",
+      type: "bearTotem",
+      animation: "召唤熊灵",
+    },
+    attackMode: "summonBear",
+    summonBear: {
+      moveSpeed: 236,
+      baseDamage: 22,
+      damageGainPerOwnerHit: 3,
+      radiusGainPerCollision: 2.4,
+      maxRadiusMultiplier: 1.75,
+      ownerBoostCooldown: 0,
+      hitCooldown: 0.5,
+      maxDamage: 58,
+    },
+    getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant = null) {
+      return attackVariant?.damage || 0;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
+      return attackVariant?.knockbackMultiplier || 0.62;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
+      return attackVariant?.summonBearHit === true;
     },
   },
   spear: {

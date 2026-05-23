@@ -669,7 +669,11 @@ function terrainNoise(seed, column, row, salt = 0) {
 
 class Ball {
   constructor({ label, profession, x, y, direction, config = null }) {
+    this.kind = "ball";
     this.label = label;
+    this.teamId = label;
+    this.owner = null;
+    this.isPrimaryCombatant = true;
     this.profession = profession;
     this.config = config || getCombatantConfig(profession);
     this.isHero = isHeroId(profession);
@@ -713,6 +717,7 @@ class Ball {
     this.chainWeaponState = createChainWeaponState(this);
     this.frostOrbitState = createFrostOrbitState(this);
     this.yoyoWeaponState = createYoyoWeaponState(this);
+    this.summonedBearState = createSummonedBearState(this);
     this.cosmeticState = createCosmeticState();
   }
 
@@ -928,6 +933,41 @@ function getCombatantConfig(id) {
   return HeroConfig[id] || ProfessionConfig[id] || null;
 }
 
+function getCombatantTeamId(combatant) {
+  return combatant?.teamId || combatant?.owner?.teamId || combatant?.label || "";
+}
+
+function areAlliedCombatants(combatantA, combatantB) {
+  const teamA = getCombatantTeamId(combatantA);
+  const teamB = getCombatantTeamId(combatantB);
+  return teamA && teamA === teamB;
+}
+
+function isPrimaryCombatant(combatant) {
+  return combatant?.isPrimaryCombatant !== false;
+}
+
+function isSummonedBear(combatant) {
+  return combatant?.kind === "summonedBear";
+}
+
+function isSummonedBearActive(bear) {
+  return isSummonedBear(bear) && bear.owner?.hp > 0 && bear.hp > 0;
+}
+
+function getActiveSummonedBears() {
+  return balls
+    .map((ball) => ball.summonedBearState)
+    .filter((bear) => isSummonedBearActive(bear));
+}
+
+function getAliveCollisionCombatants() {
+  return [
+    ...balls.filter((ball) => ball.hp > 0),
+    ...getActiveSummonedBears(),
+  ];
+}
+
 function resetProfessionScroll() {
   professionScrollOffset = 0;
   professionScrollInputArea = null;
@@ -1066,6 +1106,42 @@ function createYoyoWeaponState(ball) {
     spinDirection: ball.label === "A" ? 1 : -1,
     lastHitTime: -Infinity,
     wallContact: null,
+  };
+}
+
+function createSummonedBearState(ball) {
+  if (ball.config.attackMode !== "summonBear") {
+    return null;
+  }
+
+  const bear = ball.config.summonBear;
+  const spawnDirection = normalize(ball.label === "A" ? { x: 0.8, y: 0.42 } : { x: -0.8, y: -0.42 });
+  const radius = ball.radius;
+  const spawnDistance = ball.radius + radius + 22;
+  const position = clampPointToArena(add(ball.position, scale(spawnDirection, spawnDistance)), radius);
+
+  return {
+    kind: "summonedBear",
+    label: `${ball.label}-bear`,
+    teamId: ball.teamId,
+    owner: ball,
+    isPrimaryCombatant: false,
+    config: {
+      moveSpeed: bear.moveSpeed,
+    },
+    position,
+    velocity: scale(spawnDirection, bear.moveSpeed),
+    radius,
+    baseRadius: radius,
+    maxRadius: radius * bear.maxRadiusMultiplier,
+    hp: 1,
+    damage: bear.baseDamage,
+    lastOwnerBoostTime: -Infinity,
+    lastHitTimesByLabel: {},
+    touchingOwner: false,
+    wasTouchingOwner: false,
+    boostFlashTime: 0,
+    hitFlashTime: 0,
   };
 }
 
@@ -1298,7 +1374,12 @@ function update(deltaTime, currentTime) {
   flameTrails = flameTrails.filter((flame) => flame.expiresAt > currentTime);
   itemExplosions = itemExplosions.filter((explosion) => explosion.expiresAt > currentTime);
   heroEffectInstances = updateHeroEffectInstances(heroEffectInstances, currentTime);
-  forEachAliveBallPair((ballA, ballB) => {
+  for (const ball of balls) {
+    if (ball.hp > 0) {
+      updateSummonedBear(ball, deltaTime, currentTime);
+    }
+  }
+  forEachAliveCollisionCombatantPair((ballA, ballB) => {
     resolveBallCollision(ballA, ballB, currentTime);
   });
   updateEnvironmentalHazards(currentTime);
@@ -1319,18 +1400,14 @@ function update(deltaTime, currentTime) {
   checkGameOver();
 }
 
-function forEachAliveBallPair(callback) {
-  for (let aIndex = 0; aIndex < balls.length; aIndex += 1) {
-    const ballA = balls[aIndex];
-    if (ballA.hp <= 0) {
-      continue;
-    }
+function forEachAliveCollisionCombatantPair(callback) {
+  const combatants = getAliveCollisionCombatants();
+  for (let aIndex = 0; aIndex < combatants.length; aIndex += 1) {
+    const ballA = combatants[aIndex];
 
-    for (let bIndex = aIndex + 1; bIndex < balls.length; bIndex += 1) {
-      const ballB = balls[bIndex];
-      if (ballB.hp > 0) {
-        callback(ballA, ballB);
-      }
+    for (let bIndex = aIndex + 1; bIndex < combatants.length; bIndex += 1) {
+      const ballB = combatants[bIndex];
+      callback(ballA, ballB);
     }
   }
 }
@@ -1342,7 +1419,7 @@ function forEachOrderedAliveBallPair(callback) {
     }
 
     for (const defender of balls) {
-      if (defender !== attacker && defender.hp > 0) {
+      if (defender !== attacker && defender.hp > 0 && !areAlliedCombatants(attacker, defender)) {
         callback(attacker, defender);
       }
     }
@@ -1580,7 +1657,7 @@ function getHeroSkillTargetsInRange(hero, skill) {
 }
 
 function getAliveOpponents(ball) {
-  return balls.filter((candidate) => candidate !== ball && candidate.hp > 0);
+  return balls.filter((candidate) => candidate !== ball && candidate.hp > 0 && !areAlliedCombatants(ball, candidate));
 }
 
 function isInHeroSkillRange(hero, enemy, range) {
@@ -1925,10 +2002,11 @@ function resolveBallCollision(ballA, ballB, currentTime) {
   separateBalls(ballA, ballB, normal, minDistance - distance);
   bounceBalls(ballA, ballB, normal);
   resolveCollisionAbilities(ballA, ballB, normal, currentTime);
+  resolveSummonedBearCollisionEffects(ballA, ballB, normal, currentTime);
 }
 
 function updateAttackForPair(attacker, defender, currentTime) {
-  if (["chainSpin", "frostOrbit", "yoyo"].includes(attacker.config.attackMode)) {
+  if (["chainSpin", "frostOrbit", "yoyo", "summonBear"].includes(attacker.config.attackMode)) {
     return;
   }
 
@@ -2435,13 +2513,118 @@ function updateYoyoWeaponForPair(attacker, defender, currentTime) {
   resolveAttackHit(attacker, defender, hit.normal, currentTime, hit.variant);
 }
 
+function updateSummonedBear(owner, deltaTime, currentTime) {
+  const bear = owner.summonedBearState;
+  if (!bear || owner.hp <= 0) {
+    return;
+  }
+
+  bear.velocity = scale(normalize(bear.velocity), owner.config.summonBear.moveSpeed);
+  bear.position = add(bear.position, scale(bear.velocity, deltaTime));
+  bounceSummonedBearOffWalls(bear);
+  bear.wasTouchingOwner = bear.touchingOwner;
+  bear.touchingOwner = false;
+
+  bear.boostFlashTime = Math.max(0, bear.boostFlashTime - deltaTime);
+  bear.hitFlashTime = Math.max(0, bear.hitFlashTime - deltaTime);
+}
+
+function resolveSummonedBearOwnerCollision(owner, bear, currentTime) {
+  if (!bear.wasTouchingOwner && currentTime - bear.lastOwnerBoostTime >= owner.config.summonBear.ownerBoostCooldown) {
+    bear.damage = Math.min(owner.config.summonBear.maxDamage, bear.damage + owner.config.summonBear.damageGainPerOwnerHit);
+    growSummonedBear(owner, bear);
+    bear.lastOwnerBoostTime = currentTime;
+    bear.boostFlashTime = 0.32;
+    triggerBallPendants(owner, CosmeticTrigger.SKILL, currentTime);
+  }
+
+  bear.touchingOwner = true;
+}
+
+function growSummonedBear(owner, bear) {
+  const growth = owner.config.summonBear.radiusGainPerCollision;
+  if (!growth || bear.radius >= bear.maxRadius) {
+    return;
+  }
+
+  bear.radius = Math.min(bear.maxRadius, bear.radius + growth);
+  bear.position = clampPointToArena(bear.position, bear.radius);
+}
+
+function resolveSummonedBearHit(owner, bear, defender, normalFromBearToDefender, currentTime) {
+  if (areAlliedCombatants(bear, defender)) {
+    return;
+  }
+
+  const lastHitTime = bear.lastHitTimesByLabel[defender.label] ?? -Infinity;
+  if (currentTime - lastHitTime < owner.config.summonBear.hitCooldown) {
+    return;
+  }
+
+  bear.lastHitTimesByLabel[defender.label] = currentTime;
+  bear.hitFlashTime = 0.2;
+  resolveAttackHit(owner, defender, normalFromBearToDefender, currentTime, {
+    damage: bear.damage,
+    knockbackMultiplier: 0.82,
+    summonBearHit: true,
+  });
+}
+
+function bounceSummonedBearOffWalls(bear) {
+  if (bear.position.x - bear.radius < 0) {
+    bear.position.x = bear.radius;
+    bear.velocity.x = Math.abs(bear.velocity.x);
+  } else if (bear.position.x + bear.radius > ARENA_SIZE) {
+    bear.position.x = ARENA_SIZE - bear.radius;
+    bear.velocity.x = -Math.abs(bear.velocity.x);
+  }
+
+  if (bear.position.y - bear.radius < 0) {
+    bear.position.y = bear.radius;
+    bear.velocity.y = Math.abs(bear.velocity.y);
+  } else if (bear.position.y + bear.radius > ARENA_SIZE) {
+    bear.position.y = ARENA_SIZE - bear.radius;
+    bear.velocity.y = -Math.abs(bear.velocity.y);
+  }
+}
+
+function resolveSummonedBearCollisionEffects(ballA, ballB, normalFromAToB, currentTime) {
+  if (isSummonedBear(ballA)) {
+    resolveSummonedBearCombatantCollision(ballA, ballB, normalFromAToB, currentTime);
+  }
+
+  if (isSummonedBear(ballB)) {
+    resolveSummonedBearCombatantCollision(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+  }
+}
+
+function resolveSummonedBearCombatantCollision(bear, other, normalFromBearToOther, currentTime) {
+  const owner = bear.owner;
+  if (!owner || owner.hp <= 0 || isSummonedBear(other)) {
+    return;
+  }
+
+  if (other === owner) {
+    resolveSummonedBearOwnerCollision(owner, bear, currentTime);
+    return;
+  }
+
+  if (other.hp > 0) {
+    resolveSummonedBearHit(owner, bear, other, normalFromBearToOther, currentTime);
+  }
+}
+
 function resolveCollisionAbilities(ballA, ballB, normalFromAToB, currentTime) {
+  if (!isPrimaryCombatant(ballA) || !isPrimaryCombatant(ballB) || areAlliedCombatants(ballA, ballB)) {
+    return;
+  }
+
   resolveBatDrain(ballA, ballB, normalFromAToB, currentTime);
   resolveBatDrain(ballB, ballA, scale(normalFromAToB, -1), currentTime);
 }
 
 function resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime) {
-  const drain = attacker.config.collisionDrain;
+  const drain = attacker.config?.collisionDrain;
   if (!drain || attacker.hp <= 0 || defender.hp <= 0 || currentTime - attacker.lastCollisionAbilityTime < drain.cooldown) {
     return;
   }
@@ -2859,8 +3042,17 @@ function separateBalls(ballA, ballB, normal, overlap) {
   const correction = scale(normal, overlap / 2 + 0.1);
   ballA.position = subtract(ballA.position, correction);
   ballB.position = add(ballB.position, correction);
-  ballA.bounceOffWalls();
-  ballB.bounceOffWalls();
+  bounceCombatantOffWalls(ballA);
+  bounceCombatantOffWalls(ballB);
+}
+
+function bounceCombatantOffWalls(combatant) {
+  if (isSummonedBear(combatant)) {
+    bounceSummonedBearOffWalls(combatant);
+    return;
+  }
+
+  combatant.bounceOffWalls();
 }
 
 function bounceBalls(ballA, ballB, normal) {
@@ -4411,6 +4603,21 @@ function drawPixelProfessionIcon(x, y, size, professionId, isSelected) {
       W: "#ffffff",
       S: "#fff1a8",
     });
+  } else if (professionId === "summoner") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "..BB........BB..",
+      ".BBBB......BBBB.",
+      "...BBBBBBBBBB...",
+      "....BBMMMMBB....",
+      "......NNNN......",
+      "....YYYYYYYY....",
+    ], {
+      B: "#5b3a24",
+      M: "#d6a35f",
+      N: "#050711",
+      Y: "#fde68a",
+    });
   } else if (professionId === "spear") {
     drawPixelCells(left, top, cell, [
       "................",
@@ -4637,6 +4844,7 @@ function getProfessionItemSprite(professionId) {
     reaper: { sprite: items.sword, angle: -0.78, scale: 0.92 },
     frost: { sprite: items.iceShard, angle: -0.38, scale: 0.62 },
     yoyo: { sprite: items.yoyo, angle: -0.28, scale: 0.58 },
+    summoner: { sprite: items.totem, angle: -0.3, scale: 0.58 },
     spear: { sprite: items.spear, angle: -0.78, scale: 0.9 },
     assassin: { sprite: items.dagger, angle: -0.72, scale: 0.72 },
     blade: { sprite: items.sword, angle: -0.72, scale: 0.78 },
@@ -4999,6 +5207,84 @@ function drawBallBody(ctx, ball) {
   ctx.restore();
 }
 
+function drawSummonedBears(ctx, currentTime) {
+  for (const owner of balls) {
+    const bear = owner.summonedBearState;
+    if (!bear || owner.hp <= 0) {
+      continue;
+    }
+
+    drawSummonedBear(ctx, owner, bear, currentTime);
+  }
+}
+
+function drawSummonedBear(ctx, owner, bear, currentTime) {
+  const cell = Math.max(4, Math.floor((bear.radius * 2) / 12));
+  const spriteSize = cell * 12;
+  const x = Math.round(bear.position.x - spriteSize / 2);
+  const y = Math.round(bear.position.y - spriteSize / 2);
+  const bodyColor = owner.label === "A" ? "#8b5a2b" : "#5b3a24";
+  const muzzleColor = "#d6a35f";
+  const flashAlpha = Math.max(bear.boostFlashTime / 0.32, bear.hitFlashTime / 0.2);
+  const bob = Math.sin(currentTime * 8 + owner.label.charCodeAt(0)) * 2;
+
+  ctx.save();
+  ctx.translate(0, bob);
+  drawPixelCells(x + cell, y + cell, cell, [
+    "..OOOOOO..",
+    ".OOOOOOOO.",
+    "OOOOOOOOOO",
+    "OOOOOOOOOO",
+    "OOOOOOOOOO",
+    "OOOOOOOOOO",
+    ".OOOOOOOO.",
+    "..OOOOOO..",
+  ], {
+    O: "#050711",
+  });
+  drawPixelCells(x, y, cell, [
+    ".BB....BB.",
+    "BBBBBBBBBB",
+    "BBBBBBBBBB",
+    "BBBBBBBBBB",
+    "BBBBBBBBBB",
+    ".BBBBBBBB.",
+    "..BBBBBB..",
+    "...BBBB...",
+  ], {
+    B: bodyColor,
+  });
+  drawPixelCells(x, y, cell, [
+    "..........",
+    "...EE.EE..",
+    "....MMMM..",
+    "...MMMMM..",
+    "....NN....",
+  ], {
+    E: "#050711",
+    M: muzzleColor,
+    N: "#050711",
+  });
+
+  if (flashAlpha > 0) {
+    ctx.globalAlpha = clamp(flashAlpha, 0, 1) * 0.55;
+    ctx.fillStyle = bear.boostFlashTime > bear.hitFlashTime ? "#fde68a" : "#ffffff";
+    ctx.fillRect(x + cell * 2, y + cell * 2, cell * 8, cell * 6);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.fillStyle = COLORS.text;
+  ctx.strokeStyle = "rgba(5, 8, 12, 0.92)";
+  ctx.lineWidth = 4;
+  ctx.font = canvasFont(clamp(bear.radius * 0.48, 12, 16), 900);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const damageText = String(Math.ceil(bear.damage));
+  ctx.strokeText(damageText, bear.position.x, bear.position.y);
+  ctx.fillText(damageText, bear.position.x, bear.position.y);
+  ctx.restore();
+}
+
 function drawProfessionBodyDetails(ctx, ball, x, y, cell) {
   if (ball.isHero) {
     drawHeroBodyDetails(ctx, ball, x, y, cell);
@@ -5037,6 +5323,13 @@ function drawProfessionBodyDetails(ctx, ball, x, y, cell) {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(x + cell * 5, y + cell * 5, cell, cell);
     ctx.fillRect(x + cell * 7, y + cell * 5, cell, cell);
+  } else if (ball.profession === "summoner") {
+    ctx.fillStyle = "#fde68a";
+    ctx.fillRect(x + cell * 4, y + cell * 3, cell * 4, cell);
+    ctx.fillRect(x + cell * 5, y + cell * 4, cell * 2, cell * 5);
+    ctx.fillStyle = "#5b3a24";
+    ctx.fillRect(x + cell * 4, y + cell * 7, cell, cell);
+    ctx.fillRect(x + cell * 7, y + cell * 7, cell, cell);
   }
 }
 
@@ -5178,6 +5471,11 @@ function drawWeapon(ctx, ball, currentTime, target) {
 
   if (ball.profession === "yoyo") {
     drawYoyoWeapon(ctx, ball, currentTime);
+    return;
+  }
+
+  if (ball.profession === "summoner") {
+    drawSummonerTotemWeapon(ctx, ball, direction);
     return;
   }
 
@@ -5407,6 +5705,23 @@ function drawWukongStaffWeapon(ctx, ball, direction, progress) {
       ctx.globalAlpha = 1;
     }
   }
+  ctx.restore();
+}
+
+function drawSummonerTotemWeapon(ctx, ball, direction) {
+  const side = { x: -direction.y, y: direction.x };
+  const center = add(ball.position, add(scale(direction, ball.radius * 0.54), scale(side, ball.radius * 0.42)));
+  const angle = angleOf(direction) + Math.PI / 2;
+  const pulse = 0.92 + Math.sin(elapsedTimeSeconds * 5.5) * 0.08;
+
+  ctx.save();
+  drawRotatedVoxelSprite(ctx, voxelAssets.items.totem, center, ball.radius * 1.35 * pulse, angle, {
+    shadowOffset: 3,
+  });
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(center.x - 8, center.y - 8, 16, 16);
+  ctx.fillStyle = ball.visual.accentColor;
+  ctx.fillRect(center.x - 5, center.y - 5, 10, 10);
   ctx.restore();
 }
 
@@ -6163,6 +6478,7 @@ function drawArenaScene() {
   drawFlameTrails(ctx, elapsedTimeSeconds);
   drawWebLinks(ctx, elapsedTimeSeconds);
   drawArenaHazards(ctx, elapsedTimeSeconds);
+  drawSummonedBears(ctx, elapsedTimeSeconds);
   balls.forEach((ball) => {
     if (ball.hp > 0 || !isCurrentItemMode()) {
       ball.draw(ctx, elapsedTimeSeconds, getNearestAliveOpponent(ball));
@@ -6181,7 +6497,7 @@ function getNearestAliveOpponent(ball) {
   let nearest = null;
   let nearestDistance = Infinity;
   for (const candidate of balls) {
-    if (candidate === ball || candidate.hp <= 0) {
+    if (candidate === ball || candidate.hp <= 0 || areAlliedCombatants(ball, candidate)) {
       continue;
     }
 
@@ -6602,6 +6918,13 @@ function vectorFromAngle(angle) {
 function normalizeAngle(angle) {
   const fullTurn = Math.PI * 2;
   return ((angle % fullTurn) + fullTurn) % fullTurn;
+}
+
+function clampPointToArena(point, radius = 0) {
+  return {
+    x: clamp(point.x, radius, ARENA_SIZE - radius),
+    y: clamp(point.y, radius, ARENA_SIZE - radius),
+  };
 }
 
 function snapVector(vector, gridSize) {
