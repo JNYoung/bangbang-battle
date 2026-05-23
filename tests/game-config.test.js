@@ -39,6 +39,7 @@ test("profession config exposes balanced, testable combat fields", () => {
     "shield",
     "spear",
     "spider",
+    "summoner",
     "venom",
     "yoyo",
   ]);
@@ -50,7 +51,11 @@ test("profession config exposes balanced, testable combat fields", () => {
     assert.ok(config.maxHp > 0);
     assert.ok(config.radius > 0);
     assert.ok(config.moveSpeed > 0);
-    assert.ok(config.attackDamage > 0);
+    if (config.attackMode === "summonBear") {
+      assert.equal(config.attackDamage, 0);
+    } else {
+      assert.ok(config.attackDamage > 0);
+    }
     assert.ok(config.attackCooldown > 0);
     assert.ok(config.weaponRange > 0);
     assert.equal(typeof config.item?.name, "string");
@@ -71,7 +76,7 @@ test("combat and cosmetic profession lists stay in sync", () => {
 });
 
 test("scene config keeps classic and super profession pools separate", () => {
-  assert.deepEqual(SceneConfig.classic.professionIds, ["spear", "blade", "shield", "assassin", "archer", "chain", "mage"]);
+  assert.deepEqual(SceneConfig.classic.professionIds, ["spear", "blade", "shield", "assassin", "archer", "chain", "mage", "summoner"]);
   assert.deepEqual(SceneConfig.super.professionIds, ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo"]);
   assert.equal(SceneConfig[ITEM_SCENE_ID].type, "items");
   assert.deepEqual(getSceneProfessionIds(ITEM_SCENE_ID), []);
@@ -226,6 +231,12 @@ test("new profession skills expose distinct combat hooks", () => {
   };
   assert.equal(ProfessionConfig.mage.getDamage(attacker), 10);
   assert.equal(ProfessionConfig.mage.getAttackVariant(attacker, defender, 1).id.length > 0, true);
+  assert.equal(ProfessionConfig.summoner.attackMode, "summonBear");
+  assert.equal(ProfessionConfig.summoner.attackDamage, 0);
+  assert.equal(ProfessionConfig.summoner.summonBear.baseDamage > 0, true);
+  assert.equal(ProfessionConfig.summoner.summonBear.damageGainPerOwnerHit > 0, true);
+  assert.equal(ProfessionConfig.summoner.summonBear.radiusGainPerCollision > 0, true);
+  assert.equal(ProfessionConfig.summoner.summonBear.maxRadiusMultiplier > 1, true);
 });
 
 test("super arena professions expose their special combat contracts", () => {

@@ -57,6 +57,12 @@ test("selected professions are normalized, saved, and restored", () => {
     b: "spear",
     ballCount: 6,
   });
+  assert.deepEqual(normalizeSelectedProfessions({ scene: "classic", a: "summoner", b: "blade" }), {
+    scene: "classic",
+    a: "summoner",
+    b: "blade",
+    ballCount: 2,
+  });
   assert.deepEqual(createComplianceState({ storage }).getSelectedProfessions(), {
     scene: "classic",
     a: "shield",

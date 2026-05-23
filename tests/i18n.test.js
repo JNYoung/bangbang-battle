@@ -32,6 +32,7 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "main.start"), "main.start");
     assert.notEqual(translate(locale, "professions.archer.name"), "professions.archer.name");
     assert.notEqual(translate(locale, "professions.bat.name"), "professions.bat.name");
+    assert.notEqual(translate(locale, "professions.summoner.name"), "professions.summoner.name");
     assert.notEqual(translate(locale, "professions.yoyo.name"), "professions.yoyo.name");
     assert.notEqual(translate(locale, "scenes.super.name"), "scenes.super.name");
     assert.notEqual(translate(locale, "scenes.items.name"), "scenes.items.name");
