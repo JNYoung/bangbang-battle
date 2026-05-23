@@ -33,6 +33,10 @@ test("locale options and translations are complete enough for the UI", () => {
   for (const locale of SUPPORTED_LOCALES) {
     assert.notEqual(translate(locale, "app.name"), "app.name");
     assert.notEqual(translate(locale, "main.start"), "main.start");
+    assert.notEqual(translate(locale, "settings.feedbackTitle"), "settings.feedbackTitle");
+    assert.notEqual(translate(locale, "settings.vibration"), "settings.vibration");
+    assert.notEqual(translate(locale, "settings.music"), "settings.music");
+    assert.notEqual(translate(locale, "settings.soundEffects"), "settings.soundEffects");
     assert.notEqual(translate(locale, "professions.archer.name"), "professions.archer.name");
     assert.notEqual(translate(locale, "professions.bat.name"), "professions.bat.name");
     assert.notEqual(translate(locale, "professions.summoner.name"), "professions.summoner.name");

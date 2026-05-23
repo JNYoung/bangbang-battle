@@ -68,6 +68,12 @@ const PROFESSION_SCROLL_DRAG_THRESHOLD = 6;
 const DAMAGE_TEXT_DURATION = 0.86;
 const DAMAGE_TEXT_MERGE_WINDOW = 0.22;
 const SCENE_DROPDOWN_BREAKPOINT = 560;
+const MUSIC_RAMP_SECONDS = 70;
+const MUSIC_LOOKAHEAD_SECONDS = 0.16;
+const MUSIC_NOTE_OFFSETS = [0, 7, 12, 7, 3, 10, 15, 10, 5, 12, 17, 12, 7, 14, 19, 14];
+const MUSIC_BASS_OFFSETS = [0, 0, 3, 5];
+const FEEDBACK_VIBRATION_COOLDOWN = 0.14;
+const COLLISION_FEEDBACK_COOLDOWN = 0.09;
 
 let balls = [];
 let gameOver = false;
@@ -108,6 +114,15 @@ let itemSpawnCounter = 0;
 let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
+let audioContext = null;
+let audioMasterGain = null;
+let audioMusicGain = null;
+let audioSfxGain = null;
+let isMusicPlaying = false;
+let nextMusicNoteTime = 0;
+let musicStepIndex = 0;
+let lastVibrationTime = -Infinity;
+let lastCollisionFeedbackTime = -Infinity;
 
 const voxelAssets = createVoxelAssets();
 
@@ -1182,10 +1197,14 @@ function openMatchSetup() {
 }
 
 function startGame() {
+  resumeAudioContext();
+  playGameSound("start", 0);
+  triggerVibration([18], elapsedTimeSeconds);
   selectedProfessions = complianceState.saveSelectedProfessions(selectedProfessions);
   analytics.track("game_start", selectedProfessions);
   restartGame();
   setScreen(Screen.PLAYING);
+  startMusic();
 }
 
 function restartGame() {
@@ -1214,6 +1233,7 @@ function restartGame() {
 }
 
 function returnToMenu() {
+  stopMusic();
   balls = [];
   attackEffectInstances = [];
   projectiles = [];
@@ -1243,6 +1263,287 @@ async function restorePurchases() {
   const result = await iap.restorePurchases();
   serviceMessage = result.restored ? t("messages.purchaseRestored") : t("messages.purchaseUnavailable");
   analytics.track("restore_purchases", result);
+}
+
+function toggleFeedbackSetting(settingKey) {
+  settings = complianceState.saveSettings({
+    ...settings,
+    [settingKey]: !settings[settingKey],
+  });
+  serviceMessage = "";
+
+  if (settingKey === "musicEnabled" && !settings.musicEnabled) {
+    stopMusic();
+  }
+  if (settingKey === "vibrationEnabled" && settings.vibrationEnabled) {
+    triggerVibration([12], elapsedTimeSeconds);
+  }
+  if (settingKey === "soundEffectsEnabled" && settings.soundEffectsEnabled) {
+    playGameSound("toggle", 0.35);
+  }
+}
+
+function ensureAudioContext() {
+  if (audioContext) {
+    return audioContext;
+  }
+
+  const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
+  if (!AudioContextClass) {
+    return null;
+  }
+
+  audioContext = new AudioContextClass();
+  audioMasterGain = audioContext.createGain();
+  audioMusicGain = audioContext.createGain();
+  audioSfxGain = audioContext.createGain();
+
+  audioMasterGain.gain.value = 0.22;
+  audioMusicGain.gain.value = 0.28;
+  audioSfxGain.gain.value = 0.68;
+  audioMusicGain.connect(audioMasterGain);
+  audioSfxGain.connect(audioMasterGain);
+  audioMasterGain.connect(audioContext.destination);
+  return audioContext;
+}
+
+function resumeAudioContext() {
+  const context = ensureAudioContext();
+  if (context?.state === "suspended") {
+    void context.resume();
+  }
+}
+
+function updateAudioEngine() {
+  if (screen !== Screen.PLAYING || gameOver || !settings.musicEnabled) {
+    stopMusic();
+    return;
+  }
+
+  updateMusicLoop();
+}
+
+function startMusic() {
+  if (!settings.musicEnabled) {
+    return;
+  }
+
+  const context = ensureAudioContext();
+  if (!context) {
+    return;
+  }
+
+  resumeAudioContext();
+  if (isMusicPlaying) {
+    return;
+  }
+
+  if (audioMusicGain) {
+    audioMusicGain.gain.cancelScheduledValues(context.currentTime);
+    audioMusicGain.gain.setTargetAtTime(0.28, context.currentTime, 0.04);
+  }
+  isMusicPlaying = true;
+  nextMusicNoteTime = context.currentTime + 0.04;
+  musicStepIndex = 0;
+}
+
+function stopMusic() {
+  if (!isMusicPlaying) {
+    return;
+  }
+
+  isMusicPlaying = false;
+  if (audioMusicGain && audioContext) {
+    audioMusicGain.gain.cancelScheduledValues(audioContext.currentTime);
+    audioMusicGain.gain.setTargetAtTime(0.0001, audioContext.currentTime, 0.04);
+  }
+}
+
+function updateMusicLoop() {
+  const context = ensureAudioContext();
+  if (!context) {
+    return;
+  }
+
+  startMusic();
+  const intensity = getMusicIntensity();
+  const bpm = lerp(92, 184, intensity);
+  const stepDuration = 60 / bpm / 2;
+
+  while (nextMusicNoteTime < context.currentTime + MUSIC_LOOKAHEAD_SECONDS) {
+    scheduleMusicStep(musicStepIndex, nextMusicNoteTime, stepDuration, intensity);
+    nextMusicNoteTime += stepDuration;
+    musicStepIndex += 1;
+  }
+}
+
+function scheduleMusicStep(stepIndex, startTime, stepDuration, intensity) {
+  const melodyOffset = MUSIC_NOTE_OFFSETS[stepIndex % MUSIC_NOTE_OFFSETS.length];
+  const octaveBoost = intensity > 0.72 && stepIndex % 4 === 3 ? 12 : 0;
+  const noteDuration = stepDuration * lerp(0.46, 0.28, intensity);
+  scheduleChipNote(getSemitoneFrequency(220, melodyOffset + octaveBoost), startTime, noteDuration, {
+    destination: audioMusicGain,
+    volume: lerp(0.045, 0.07, intensity),
+    wave: stepIndex % 2 === 0 ? "square" : "triangle",
+  });
+
+  if (stepIndex % 4 === 0) {
+    const bassOffset = MUSIC_BASS_OFFSETS[Math.floor(stepIndex / 4) % MUSIC_BASS_OFFSETS.length] - 12;
+    scheduleChipNote(getSemitoneFrequency(220, bassOffset), startTime, stepDuration * 0.82, {
+      destination: audioMusicGain,
+      volume: 0.065,
+      wave: "square",
+    });
+  }
+
+  if (intensity > 0.42 && stepIndex % 2 === 1) {
+    scheduleChipNoise(startTime, 0.018, {
+      destination: audioMusicGain,
+      volume: lerp(0.018, 0.038, intensity),
+      frequency: lerp(1800, 3200, intensity),
+    });
+  }
+}
+
+function playGameSound(type, intensity = getMusicIntensity()) {
+  if (!settings.soundEffectsEnabled) {
+    return;
+  }
+
+  const context = ensureAudioContext();
+  if (!context) {
+    return;
+  }
+
+  resumeAudioContext();
+  const now = context.currentTime;
+  const pitchBoost = lerp(0, 5, intensity);
+
+  if (type === "ui") {
+    scheduleChipNote(660, now, 0.045, { volume: 0.08 });
+    return;
+  }
+
+  if (type === "toggle") {
+    scheduleChipNote(520, now, 0.045, { volume: 0.08 });
+    scheduleChipNote(780, now + 0.045, 0.05, { volume: 0.07 });
+    return;
+  }
+
+  if (type === "start") {
+    [0, 7, 12].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(330, offset), now + index * 0.055, 0.06, { volume: 0.09 });
+    });
+    return;
+  }
+
+  if (type === "collision") {
+    scheduleChipNote(getSemitoneFrequency(112, pitchBoost), now, 0.045, { volume: 0.08, wave: "square" });
+    scheduleChipNoise(now, 0.025, { volume: 0.05, frequency: 720 });
+    return;
+  }
+
+  if (type === "wall") {
+    scheduleChipNote(96, now, 0.035, { volume: 0.045, wave: "square" });
+    return;
+  }
+
+  if (type === "hit") {
+    scheduleChipNote(getSemitoneFrequency(176, pitchBoost), now, 0.055, { volume: 0.095, wave: "square" });
+    scheduleChipNote(getSemitoneFrequency(352, pitchBoost), now + 0.018, 0.035, { volume: 0.05, wave: "triangle" });
+    return;
+  }
+
+  if (type === "skill") {
+    [0, 4, 7].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(440, offset + pitchBoost), now + index * 0.035, 0.06, { volume: 0.075 });
+    });
+    return;
+  }
+
+  if (type === "bearBoost") {
+    [0, 7, 12, 19].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(247, offset), now + index * 0.03, 0.055, { volume: 0.07 });
+    });
+    return;
+  }
+
+  if (type === "result") {
+    [0, 4, 7, 12].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(330, offset), now + index * 0.085, 0.11, { volume: 0.085 });
+    });
+  }
+}
+
+function scheduleChipNote(frequency, startTime, duration, options = {}) {
+  const context = ensureAudioContext();
+  const destination = options.destination || audioSfxGain;
+  if (!context || !destination) {
+    return;
+  }
+
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = options.wave || "square";
+  oscillator.frequency.setValueAtTime(frequency, startTime);
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, options.volume || 0.08), startTime + 0.006);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  oscillator.connect(gain);
+  gain.connect(destination);
+  oscillator.start(startTime);
+  oscillator.stop(startTime + duration + 0.018);
+}
+
+function scheduleChipNoise(startTime, duration, options = {}) {
+  const context = ensureAudioContext();
+  const destination = options.destination || audioSfxGain;
+  if (!context || !destination) {
+    return;
+  }
+
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = "sawtooth";
+  oscillator.frequency.setValueAtTime(options.frequency || 1200, startTime);
+  oscillator.frequency.exponentialRampToValueAtTime(Math.max(80, (options.frequency || 1200) * 0.34), startTime + duration);
+  gain.gain.setValueAtTime(options.volume || 0.045, startTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  oscillator.connect(gain);
+  gain.connect(destination);
+  oscillator.start(startTime);
+  oscillator.stop(startTime + duration + 0.01);
+}
+
+function getSemitoneFrequency(baseFrequency, semitoneOffset) {
+  return baseFrequency * 2 ** (semitoneOffset / 12);
+}
+
+function getMusicIntensity() {
+  return clamp(matchElapsedTimeSeconds / MUSIC_RAMP_SECONDS, 0, 1);
+}
+
+function playCollisionFeedback(impactSpeed, currentTime) {
+  if (currentTime - lastCollisionFeedbackTime < COLLISION_FEEDBACK_COOLDOWN) {
+    return;
+  }
+
+  lastCollisionFeedbackTime = currentTime;
+  playGameSound("collision", clamp(impactSpeed / 520, 0, 1));
+  triggerVibration(impactSpeed > 260 ? [8, 16, 8] : [8], currentTime);
+}
+
+function triggerVibration(pattern, currentTime = elapsedTimeSeconds) {
+  if (!settings.vibrationEnabled || !globalThis.navigator?.vibrate) {
+    return;
+  }
+
+  if (currentTime - lastVibrationTime < FEEDBACK_VIBRATION_COOLDOWN) {
+    return;
+  }
+
+  lastVibrationTime = currentTime;
+  globalThis.navigator.vibrate(pattern);
 }
 
 function resizeCanvas() {
@@ -1349,6 +1650,7 @@ function gameLoop(timestamp) {
     update(deltaTime, elapsedTimeSeconds);
   }
 
+  updateAudioEngine();
   damageIndicators = updateDamageIndicators(damageIndicators, elapsedTimeSeconds);
   draw();
   requestAnimationFrame(gameLoop);
@@ -1999,8 +2301,12 @@ function resolveBallCollision(ballA, ballB, currentTime) {
 
   const normal = distance === 0 ? { x: 1, y: 0 } : scale(difference, 1 / distance);
   distance = Math.max(distance, 0.001);
+  const impactSpeed = Math.abs(dot(subtract(ballB.velocity, ballA.velocity), normal));
   separateBalls(ballA, ballB, normal, minDistance - distance);
   bounceBalls(ballA, ballB, normal);
+  if (impactSpeed > 120) {
+    playCollisionFeedback(impactSpeed, currentTime);
+  }
   resolveCollisionAbilities(ballA, ballB, normal, currentTime);
   resolveSummonedBearCollisionEffects(ballA, ballB, normal, currentTime);
 }
@@ -2535,6 +2841,8 @@ function resolveSummonedBearOwnerCollision(owner, bear, currentTime) {
     growSummonedBear(owner, bear);
     bear.lastOwnerBoostTime = currentTime;
     bear.boostFlashTime = 0.32;
+    playGameSound("bearBoost", getMusicIntensity());
+    triggerVibration([10, 18, 10], currentTime);
     triggerBallPendants(owner, CosmeticTrigger.SKILL, currentTime);
   }
 
@@ -2641,6 +2949,8 @@ function handleWallCollision(ball, contact, currentTime) {
   if (ball.hp <= 0) {
     return;
   }
+
+  playGameSound("wall", getMusicIntensity());
 
   if (ball.config.venomSpike) {
     createVenomSpike(ball, contact, currentTime);
@@ -3010,6 +3320,9 @@ function playHitCosmetics(attacker, defender, normalFromAttackerToDefender, dama
     return;
   }
 
+  const isSkillHit = attacker.isSkillHit(defender, normalFromAttackerToDefender, damage, attackVariant);
+  playGameSound(attackVariant?.summonBearHit || isSkillHit ? "skill" : "hit", getMusicIntensity());
+  triggerVibration(damage >= 28 ? [12, 18, 12] : [10], currentTime);
   triggerBallPendants(attacker, CosmeticTrigger.ATTACK, currentTime);
   attackEffectInstances.push(
     ...createAttackEffectInstances({
@@ -3021,7 +3334,6 @@ function playHitCosmetics(attacker, defender, normalFromAttackerToDefender, dama
     }),
   );
 
-  const isSkillHit = attacker.isSkillHit(defender, normalFromAttackerToDefender, damage, attackVariant);
   if (!isSkillHit) {
     return;
   }
@@ -3579,6 +3891,9 @@ function checkGameOver() {
 
     gameOver = true;
     resultMessage = aliveBalls.length === 0 ? t("result.draw") : t("result.winnerNoProfession", { side: getSideLabel(aliveBalls[0].label) });
+    stopMusic();
+    playGameSound("result", 1);
+    triggerVibration([28, 28, 38], elapsedTimeSeconds);
     analytics.track("game_result", {
       result: resultMessage,
       scene: selectedProfessions.scene,
@@ -3595,6 +3910,9 @@ function checkGameOver() {
 
   gameOver = true;
   resultMessage = getResultText(ballA, ballB);
+  stopMusic();
+  playGameSound("result", 1);
+  triggerVibration([28, 28, 38], elapsedTimeSeconds);
   analytics.track("game_result", {
     result: resultMessage,
     a: selectedProfessions.a,
@@ -3858,7 +4176,7 @@ function drawItemModeSetup(panel, y, actionY) {
 }
 
 function drawSettingsScreen() {
-  const panel = getPanelRect(660, 620);
+  const panel = getPanelRect(660, 720);
   drawAppTitle(panel.y - 22, t("settings.subtitle"));
   drawPanel(panel);
 
@@ -3866,8 +4184,11 @@ function drawSettingsScreen() {
   drawPanelTitle(t("settings.languageTitle"), panel.x + 28, y, panel.width - 56);
   y += 36;
   y += drawLanguageSelector(panel.x + 28, y, panel.width - 56) + 18;
+  drawPanelTitle(t("settings.feedbackTitle"), panel.x + 28, y, panel.width - 56);
+  y += 34;
+  y += drawFeedbackSettings(panel.x + 28, y, panel.width - 56) + 18;
   drawPanelTitle(t("settings.legalTitle"), panel.x + 28, y, panel.width - 56);
-  y += 42;
+  y += 36;
   y = drawWrappedText(
     t("settings.legalInfo", {
       version: LegalConfig.version,
@@ -3881,7 +4202,7 @@ function drawSettingsScreen() {
     COLORS.text,
     15,
   );
-  y += 18;
+  y += 14;
 
   drawButton(t("settings.privacy"), panel.x + 28, y, (panel.width - 68) / 2, 42, () => openLegalDocument("privacy", Screen.SETTINGS), {
     id: "settings-privacy",
@@ -3895,13 +4216,13 @@ function drawSettingsScreen() {
     () => openLegalDocument("terms", Screen.SETTINGS),
     { id: "settings-terms" },
   );
-  y += 60;
+  y += 54;
 
   drawButton(t("settings.restore"), panel.x + 28, y, (panel.width - 68) / 2, 42, restorePurchases, { id: "settings-restore" });
   drawButton(t("settings.withdraw"), panel.x + 40 + (panel.width - 68) / 2, y, (panel.width - 68) / 2, 42, withdrawConsent, {
     id: "settings-withdraw",
   });
-  y += 60;
+  y += 54;
 
   y = drawWrappedText(
     t("settings.statsInfo", {
@@ -3916,7 +4237,7 @@ function drawSettingsScreen() {
     COLORS.text,
     15,
   );
-  y += 18;
+  y += 14;
   drawSmallNotice(panel.x + 28, y, panel.width - 56, serviceMessage || t("settings.sdkNotice"));
   drawButton(t("settings.backMain"), panel.x + 28, panel.y + panel.height - 70, panel.width - 56, 46, () => {
     serviceMessage = "";
@@ -3981,6 +4302,34 @@ function drawResultOverlay() {
   buttonY += 54;
   drawButton(t("result.backMain"), buttonX, buttonY, panelWidth - 56, 42, returnToMenu, { id: "result-back-main" });
   ctx.restore();
+}
+
+function drawFeedbackSettings(x, y, width) {
+  const options = [
+    { key: "vibrationEnabled", labelKey: "settings.vibration", id: "settings-vibration" },
+    { key: "musicEnabled", labelKey: "settings.music", id: "settings-music" },
+    { key: "soundEffectsEnabled", labelKey: "settings.soundEffects", id: "settings-sound-effects" },
+  ];
+  const gap = 10;
+  const buttonHeight = 38;
+  const columns = width >= 540 ? 3 : width >= 400 ? 2 : 1;
+  const rows = Math.ceil(options.length / columns);
+  const buttonWidth = (width - gap * (columns - 1)) / columns;
+
+  options.forEach((option, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const enabled = Boolean(settings[option.key]);
+    const stateText = enabled ? t("settings.on") : t("settings.off");
+    drawButton(`${t(option.labelKey)}: ${stateText}`, x + column * (buttonWidth + gap), y + row * (buttonHeight + gap), buttonWidth, buttonHeight, () => {
+      toggleFeedbackSetting(option.key);
+    }, {
+      active: enabled,
+      id: option.id,
+    });
+  });
+
+  return rows * buttonHeight + Math.max(0, rows - 1) * gap;
 }
 
 function drawLanguageSelector(x, y, width) {
@@ -6617,6 +6966,8 @@ function handlePointerUp(event) {
   professionScrollPointer = null;
 
   if (shouldRunAction) {
+    resumeAudioContext();
+    playGameSound("ui", 0.2);
     element.action();
   } else if (didScrollProfessionGrid) {
     event.preventDefault();
@@ -6672,7 +7023,9 @@ function handleKeyDown(event) {
   }
 
   if (event.code === "Space" || event.code === "Enter") {
+    resumeAudioContext();
     if (screen === Screen.MAIN_MENU) {
+      playGameSound("ui", 0.2);
       openMatchSetup();
     } else if (screen === Screen.RESULT) {
       startGame();
@@ -6680,6 +7033,7 @@ function handleKeyDown(event) {
   }
 
   if (event.key.toLowerCase() === "r" && screen === Screen.RESULT) {
+    resumeAudioContext();
     startGame();
   }
 }
