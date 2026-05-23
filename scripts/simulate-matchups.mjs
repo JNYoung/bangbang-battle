@@ -91,6 +91,7 @@ class SimulatedBall {
     this.attackState = null;
     this.chainWeaponState = createChainWeaponState(this);
     this.frostOrbitState = createFrostOrbitState(this);
+    this.yoyoWeaponState = createYoyoWeaponState(this);
     this.attackDisabledUntil = 0;
     this.frozenUntil = 0;
     this.poisonUntil = 0;
@@ -166,12 +167,12 @@ class SimulatedBall {
     this.lastAttackTime = currentTime;
   }
 
-  dealAttackDamageTo(defender, normalFromAttackerToDefender) {
+  dealAttackDamageTo(defender, normalFromAttackerToDefender, attackVariant = null) {
     if (this.hp <= 0 || defender.hp <= 0) {
       return 0;
     }
 
-    const damage = this.config.getDamage(this, defender, normalFromAttackerToDefender);
+    const damage = this.config.getDamage(this, defender, normalFromAttackerToDefender, attackVariant);
     return damageBall(defender, damage);
   }
 }
@@ -274,6 +275,23 @@ function createFrostOrbitState(ball) {
   };
 }
 
+function createYoyoWeaponState(ball) {
+  if (ball.config.attackMode !== "yoyo") {
+    return null;
+  }
+
+  const leftSide = ball.position.x < ARENA_SIZE / 2;
+  return {
+    phase: "idle",
+    phaseStartedAt: 0,
+    nextThrowTime: leftSide ? 0.52 : 1.08,
+    rotationAngle: leftSide ? -0.36 : Math.PI + 0.36,
+    spinDirection: leftSide ? 1 : -1,
+    lastHitTime: -Infinity,
+    wallContact: null,
+  };
+}
+
 function simulateMatch(sceneId, aProfession, bProfession, seed = 1) {
   let elapsedSeconds = 0;
   let projectiles = [];
@@ -315,6 +333,10 @@ function simulateMatch(sceneId, aProfession, bProfession, seed = 1) {
     updateFrostOrbit(ballB, STEP_SECONDS);
     updateFrostOrbitForPair(ballA, ballB, elapsedSeconds);
     updateFrostOrbitForPair(ballB, ballA, elapsedSeconds);
+    updateYoyoWeapon(ballA, STEP_SECONDS, elapsedSeconds);
+    updateYoyoWeapon(ballB, STEP_SECONDS, elapsedSeconds);
+    updateYoyoWeaponForPair(ballA, ballB, elapsedSeconds);
+    updateYoyoWeaponForPair(ballB, ballA, elapsedSeconds);
     updateAttackForPair(ballA, ballB, elapsedSeconds, projectiles);
     updateAttackForPair(ballB, ballA, elapsedSeconds, projectiles);
 
@@ -667,7 +689,7 @@ function getRemainingHpByLabel(balls) {
 }
 
 function updateAttackForPair(attacker, defender, currentTime, projectiles) {
-  if (attacker.config.attackMode === "chainSpin" || attacker.config.attackMode === "frostOrbit") {
+  if (["chainSpin", "frostOrbit", "yoyo"].includes(attacker.config.attackMode)) {
     return;
   }
 
@@ -842,6 +864,74 @@ function updateFrostOrbitForPair(attacker, defender, currentTime) {
   damageBall(defender, orbit.damage);
 }
 
+function updateYoyoWeapon(ball, deltaTime, currentTime) {
+  const state = ball.yoyoWeaponState;
+  if (!state || ball.hp <= 0) {
+    return;
+  }
+
+  const weapon = ball.config.yoyoWeapon;
+  if (state.phase === "idle") {
+    if (currentTime >= state.nextThrowTime && !isBallControlLocked(ball, currentTime)) {
+      state.phase = "out";
+      state.phaseStartedAt = currentTime;
+      state.rotationAngle = Math.atan2(ball.velocity.y, ball.velocity.x);
+      state.wallContact = null;
+    }
+    return;
+  }
+
+  state.rotationAngle = normalizeAngle(state.rotationAngle + weapon.spinSpeed * state.spinDirection * deltaTime);
+
+  const contact = getYoyoWeaponWallContact(ball, currentTime);
+  if (contact && contact !== state.wallContact) {
+    state.spinDirection *= -1;
+    state.rotationAngle = normalizeAngle(state.rotationAngle + weapon.spinSpeed * state.spinDirection * deltaTime * 1.4);
+  }
+  state.wallContact = contact;
+
+  const phaseElapsed = currentTime - state.phaseStartedAt;
+  if (phaseElapsed < getYoyoPhaseDuration(weapon, state.phase)) {
+    return;
+  }
+
+  if (state.phase === "out") {
+    state.phase = "spin";
+    state.phaseStartedAt = currentTime;
+    return;
+  }
+
+  if (state.phase === "spin") {
+    state.phase = "in";
+    state.phaseStartedAt = currentTime;
+    return;
+  }
+
+  state.phase = "idle";
+  state.phaseStartedAt = currentTime;
+  state.nextThrowTime = currentTime + weapon.cooldown;
+  state.wallContact = null;
+}
+
+function updateYoyoWeaponForPair(attacker, defender, currentTime) {
+  if (!attacker.yoyoWeaponState || attacker.hp <= 0 || defender.hp <= 0) {
+    return;
+  }
+
+  const weapon = attacker.config.yoyoWeapon;
+  if (currentTime - attacker.yoyoWeaponState.lastHitTime < weapon.hitCooldown) {
+    return;
+  }
+
+  const hit = getYoyoWeaponHit(attacker, defender, currentTime);
+  if (!hit) {
+    return;
+  }
+
+  attacker.yoyoWeaponState.lastHitTime = currentTime;
+  resolveAttackHit(attacker, defender, hit.normal, currentTime, hit.variant);
+}
+
 function resolveCollisionAbilities(ballA, ballB, normalFromAToB, currentTime) {
   resolveBatDrain(ballA, ballB, normalFromAToB, currentTime);
   resolveBatDrain(ballB, ballA, scale(normalFromAToB, -1), currentTime);
@@ -1011,9 +1101,9 @@ function updateEnvironmentalHazards(hazards, webLinks, flames, balls, currentTim
   }
 }
 
-function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime) {
-  const damage = attacker.dealAttackDamageTo(defender, normalFromAttackerToDefender);
-  applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, currentTime);
+function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime, attackVariant = null) {
+  const damage = attacker.dealAttackDamageTo(defender, normalFromAttackerToDefender, attackVariant);
+  applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, currentTime, attackVariant);
   return damage;
 }
 
@@ -1092,6 +1182,114 @@ function getFrostOrbitHit(attacker, defender) {
         normal: normalize(orbToDefender),
       };
     }
+  }
+
+  return null;
+}
+
+function getYoyoWeaponGeometry(ball, currentTime) {
+  const weapon = ball.config.yoyoWeapon;
+  const state = ball.yoyoWeaponState;
+  const direction = state && state.phase !== "idle" ? vectorFromAngle(state.rotationAngle) : normalize(ball.velocity);
+  const extension = getYoyoWeaponExtension(ball, currentTime);
+  const distance = lerp(ball.radius + weapon.headRadius * 0.55, weapon.orbitRadius, extension);
+
+  return {
+    start: add(ball.position, scale(direction, ball.radius * 0.68)),
+    head: add(ball.position, scale(direction, distance)),
+    headRadius: weapon.headRadius,
+    lineRadius: weapon.lineRadius,
+  };
+}
+
+function getYoyoWeaponExtension(ball, currentTime) {
+  const state = ball.yoyoWeaponState;
+  const weapon = ball.config.yoyoWeapon;
+  if (!state || state.phase === "idle") {
+    return 0;
+  }
+
+  const phaseElapsed = currentTime - state.phaseStartedAt;
+  if (state.phase === "out") {
+    return easeOutCubic(clamp(phaseElapsed / weapon.extendDuration, 0, 1));
+  }
+
+  if (state.phase === "in") {
+    return 1 - easeInCubic(clamp(phaseElapsed / weapon.retractDuration, 0, 1));
+  }
+
+  return 1;
+}
+
+function getYoyoPhaseDuration(weapon, phase) {
+  if (phase === "out") {
+    return weapon.extendDuration;
+  }
+  if (phase === "spin") {
+    return weapon.activeDuration;
+  }
+  if (phase === "in") {
+    return weapon.retractDuration;
+  }
+  return weapon.cooldown;
+}
+
+function getYoyoWeaponHit(attacker, defender, currentTime) {
+  if (attacker.yoyoWeaponState?.phase === "idle") {
+    return null;
+  }
+
+  const geometry = getYoyoWeaponGeometry(attacker, currentTime);
+  const headToDefender = subtract(defender.position, geometry.head);
+  if (length(headToDefender) <= geometry.headRadius + defender.radius) {
+    return {
+      normal: normalize(headToDefender),
+      variant: {
+        damage: attacker.config.yoyoWeapon.headDamage,
+        knockbackMultiplier: 0.78,
+        yoyoHit: true,
+        yoyoPart: "head",
+      },
+    };
+  }
+
+  const lineHit = getSegmentCircleHit(
+    defender.position,
+    defender.radius + geometry.lineRadius,
+    geometry.start,
+    geometry.head,
+  );
+  if (!lineHit) {
+    return null;
+  }
+
+  return {
+    normal: lineHit.normal,
+    variant: {
+      damage: attacker.config.yoyoWeapon.lineDamage,
+      knockbackMultiplier: 0.52,
+      yoyoHit: true,
+      yoyoPart: "line",
+    },
+  };
+}
+
+function getYoyoWeaponWallContact(ball, currentTime) {
+  const geometry = getYoyoWeaponGeometry(ball, currentTime);
+  const head = geometry.head;
+  const radius = geometry.headRadius;
+
+  if (head.x - radius <= 0) {
+    return "left";
+  }
+  if (head.x + radius >= ARENA_SIZE) {
+    return "right";
+  }
+  if (head.y - radius <= 0) {
+    return "top";
+  }
+  if (head.y + radius >= ARENA_SIZE) {
+    return "bottom";
   }
 
   return null;
@@ -1181,12 +1379,13 @@ function bounceBalls(ballA, ballB, normal, elapsedSeconds) {
   keepSpeed(ballB, elapsedSeconds);
 }
 
-function applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, elapsedSeconds) {
+function applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, elapsedSeconds, attackVariant = null) {
   if (damage <= 0) {
     return;
   }
 
-  const push = 56 * attacker.config.getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage);
+  const push =
+    56 * attacker.config.getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant);
   defender.velocity = add(defender.velocity, scale(normalFromAttackerToDefender, push));
   keepSpeed(attacker, elapsedSeconds);
   keepSpeed(defender, elapsedSeconds);
@@ -1438,6 +1637,10 @@ function formatCountMap(countMap) {
     .join(", ");
 }
 
+function lerp(start, end, progress) {
+  return start + (end - start) * progress;
+}
+
 function getDirectionBetween(source, target) {
   return normalize(subtract(target.position, source.position));
 }
@@ -1564,6 +1767,10 @@ function seededNoise(seed, x, y, salt = 0) {
 
 function easeOutCubic(value) {
   return 1 - (1 - value) ** 3;
+}
+
+function easeInCubic(value) {
+  return value ** 3;
 }
 
 function clamp(value, min, max) {

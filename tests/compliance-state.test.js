@@ -88,6 +88,13 @@ test("super arena selection uses only super arena professions", () => {
     b: "frost",
     ballCount: 2,
   });
+
+  assert.deepEqual(normalizeSelectedProfessions({ scene: "super", a: "yoyo", b: "venom" }), {
+    scene: "super",
+    a: "yoyo",
+    b: "venom",
+    ballCount: 2,
+  });
 });
 
 test("hero mode selection uses only hero ids", () => {
@@ -101,6 +108,13 @@ test("hero mode selection uses only hero ids", () => {
   assert.deepEqual(normalizeSelectedProfessions({ scene: "heroes", a: "minotaur", b: "elfKing" }), {
     scene: "heroes",
     a: "minotaur",
+    b: "elfKing",
+    ballCount: 2,
+  });
+
+  assert.deepEqual(normalizeSelectedProfessions({ scene: "heroes", a: "wukong", b: "elfKing" }), {
+    scene: "heroes",
+    a: "wukong",
     b: "elfKing",
     ballCount: 2,
   });

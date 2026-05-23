@@ -32,6 +32,7 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "main.start"), "main.start");
     assert.notEqual(translate(locale, "professions.archer.name"), "professions.archer.name");
     assert.notEqual(translate(locale, "professions.bat.name"), "professions.bat.name");
+    assert.notEqual(translate(locale, "professions.yoyo.name"), "professions.yoyo.name");
     assert.notEqual(translate(locale, "scenes.super.name"), "scenes.super.name");
     assert.notEqual(translate(locale, "scenes.items.name"), "scenes.items.name");
     assert.notEqual(translate(locale, "scenes.heroes.name"), "scenes.heroes.name");
@@ -46,6 +47,7 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "heroes.dwarfKing.weapon"), "heroes.dwarfKing.weapon");
     assert.notEqual(translate(locale, "heroes.minotaur.skills.rebirth"), "heroes.minotaur.skills.rebirth");
     assert.notEqual(translate(locale, "heroes.elfKing.skills.fireArrow"), "heroes.elfKing.skills.fireArrow");
+    assert.notEqual(translate(locale, "heroes.wukong.skills.giantStaff"), "heroes.wukong.skills.giantStaff");
     assert.match(translate(locale, "result.winner", { side: "A", profession: "Archer" }), /A|Archer|الكرة/);
     assert.match(translate(locale, "result.winnerNoProfession", { side: "A" }), /A|الكرة/);
   }
