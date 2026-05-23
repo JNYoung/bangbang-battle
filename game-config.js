@@ -32,8 +32,8 @@ export const ATTACK_ANIMATION_CONFIG = {
     hitFrame: 0.54,
   },
   reaper: {
-    duration: 0.82,
-    hitFrame: 0.64,
+    duration: 0.72,
+    hitFrame: 0.56,
     sweepAngle: (Math.PI * 118) / 180,
   },
   frost: {
@@ -70,10 +70,437 @@ export const ATTACK_ANIMATION_CONFIG = {
 
 export const DEFAULT_SCENE_ID = "classic";
 export const SUPER_SCENE_ID = "super";
+export const ITEM_SCENE_ID = "items";
+export const HERO_SCENE_ID = "heroes";
+
+export const ItemModeBallConfig = {
+  id: "item-runner",
+  name: "道具球",
+  maxHp: 100,
+  radius: 24,
+  moveSpeed: 198,
+  attackDamage: 0,
+  attackCooldown: 0.5,
+  weaponRange: 0,
+  getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant) {
+    return attackVariant?.damage || 0;
+  },
+  getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+    return attackVariant?.knockbackMultiplier || 0.9;
+  },
+  isSkillHit() {
+    return false;
+  },
+};
+
+export const ItemSpawnConfig = {
+  initialCount: 2,
+  maxActive: 3,
+  spawnInterval: 2.5,
+  pickupRadius: 28,
+  edgePadding: 74,
+  avoidBallRadius: 96,
+};
+
+export function getItemInitialCount(ballCount = 2) {
+  const safeBallCount = normalizeItemBallCount(ballCount);
+  return Math.max(ItemSpawnConfig.initialCount, Math.ceil(safeBallCount * 0.65));
+}
+
+export function getItemMaxActiveCount(ballCount = 2) {
+  const safeBallCount = normalizeItemBallCount(ballCount);
+  return Math.max(ItemSpawnConfig.maxActive, Math.min(8, safeBallCount + 1));
+}
+
+export function getItemSpawnInterval(ballCount = 2) {
+  const safeBallCount = normalizeItemBallCount(ballCount);
+  return Math.max(1.25, ItemSpawnConfig.spawnInterval - (safeBallCount - 2) * 0.28);
+}
+
+function normalizeItemBallCount(ballCount) {
+  const parsedCount = Number.parseInt(ballCount, 10);
+  if (!Number.isFinite(parsedCount)) {
+    return 2;
+  }
+
+  return Math.min(Math.max(parsedCount, 2), 6);
+}
+
+export const ItemWeaponConfig = {
+  sword: {
+    id: "sword",
+    nameKey: "items.sword.name",
+    kind: "melee",
+    sprite: "sword",
+    damage: 9,
+    cooldown: 0.45,
+    range: 42,
+    durability: 9,
+    knockbackMultiplier: 0.9,
+    animation: "blade",
+    duration: 0.24,
+    hitFrame: 0.48,
+  },
+  spear: {
+    id: "spear",
+    nameKey: "items.spear.name",
+    kind: "melee",
+    sprite: "spear",
+    damage: 12,
+    cooldown: 0.68,
+    range: 78,
+    durability: 6,
+    knockbackMultiplier: 1.05,
+    animation: "spear",
+    duration: 0.28,
+    hitFrame: 0.5,
+  },
+  bow: {
+    id: "bow",
+    nameKey: "items.bow.name",
+    kind: "projectile",
+    sprite: "bow",
+    projectileKind: "arrow",
+    damage: 7,
+    cooldown: 0.92,
+    range: Infinity,
+    durability: 8,
+    knockbackMultiplier: 0.76,
+    duration: 0.38,
+    hitFrame: 0.62,
+    speed: 590,
+    headRadius: 7,
+    shaftLength: 42,
+    shaftRadius: 3,
+    spawnOffset: 34,
+  },
+  pistol: {
+    id: "pistol",
+    nameKey: "items.pistol.name",
+    kind: "projectile",
+    sprite: "pistol",
+    projectileKind: "bullet",
+    damage: 5,
+    cooldown: 0.58,
+    range: Infinity,
+    durability: 12,
+    knockbackMultiplier: 0.62,
+    duration: 0.18,
+    hitFrame: 0.36,
+    speed: 860,
+    headRadius: 5,
+    shaftLength: 12,
+    shaftRadius: 4,
+    spawnOffset: 34,
+  },
+  rocket: {
+    id: "rocket",
+    nameKey: "items.rocket.name",
+    kind: "rocket",
+    sprite: "rocketLauncher",
+    projectileKind: "rocket",
+    damage: 14,
+    explosionDamage: 10,
+    explosionRadius: 72,
+    cooldown: 1.55,
+    range: Infinity,
+    durability: 3,
+    knockbackMultiplier: 1.42,
+    duration: 0.42,
+    hitFrame: 0.58,
+    speed: 430,
+    headRadius: 14,
+    shaftLength: 46,
+    shaftRadius: 10,
+    spawnOffset: 42,
+  },
+  staff: {
+    id: "staff",
+    nameKey: "items.staff.name",
+    kind: "spell",
+    sprite: "staff",
+    damage: 7,
+    cooldown: 1.08,
+    range: 255,
+    durability: 6,
+    knockbackMultiplier: 0.95,
+    duration: 0.46,
+    hitFrame: 0.62,
+    spellBook: [
+      {
+        id: "fire",
+        nameKey: "items.spells.fire",
+        damage: 9,
+        color: "#ff6b3d",
+        knockbackMultiplier: 0.98,
+        castType: "projectile",
+        speed: 520,
+        headRadius: 15,
+        shaftLength: 32,
+        spawnOffset: 22,
+      },
+      {
+        id: "ice",
+        nameKey: "items.spells.ice",
+        damage: 5,
+        color: "#9ff7ff",
+        knockbackMultiplier: 0.52,
+        castType: "projectile",
+        speed: 700,
+        headRadius: 10,
+        shaftLength: 44,
+        spawnOffset: 24,
+      },
+      {
+        id: "lightning",
+        nameKey: "items.spells.lightning",
+        damage: 7,
+        color: "#ffe66d",
+        knockbackMultiplier: 1.18,
+        castType: "trajectory",
+        range: 255,
+        collisionRadius: 13,
+        duration: 0.17,
+        segmentCount: 5,
+      },
+    ],
+  },
+};
+
+export const HeroConfig = {
+  demon: {
+    id: "demon",
+    nameKey: "heroes.demon.name",
+    maxHp: 98,
+    maxMp: 96,
+    manaRegen: 4.8,
+    radius: 22,
+    moveSpeed: 246,
+    attackDamage: 10,
+    attackCooldown: 0.46,
+    weaponRange: 40,
+    attackMode: "dualBlade",
+    bodyPattern: "demon",
+    color: "#7f1d37",
+    accentColor: "#ff7a45",
+    item: {
+      nameKey: "heroes.demon.weapon",
+      type: "dualBlade",
+      animation: "双刀快斩",
+    },
+    skills: [
+      {
+        id: "dodge",
+        nameKey: "heroes.demon.skills.dodge",
+        type: "passiveDodge",
+        manaCost: 16,
+        cooldown: 2.8,
+        chance: 0.34,
+      },
+      {
+        id: "manaBurn",
+        nameKey: "heroes.demon.skills.manaBurn",
+        type: "aoeBurn",
+        manaCost: 30,
+        cooldown: 6.2,
+        autoPriority: 1,
+        range: 170,
+        damage: 9,
+        manaDamage: 24,
+        knockbackMultiplier: 0.58,
+      },
+    ],
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || 0.72;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return Boolean(attackVariant?.heroSkillId);
+    },
+  },
+  dwarfKing: {
+    id: "dwarfKing",
+    nameKey: "heroes.dwarfKing.name",
+    maxHp: 132,
+    maxMp: 84,
+    manaRegen: 3.7,
+    radius: 27,
+    moveSpeed: 176,
+    attackDamage: 20,
+    attackCooldown: 0.82,
+    weaponRange: 44,
+    attackMode: "hammer",
+    bodyPattern: "dwarfKing",
+    color: "#a16207",
+    accentColor: "#fde68a",
+    item: {
+      nameKey: "heroes.dwarfKing.weapon",
+      type: "hammer",
+      animation: "重锤挥击",
+    },
+    skills: [
+      {
+        id: "thunderHammer",
+        nameKey: "heroes.dwarfKing.skills.thunderHammer",
+        type: "homingProjectile",
+        manaCost: 34,
+        cooldown: 6.8,
+        autoPriority: 2,
+        damage: 17,
+        stunDuration: 1.05,
+        speed: 520,
+        headRadius: 18,
+        shaftLength: 36,
+        spawnOffset: 36,
+        knockbackMultiplier: 1.18,
+      },
+      {
+        id: "groundSlam",
+        nameKey: "heroes.dwarfKing.skills.groundSlam",
+        type: "groundSlam",
+        manaCost: 34,
+        cooldown: 7.5,
+        autoPriority: 1,
+        range: 165,
+        damage: 8,
+        slowMultiplier: 0.46,
+        slowDuration: 2.7,
+        knockbackMultiplier: 0.86,
+      },
+    ],
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || 1.28;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return Boolean(attackVariant?.heroSkillId);
+    },
+  },
+  minotaur: {
+    id: "minotaur",
+    nameKey: "heroes.minotaur.name",
+    maxHp: 148,
+    maxMp: 74,
+    manaRegen: 3.2,
+    radius: 29,
+    moveSpeed: 166,
+    attackDamage: 17,
+    attackCooldown: 1.06,
+    weaponRange: 76,
+    attackMode: "cone",
+    coneAngle: Math.PI / 2,
+    bodyPattern: "minotaur",
+    color: "#7c2d12",
+    accentColor: "#facc15",
+    item: {
+      nameKey: "heroes.minotaur.weapon",
+      type: "totem",
+      animation: "正面扇形挥击",
+    },
+    skills: [
+      {
+        id: "warStomp",
+        nameKey: "heroes.minotaur.skills.warStomp",
+        type: "warStomp",
+        manaCost: 32,
+        cooldown: 7.2,
+        autoPriority: 1,
+        range: 155,
+        damage: 10,
+        stunDuration: 1.15,
+        knockbackMultiplier: 1.05,
+      },
+      {
+        id: "rebirth",
+        nameKey: "heroes.minotaur.skills.rebirth",
+        type: "rebirth",
+        manaCost: 0,
+        cooldown: Infinity,
+        oncePerMatch: true,
+      },
+    ],
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || 1.18;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return Boolean(attackVariant?.heroSkillId);
+    },
+  },
+  elfKing: {
+    id: "elfKing",
+    nameKey: "heroes.elfKing.name",
+    maxHp: 96,
+    maxMp: 118,
+    manaRegen: 5.4,
+    radius: 23,
+    moveSpeed: 192,
+    attackDamage: 5,
+    attackCooldown: 1.15,
+    weaponRange: Infinity,
+    attackMode: "projectile",
+    bodyPattern: "elfKing",
+    color: "#15803d",
+    accentColor: "#bbf7d0",
+    item: {
+      nameKey: "heroes.elfKing.weapon",
+      type: "bow",
+      animation: "精准射击",
+    },
+    projectileWeapon: {
+      speed: 640,
+      headRadius: 7,
+      shaftLength: 44,
+      spawnOffset: 34,
+    },
+    skills: [
+      {
+        id: "fireArrow",
+        nameKey: "heroes.elfKing.skills.fireArrow",
+        type: "empoweredProjectile",
+        manaCost: 14,
+        cooldown: 0.9,
+        damage: 10,
+        speed: 650,
+        headRadius: 10,
+        shaftLength: 44,
+        spawnOffset: 34,
+        color: "#ff6b24",
+        knockbackMultiplier: 0.92,
+      },
+      {
+        id: "forestBlessing",
+        nameKey: "heroes.elfKing.skills.forestBlessing",
+        type: "heal",
+        manaCost: 30,
+        cooldown: 6.4,
+        autoPriority: 1,
+        heal: 15,
+        triggerHpRatio: 0.72,
+      },
+    ],
+    getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant) {
+      return attackVariant?.damage || this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || 0.78;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return Boolean(attackVariant?.heroSkillId);
+    },
+  },
+};
 
 export const SceneConfig = {
   classic: {
     id: "classic",
+    type: "professions",
     nameKey: "scenes.classic.name",
     descriptionKey: "scenes.classic.description",
     professionIds: ["spear", "blade", "shield", "assassin", "archer", "chain", "mage"],
@@ -84,12 +511,36 @@ export const SceneConfig = {
   },
   super: {
     id: "super",
+    type: "professions",
     nameKey: "scenes.super.name",
     descriptionKey: "scenes.super.description",
     professionIds: ["bat", "venom", "spider", "lava", "reaper", "frost"],
     defaultProfessions: {
       a: "bat",
       b: "venom",
+    },
+  },
+  items: {
+    id: "items",
+    type: "items",
+    nameKey: "scenes.items.name",
+    descriptionKey: "scenes.items.description",
+    professionIds: [],
+    defaultProfessions: {
+      a: null,
+      b: null,
+    },
+    ballHp: 100,
+  },
+  heroes: {
+    id: "heroes",
+    type: "heroes",
+    nameKey: "scenes.heroes.name",
+    descriptionKey: "scenes.heroes.description",
+    professionIds: ["demon", "dwarfKing", "minotaur", "elfKing"],
+    defaultProfessions: {
+      a: "demon",
+      b: "dwarfKing",
     },
   },
 };
@@ -156,10 +607,10 @@ export const ProfessionConfig = {
   bat: {
     id: "bat",
     name: "蝙蝠球",
-    maxHp: 106,
+    maxHp: 88,
     radius: 23,
-    moveSpeed: 228,
-    attackDamage: 10,
+    moveSpeed: 220,
+    attackDamage: 13,
     attackCooldown: 0.58,
     weaponRange: 34,
     color: "#5f4bb6",
@@ -172,9 +623,9 @@ export const ProfessionConfig = {
     },
     collisionDrain: {
       damage: 14,
-      heal: 2,
-      disableDuration: 0.82,
-      cooldown: 0.72,
+      heal: 0.5,
+      disableDuration: 0.62,
+      cooldown: 0.82,
     },
     getDamage() {
       return this.attackDamage;
@@ -292,12 +743,12 @@ export const ProfessionConfig = {
   reaper: {
     id: "reaper",
     name: "死神球",
-    maxHp: 92,
+    maxHp: 108,
     radius: 24,
-    moveSpeed: 162,
-    attackDamage: 46,
-    attackCooldown: 1.95,
-    weaponRange: 92,
+    moveSpeed: 205,
+    attackDamage: 44,
+    attackCooldown: 0.95,
+    weaponRange: 135,
     color: "#202637",
     accentColor: "#e6f0ff",
     skillName: "镰刃收割",
@@ -308,14 +759,14 @@ export const ProfessionConfig = {
     },
     attackMode: "reaper",
     reaperBlade: {
-      edgeLength: 150,
-      collisionRadius: 22,
+      edgeLength: 230,
+      collisionRadius: 36,
     },
-    getDamage() {
-      return this.attackDamage;
+    getDamage(attacker, defender) {
+      return defender.profession === "reaper" ? 72 : this.attackDamage;
     },
     getKnockbackMultiplier() {
-      return 1.48;
+      return 1.05;
     },
     isSkillHit(attacker, defender, normalFromAttackerToDefender, damage) {
       return damage >= this.attackDamage;
@@ -344,9 +795,9 @@ export const ProfessionConfig = {
       orbRadius: 13,
       count: 3,
       spinSpeed: 2.7,
-      damage: 12,
+      damage: 14,
       freezeDuration: 0.55,
-      hitCooldown: 0.55,
+      hitCooldown: 0.5,
     },
     getDamage() {
       return this.attackDamage;
@@ -445,12 +896,12 @@ export const ProfessionConfig = {
   assassin: {
     id: "assassin",
     name: "刺客球",
-    maxHp: 92,
+    maxHp: 104,
     radius: 22,
     moveSpeed: 248,
-    attackDamage: 9,
-    attackCooldown: 0.46,
-    weaponRange: 38,
+    attackDamage: 11,
+    attackCooldown: 0.42,
+    weaponRange: 42,
     color: "#c77dff",
     accentColor: "#ffe5ff",
     skillName: "双刀连斩",
@@ -465,7 +916,7 @@ export const ProfessionConfig = {
       }
       const distanceToTarget = length(subtract(defender.position, attacker.position));
       const closeEnough = distanceToTarget <= attacker.radius + defender.radius + 24;
-      return closeEnough ? 13 : this.attackDamage;
+      return closeEnough ? 16 : this.attackDamage;
     },
     getKnockbackMultiplier() {
       return 0.72;
@@ -480,8 +931,8 @@ export const ProfessionConfig = {
     maxHp: 96,
     radius: 23,
     moveSpeed: 188,
-    attackDamage: 5,
-    attackCooldown: 1.2,
+    attackDamage: 6,
+    attackCooldown: 1.05,
     weaponRange: Infinity,
     color: "#7bd88f",
     accentColor: "#ecffd8",
@@ -493,7 +944,7 @@ export const ProfessionConfig = {
     },
     attackMode: "projectile",
     projectileWeapon: {
-      speed: 620,
+      speed: 650,
       headRadius: 7,
       shaftLength: 44,
       spawnOffset: 34,
@@ -511,10 +962,10 @@ export const ProfessionConfig = {
   chain: {
     id: "chain",
     name: "链球",
-    maxHp: 118,
+    maxHp: 132,
     radius: 30,
-    moveSpeed: 178,
-    attackDamage: 10,
+    moveSpeed: 196,
+    attackDamage: 16,
     attackCooldown: 1.08,
     weaponRange: 112,
     color: "#a5a7b5",
@@ -527,10 +978,10 @@ export const ProfessionConfig = {
     },
     attackMode: "chainSpin",
     chainWeapon: {
-      orbitRadius: 112,
-      headRadius: 28,
-      spinSpeed: 3.6,
-      hitCooldown: 0.5,
+      orbitRadius: 120,
+      headRadius: 38,
+      spinSpeed: 5,
+      hitCooldown: 0.32,
     },
     getDamage(attacker, defender) {
       if (defender.profession === "chain") {
@@ -538,10 +989,10 @@ export const ProfessionConfig = {
       }
       const distanceToTarget = length(subtract(defender.position, attacker.position));
       const sweetSpot = distanceToTarget >= attacker.radius + defender.radius + 82;
-      return sweetSpot ? 13 : this.attackDamage;
+      return sweetSpot ? 24 : this.attackDamage;
     },
     getKnockbackMultiplier() {
-      return 1.55;
+      return 1.2;
     },
     isSkillHit(attacker, defender, normalFromAttackerToDefender, damage) {
       return damage > this.attackDamage;
@@ -552,10 +1003,10 @@ export const ProfessionConfig = {
     name: "法师球",
     maxHp: 108,
     radius: 23,
-    moveSpeed: 172,
+    moveSpeed: 166,
     attackDamage: 8,
-    attackCooldown: 1.18,
-    weaponRange: 215,
+    attackCooldown: 1.32,
+    weaponRange: 205,
     color: "#8d8cff",
     accentColor: "#f3e8ff",
     skillName: "三相法术",
@@ -626,6 +1077,14 @@ export function getAttackAnimationConfig(profession) {
 
 export function getSceneConfig(sceneId) {
   return SceneConfig[sceneId] || SceneConfig[DEFAULT_SCENE_ID];
+}
+
+export function isItemScene(sceneId) {
+  return getSceneConfig(sceneId).type === "items";
+}
+
+export function isHeroScene(sceneId) {
+  return getSceneConfig(sceneId).type === "heroes";
 }
 
 export function getSceneProfessionIds(sceneId) {

@@ -33,7 +33,21 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "professions.archer.name"), "professions.archer.name");
     assert.notEqual(translate(locale, "professions.bat.name"), "professions.bat.name");
     assert.notEqual(translate(locale, "scenes.super.name"), "scenes.super.name");
+    assert.notEqual(translate(locale, "scenes.items.name"), "scenes.items.name");
+    assert.notEqual(translate(locale, "scenes.heroes.name"), "scenes.heroes.name");
+    assert.notEqual(translate(locale, "setup.itemModeHeader"), "setup.itemModeHeader");
+    assert.notEqual(translate(locale, "items.sword.name"), "items.sword.name");
+    assert.notEqual(translate(locale, "items.spear.name"), "items.spear.name");
+    assert.notEqual(translate(locale, "items.bow.name"), "items.bow.name");
+    assert.notEqual(translate(locale, "items.pistol.name"), "items.pistol.name");
+    assert.notEqual(translate(locale, "items.rocket.name"), "items.rocket.name");
+    assert.notEqual(translate(locale, "items.staff.name"), "items.staff.name");
+    assert.notEqual(translate(locale, "heroes.demon.name"), "heroes.demon.name");
+    assert.notEqual(translate(locale, "heroes.dwarfKing.weapon"), "heroes.dwarfKing.weapon");
+    assert.notEqual(translate(locale, "heroes.minotaur.skills.rebirth"), "heroes.minotaur.skills.rebirth");
+    assert.notEqual(translate(locale, "heroes.elfKing.skills.fireArrow"), "heroes.elfKing.skills.fireArrow");
     assert.match(translate(locale, "result.winner", { side: "A", profession: "Archer" }), /A|Archer|الكرة/);
+    assert.match(translate(locale, "result.winnerNoProfession", { side: "A" }), /A|الكرة/);
   }
 });
 

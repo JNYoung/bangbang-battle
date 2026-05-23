@@ -1,10 +1,13 @@
 import { LegalConfig, getLegalVersionKey } from "./legal-config.js";
 import {
   DEFAULT_SCENE_ID,
+  HeroConfig,
   ProfessionConfig,
   SceneConfig,
   getSceneDefaultProfessions,
   getSceneProfessionIds,
+  isHeroScene,
+  isItemScene,
 } from "./game-config.js";
 
 export const ComplianceStorageKeys = {
@@ -90,11 +93,21 @@ export function normalizeSelectedProfessions(selectedProfessions = {}, professio
   const scene = getValidScene(selectedProfessions.scene);
   const sceneDefaultProfessions = getSceneDefaultProfessions(scene);
   const sceneProfessionIds = getSceneProfessionIds(scene);
+  const selectableConfig = isHeroScene(scene) ? HeroConfig : professionConfig;
+
+  if (isItemScene(scene)) {
+    return {
+      scene,
+      a: null,
+      b: null,
+      ballCount: normalizeBallCount(selectedProfessions.ballCount),
+    };
+  }
 
   return {
     scene,
-    a: getValidProfessionForScene(selectedProfessions.a, sceneDefaultProfessions.a, sceneProfessionIds, professionConfig),
-    b: getValidProfessionForScene(selectedProfessions.b, sceneDefaultProfessions.b, sceneProfessionIds, professionConfig),
+    a: getValidProfessionForScene(selectedProfessions.a, sceneDefaultProfessions.a, sceneProfessionIds, selectableConfig),
+    b: getValidProfessionForScene(selectedProfessions.b, sceneDefaultProfessions.b, sceneProfessionIds, selectableConfig),
     ballCount: normalizeBallCount(selectedProfessions.ballCount),
   };
 }
@@ -132,6 +145,10 @@ function getValidScene(scene) {
 }
 
 function getValidProfessionForScene(profession, fallback, sceneProfessionIds, professionConfig) {
+  if (!sceneProfessionIds.length) {
+    return null;
+  }
+
   return Object.hasOwn(professionConfig, profession) && sceneProfessionIds.includes(profession) ? profession : fallback;
 }
 

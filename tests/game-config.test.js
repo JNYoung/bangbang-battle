@@ -3,12 +3,23 @@ import test from "node:test";
 
 import {
   ATTACK_ANIMATION_CONFIG,
+  HERO_SCENE_ID,
+  HeroConfig,
+  ITEM_SCENE_ID,
+  ItemModeBallConfig,
+  ItemSpawnConfig,
+  ItemWeaponConfig,
   ProfessionConfig,
   SceneConfig,
   SIDE_VISUAL_CONFIG,
   getAttackAnimationConfig,
+  getItemInitialCount,
+  getItemMaxActiveCount,
+  getItemSpawnInterval,
   getSceneProfessionIds,
   getSpeedMultiplier,
+  isHeroScene,
+  isItemScene,
 } from "../game-config.js";
 import { ProfessionCosmeticConfig } from "../cosmetics.js";
 
@@ -61,8 +72,107 @@ test("combat and cosmetic profession lists stay in sync", () => {
 test("scene config keeps classic and super profession pools separate", () => {
   assert.deepEqual(SceneConfig.classic.professionIds, ["spear", "blade", "shield", "assassin", "archer", "chain", "mage"]);
   assert.deepEqual(SceneConfig.super.professionIds, ["bat", "venom", "spider", "lava", "reaper", "frost"]);
+  assert.equal(SceneConfig[ITEM_SCENE_ID].type, "items");
+  assert.deepEqual(getSceneProfessionIds(ITEM_SCENE_ID), []);
+  assert.equal(SceneConfig[ITEM_SCENE_ID].ballHp, 100);
+  assert.equal(SceneConfig[HERO_SCENE_ID].type, "heroes");
+  assert.deepEqual(SceneConfig[HERO_SCENE_ID].professionIds, ["demon", "dwarfKing", "minotaur", "elfKing"]);
+  assert.equal(isHeroScene(HERO_SCENE_ID), true);
+  assert.equal(isHeroScene("classic"), false);
+  assert.equal(isItemScene(ITEM_SCENE_ID), true);
+  assert.equal(isItemScene("classic"), false);
   assert.equal(getSceneProfessionIds("super").includes("bat"), true);
   assert.equal(getSceneProfessionIds("super").includes("spear"), false);
+});
+
+test("hero mode config exposes health, mana, weapons, and skill contracts", () => {
+  assert.deepEqual(Object.keys(HeroConfig).sort(), ["demon", "dwarfKing", "elfKing", "minotaur"]);
+
+  for (const [id, hero] of Object.entries(HeroConfig)) {
+    assert.equal(hero.id, id);
+    assert.equal(typeof hero.nameKey, "string");
+    assert.equal(hero.nameKey.startsWith("heroes."), true);
+    assert.equal(hero.maxHp > 0, true);
+    assert.equal(hero.maxMp > 0, true);
+    assert.equal(hero.manaRegen > 0, true);
+    assert.equal(hero.radius > 0, true);
+    assert.equal(hero.moveSpeed > 0, true);
+    assert.equal(hero.attackDamage > 0, true);
+    assert.equal(hero.attackCooldown > 0, true);
+    assert.equal(hero.weaponRange > 0, true);
+    assert.equal(typeof hero.attackMode, "string");
+    assert.equal(typeof hero.bodyPattern, "string");
+    assert.equal(typeof hero.item?.nameKey, "string");
+    assert.equal(hero.item.nameKey.startsWith("heroes."), true);
+    assert.equal(typeof hero.item?.type, "string");
+    assert.equal(Array.isArray(hero.skills), true);
+    assert.equal(hero.skills.length, 2);
+
+    for (const skill of hero.skills) {
+      assert.equal(typeof skill.id, "string");
+      assert.equal(typeof skill.nameKey, "string");
+      assert.equal(skill.nameKey.startsWith("heroes."), true);
+      assert.equal(typeof skill.type, "string");
+      assert.equal(skill.manaCost >= 0, true);
+      assert.equal(skill.cooldown > 0 || skill.cooldown === Infinity, true);
+    }
+  }
+
+  assert.equal(HeroConfig.demon.skills.some((skill) => skill.type === "passiveDodge" && skill.chance > 0), true);
+  assert.equal(HeroConfig.demon.skills.some((skill) => skill.type === "aoeBurn" && skill.manaDamage > 0), true);
+  assert.equal(HeroConfig.dwarfKing.skills.some((skill) => skill.type === "homingProjectile" && skill.stunDuration > 0), true);
+  assert.equal(HeroConfig.dwarfKing.skills.some((skill) => skill.type === "groundSlam" && skill.slowDuration > 0), true);
+  assert.equal(HeroConfig.minotaur.coneAngle, Math.PI / 2);
+  assert.equal(HeroConfig.minotaur.skills.some((skill) => skill.oncePerMatch), true);
+  assert.equal(HeroConfig.elfKing.attackMode, "projectile");
+  assert.equal(HeroConfig.elfKing.skills.some((skill) => skill.type === "empoweredProjectile" && skill.manaCost > 0), true);
+  assert.equal(HeroConfig.elfKing.skills.some((skill) => skill.type === "heal" && skill.heal > 0), true);
+});
+
+test("item mode config is data-driven and numerically valid", () => {
+  assert.equal(ItemModeBallConfig.maxHp, 100);
+  assert.equal(ItemModeBallConfig.attackDamage, 0);
+  assert.equal(ItemModeBallConfig.radius > 0, true);
+  assert.equal(ItemModeBallConfig.moveSpeed > 0, true);
+  assert.equal(ItemSpawnConfig.initialCount > 0, true);
+  assert.equal(ItemSpawnConfig.maxActive >= ItemSpawnConfig.initialCount, true);
+  assert.equal(ItemSpawnConfig.spawnInterval > 0, true);
+  assert.equal(ItemSpawnConfig.pickupRadius > 0, true);
+  assert.equal(getItemInitialCount(2), ItemSpawnConfig.initialCount);
+  assert.equal(getItemInitialCount(6) > getItemInitialCount(2), true);
+  assert.equal(getItemMaxActiveCount(6) > getItemMaxActiveCount(2), true);
+  assert.equal(getItemSpawnInterval(6) < getItemSpawnInterval(2), true);
+
+  const weaponIds = Object.keys(ItemWeaponConfig).sort();
+  assert.deepEqual(weaponIds, ["bow", "pistol", "rocket", "spear", "staff", "sword"]);
+
+  for (const [id, weapon] of Object.entries(ItemWeaponConfig)) {
+    assert.equal(weapon.id, id);
+    assert.equal(typeof weapon.nameKey, "string");
+    assert.equal(weapon.nameKey.startsWith("items."), true);
+    assert.equal(["melee", "projectile", "rocket", "spell"].includes(weapon.kind), true);
+    assert.equal(weapon.damage > 0, true);
+    assert.equal(weapon.cooldown > 0, true);
+    assert.equal(weapon.range > 0, true);
+    assert.equal(weapon.durability > 0, true);
+    assert.equal(weapon.knockbackMultiplier > 0, true);
+
+    if (weapon.kind === "projectile" || weapon.kind === "rocket") {
+      assert.equal(weapon.speed > 0, true);
+      assert.equal(weapon.headRadius > 0, true);
+      assert.equal(weapon.shaftLength > 0, true);
+      assert.equal(typeof weapon.projectileKind, "string");
+    }
+  }
+
+  assert.equal(ItemWeaponConfig.rocket.explosionDamage > 0, true);
+  assert.equal(ItemWeaponConfig.rocket.explosionRadius > 0, true);
+  assert.equal(ItemWeaponConfig.staff.spellBook.length, 3);
+  for (const spell of ItemWeaponConfig.staff.spellBook) {
+    assert.equal(typeof spell.id, "string");
+    assert.equal(spell.damage > 0, true);
+    assert.equal(spell.knockbackMultiplier > 0, true);
+  }
 });
 
 test("spear front thrust upgrades damage only while facing the enemy", () => {
