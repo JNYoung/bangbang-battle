@@ -56,7 +56,15 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "items.bow.name"), "items.bow.name");
     assert.notEqual(translate(locale, "items.pistol.name"), "items.pistol.name");
     assert.notEqual(translate(locale, "items.rocket.name"), "items.rocket.name");
+    assert.notEqual(translate(locale, "items.torch.name"), "items.torch.name");
     assert.notEqual(translate(locale, "items.staff.name"), "items.staff.name");
+    assert.notEqual(translate(locale, "items.category.building"), "items.category.building");
+    assert.notEqual(translate(locale, "items.category.weapon"), "items.category.weapon");
+    assert.notEqual(translate(locale, "items.prismTower.name"), "items.prismTower.name");
+    assert.notEqual(translate(locale, "items.bunker.name"), "items.bunker.name");
+    assert.notEqual(translate(locale, "items.cannon.name"), "items.cannon.name");
+    assert.notEqual(translate(locale, "items.teslaCoil.name"), "items.teslaCoil.name");
+    assert.notEqual(translate(locale, "items.gasStation.name"), "items.gasStation.name");
     assert.notEqual(translate(locale, "heroes.demon.name"), "heroes.demon.name");
     assert.notEqual(translate(locale, "heroes.dwarfKing.weapon"), "heroes.dwarfKing.weapon");
     assert.notEqual(translate(locale, "heroes.minotaur.skills.rebirth"), "heroes.minotaur.skills.rebirth");
