@@ -585,7 +585,7 @@ export const SceneConfig = {
     type: "professions",
     nameKey: "scenes.super.name",
     descriptionKey: "scenes.super.description",
-    professionIds: ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo"],
+    professionIds: ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo", "static"],
     defaultProfessions: {
       a: "bat",
       b: "venom",
@@ -919,6 +919,43 @@ export const ProfessionConfig = {
     },
     isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
       return attackVariant?.yoyoHit === true;
+    },
+  },
+  static: {
+    id: "static",
+    name: "静电球",
+    maxHp: 112,
+    radius: 24,
+    moveSpeed: 210,
+    attackDamage: 8,
+    attackCooldown: 0.9,
+    weaponRange: 72,
+    color: "#facc15",
+    accentColor: "#fff7a3",
+    skillName: "静电充能",
+    item: {
+      name: "静电核心",
+      type: "staticField",
+      animation: "充能放电",
+    },
+    attackMode: "staticCharge",
+    staticCharge: {
+      chargeDuration: 1.45,
+      fieldRadius: 78,
+      impactDamage: 10,
+      shockDamagePerSecond: 7.5,
+      shockDuration: 2.2,
+      paralyzeDuration: 1,
+      hitCooldown: 0.25,
+    },
+    getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant = null) {
+      return attackVariant?.damage || this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
+      return attackVariant?.knockbackMultiplier || 0.62;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
+      return attackVariant?.staticDischarge === true;
     },
   },
   summoner: {

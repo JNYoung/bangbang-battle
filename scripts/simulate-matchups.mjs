@@ -97,9 +97,14 @@ class SimulatedBall {
     this.chainWeaponState = createChainWeaponState(this);
     this.frostOrbitState = createFrostOrbitState(this);
     this.yoyoWeaponState = createYoyoWeaponState(this);
+    this.staticChargeState = createStaticChargeState(this);
     this.summonedBearState = createSummonedBearState(this);
     this.attackDisabledUntil = 0;
     this.frozenUntil = 0;
+    this.paralyzedUntil = 0;
+    this.shockUntil = 0;
+    this.shockDamagePerSecond = 0;
+    this.shockOwner = null;
     this.poisonUntil = 0;
     this.poisonDamagePerSecond = 0;
     this.lastCollisionAbilityTime = -Infinity;
@@ -113,7 +118,7 @@ class SimulatedBall {
 
   update(deltaTime, elapsedSeconds) {
     this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this, elapsedSeconds));
-    if (!isBallFrozen(this, elapsedSeconds)) {
+    if (!isBallFrozen(this, elapsedSeconds) && !isBallParalyzed(this, elapsedSeconds)) {
       this.position.x += this.velocity.x * deltaTime;
       this.position.y += this.velocity.y * deltaTime;
     }
@@ -298,6 +303,18 @@ function createYoyoWeaponState(ball) {
   };
 }
 
+function createStaticChargeState(ball) {
+  if (ball.config.attackMode !== "staticCharge") {
+    return null;
+  }
+
+  return {
+    charge: 0,
+    active: false,
+    lastDischargeTime: -Infinity,
+  };
+}
+
 function createSummonedBearState(ball) {
   if (ball.config.attackMode !== "summonBear") {
     return null;
@@ -399,6 +416,8 @@ function simulateMatch(sceneId, aProfession, bProfession, seed = 1) {
     updateStatusEffects(balls, STEP_SECONDS, elapsedSeconds);
     updateSummonedBear(ballA, STEP_SECONDS, elapsedSeconds);
     updateSummonedBear(ballB, STEP_SECONDS, elapsedSeconds);
+    updateStaticCharge(ballA, STEP_SECONDS);
+    updateStaticCharge(ballB, STEP_SECONDS);
     forEachBallPair(getAliveCollisionCombatants(balls), (combatantA, combatantB) => {
       resolveBallCollision(combatantA, combatantB, elapsedSeconds);
     });
@@ -771,7 +790,7 @@ function getRemainingHpByLabel(balls) {
 }
 
 function updateAttackForPair(attacker, defender, currentTime, projectiles) {
-  if (["chainSpin", "frostOrbit", "yoyo", "summonBear"].includes(attacker.config.attackMode)) {
+  if (["chainSpin", "frostOrbit", "yoyo", "summonBear", "staticCharge"].includes(attacker.config.attackMode)) {
     return;
   }
 
@@ -1014,6 +1033,47 @@ function updateYoyoWeaponForPair(attacker, defender, currentTime) {
   resolveAttackHit(attacker, defender, hit.normal, currentTime, hit.variant);
 }
 
+function updateStaticCharge(ball, deltaTime) {
+  const state = ball.staticChargeState;
+  const charge = ball.config.staticCharge;
+  if (!state || !charge || ball.hp <= 0 || state.active) {
+    return;
+  }
+
+  state.charge = Math.min(charge.chargeDuration, state.charge + deltaTime);
+  if (state.charge >= charge.chargeDuration) {
+    state.active = true;
+  }
+}
+
+function resolveStaticCharge(attacker, defender, normalFromAttackerToDefender, currentTime) {
+  const charge = attacker.config?.staticCharge;
+  const state = attacker.staticChargeState;
+  if (
+    !charge ||
+    !state?.active ||
+    attacker.hp <= 0 ||
+    defender.hp <= 0 ||
+    currentTime - state.lastDischargeTime < charge.hitCooldown
+  ) {
+    return;
+  }
+
+  state.active = false;
+  state.charge = 0;
+  state.lastDischargeTime = currentTime;
+  defender.paralyzedUntil = Math.max(defender.paralyzedUntil, currentTime + charge.paralyzeDuration);
+  defender.shockUntil = Math.max(defender.shockUntil, currentTime + charge.shockDuration);
+  defender.shockDamagePerSecond = Math.max(defender.shockDamagePerSecond, charge.shockDamagePerSecond);
+  defender.shockOwner = attacker;
+  defender.attackState = null;
+  resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime, {
+    damage: charge.impactDamage,
+    knockbackMultiplier: 0.7,
+    staticDischarge: true,
+  });
+}
+
 function updateSummonedBear(owner, deltaTime, currentTime) {
   const bear = owner.summonedBearState;
   if (!bear || owner.hp <= 0) {
@@ -1116,6 +1176,8 @@ function resolveCollisionAbilities(ballA, ballB, normalFromAToB, currentTime) {
 
   resolveBatDrain(ballA, ballB, normalFromAToB, currentTime);
   resolveBatDrain(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+  resolveStaticCharge(ballA, ballB, normalFromAToB, currentTime);
+  resolveStaticCharge(ballB, ballA, scale(normalFromAToB, -1), currentTime);
 }
 
 function resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime) {
@@ -1222,6 +1284,13 @@ function updateStatusEffects(balls, deltaTime, currentTime) {
   for (const ball of balls) {
     if (ball.hp > 0 && ball.poisonUntil > currentTime && ball.poisonDamagePerSecond > 0) {
       damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
+    }
+
+    if (ball.hp > 0 && ball.shockUntil > currentTime && ball.shockDamagePerSecond > 0) {
+      damageBall(ball, ball.shockDamagePerSecond * deltaTime);
+    } else if (ball.shockUntil <= currentTime) {
+      ball.shockDamagePerSecond = 0;
+      ball.shockOwner = null;
     }
   }
 }
@@ -1606,8 +1675,12 @@ function isBallFrozen(ball, currentTime) {
   return ball.frozenUntil > currentTime;
 }
 
+function isBallParalyzed(ball, currentTime) {
+  return ball.paralyzedUntil > currentTime;
+}
+
 function isBallControlLocked(ball, currentTime) {
-  return isBallFrozen(ball, currentTime) || ball.attackDisabledUntil > currentTime;
+  return isBallFrozen(ball, currentTime) || isBallParalyzed(ball, currentTime) || ball.attackDisabledUntil > currentTime;
 }
 
 function keepSpeed(ball, elapsedSeconds) {

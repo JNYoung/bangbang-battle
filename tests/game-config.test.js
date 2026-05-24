@@ -39,6 +39,7 @@ test("profession config exposes balanced, testable combat fields", () => {
     "shield",
     "spear",
     "spider",
+    "static",
     "summoner",
     "venom",
     "yoyo",
@@ -77,7 +78,7 @@ test("combat and cosmetic profession lists stay in sync", () => {
 
 test("scene config keeps classic and super profession pools separate", () => {
   assert.deepEqual(SceneConfig.classic.professionIds, ["spear", "blade", "shield", "assassin", "archer", "chain", "mage", "summoner"]);
-  assert.deepEqual(SceneConfig.super.professionIds, ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo"]);
+  assert.deepEqual(SceneConfig.super.professionIds, ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo", "static"]);
   assert.equal(SceneConfig[ITEM_SCENE_ID].type, "items");
   assert.deepEqual(getSceneProfessionIds(ITEM_SCENE_ID), []);
   assert.equal(SceneConfig[ITEM_SCENE_ID].ballHp, 100);
@@ -255,6 +256,10 @@ test("super arena professions expose their special combat contracts", () => {
   assert.equal(ProfessionConfig.yoyo.yoyoWeapon.lineRadius > 0, true);
   assert.equal(ProfessionConfig.yoyo.yoyoWeapon.cooldown > 0, true);
   assert.equal(ProfessionConfig.yoyo.yoyoWeapon.activeDuration > ProfessionConfig.yoyo.yoyoWeapon.extendDuration, true);
+  assert.equal(ProfessionConfig.static.attackMode, "staticCharge");
+  assert.equal(ProfessionConfig.static.staticCharge.chargeDuration > 0, true);
+  assert.equal(ProfessionConfig.static.staticCharge.shockDamagePerSecond > 0, true);
+  assert.equal(ProfessionConfig.static.staticCharge.paralyzeDuration > 0, true);
 });
 
 test("speed ramp and attack animation helpers clamp predictably", () => {
