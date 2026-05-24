@@ -375,6 +375,22 @@ export const ItemBuildingConfig = {
     color: "#2563eb",
     accentColor: "#fde047",
   },
+  gasStation: {
+    id: "gasStation",
+    nameKey: "items.gasStation.name",
+    kind: "building",
+    supportKind: "heal",
+    damage: 0,
+    cooldown: 0,
+    range: 0,
+    radius: 27,
+    duration: 1.65,
+    knockbackMultiplier: 0,
+    healAmount: 26,
+    healDuration: 1.65,
+    color: "#22c55e",
+    accentColor: "#f8fafc",
+  },
 };
 
 export const HeroConfig = {

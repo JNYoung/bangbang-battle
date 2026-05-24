@@ -197,17 +197,26 @@ test("item mode config is data-driven and numerically valid", () => {
   }
 
   const buildingIds = Object.keys(ItemBuildingConfig).sort();
-  assert.deepEqual(buildingIds, ["bunker", "cannon", "prismTower", "teslaCoil"]);
+  assert.deepEqual(buildingIds, ["bunker", "cannon", "gasStation", "prismTower", "teslaCoil"]);
   for (const [id, building] of Object.entries(ItemBuildingConfig)) {
     assert.equal(building.id, id);
     assert.equal(building.kind, "building");
     assert.equal(building.nameKey.startsWith("items."), true);
-    assert.equal(building.damage > 0, true);
-    assert.equal(building.cooldown > 0, true);
-    assert.equal(building.range > 0, true);
     assert.equal(building.radius > 0, true);
     assert.equal(building.duration > 0, true);
-    assert.equal(building.knockbackMultiplier > 0, true);
+    if (building.supportKind === "heal") {
+      assert.equal(building.damage, 0);
+      assert.equal(building.cooldown, 0);
+      assert.equal(building.range, 0);
+      assert.equal(building.knockbackMultiplier, 0);
+      assert.equal(building.healAmount > 0, true);
+      assert.equal(building.healDuration > 0, true);
+    } else {
+      assert.equal(building.damage > 0, true);
+      assert.equal(building.cooldown > 0, true);
+      assert.equal(building.range > 0, true);
+      assert.equal(building.knockbackMultiplier > 0, true);
+    }
   }
   assert.equal(ItemBuildingConfig.prismTower.refractionRadius > 0, true);
   assert.equal(ItemBuildingConfig.bunker.bulletCount, 6);
@@ -217,6 +226,7 @@ test("item mode config is data-driven and numerically valid", () => {
   assert.equal(ItemBuildingConfig.cannon.destroyBuildingsOnHit, true);
   assert.equal(ItemBuildingConfig.teslaCoil.maxAttacks, 3);
   assert.equal(ItemBuildingConfig.teslaCoil.paralyzeDuration > 0, true);
+  assert.equal(ItemBuildingConfig.gasStation.supportKind, "heal");
 });
 
 test("spear front thrust upgrades damage only while facing the enemy", () => {

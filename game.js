@@ -753,6 +753,7 @@ class Ball {
     this.poisonOwner = null;
     this.slowUntil = 0;
     this.slowMultiplier = 1;
+    this.stationHealState = null;
     this.lastCollisionAbilityTime = -Infinity;
     this.lastHazardHitTime = -Infinity;
     this.lastWebHitTime = -Infinity;
@@ -776,7 +777,7 @@ class Ball {
   update(deltaTime, currentTime) {
     regenerateHeroMana(this, deltaTime);
     this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this));
-    if (!isBallFrozen(this, currentTime) && !isBallParalyzed(this, currentTime)) {
+    if (!isBallMovementLocked(this, currentTime)) {
       this.position.x += this.velocity.x * deltaTime;
       this.position.y += this.velocity.y * deltaTime;
     }
@@ -2639,7 +2640,11 @@ function deployItemBuilding(owner, buildingId, position, currentTime) {
   }
 
   const safePosition = clampPointToArena(position, buildingConfig.radius);
-  itemBuildings.push(createItemBuilding(owner, buildingConfig, safePosition, currentTime));
+  const building = createItemBuilding(owner, buildingConfig, safePosition, currentTime);
+  itemBuildings.push(building);
+  if (buildingConfig.supportKind === "heal") {
+    startGasStationHeal(owner, building, currentTime);
+  }
   itemExplosions.push({
     position: safePosition,
     radius: buildingConfig.radius * 1.35,
@@ -2647,6 +2652,34 @@ function deployItemBuilding(owner, buildingId, position, currentTime) {
     createdAt: currentTime,
     expiresAt: currentTime + 0.24,
   });
+}
+
+function startGasStationHeal(ball, station, currentTime) {
+  const config = station.config;
+  const healableAmount = Math.min(config.healAmount || 0, Math.max(0, ball.maxHp - ball.hp));
+  station.healingTarget = ball;
+  station.healingStartedAt = currentTime;
+  station.healingUntil = currentTime + config.healDuration;
+  station.healingAmount = healableAmount;
+
+  if (healableAmount <= 0) {
+    station.expiresAt = Math.min(station.expiresAt, currentTime + 0.55);
+    pushHeroEffect("heal", ball.position, 68, currentTime, config.color);
+    return;
+  }
+
+  ball.attackState = null;
+  ball.stationHealState = {
+    station,
+    startedAt: currentTime,
+    expiresAt: currentTime + config.healDuration,
+    lockUntil: currentTime + config.healDuration,
+    lastTickAt: currentTime,
+    remainingHeal: healableAmount,
+    healRate: healableAmount / Math.max(0.001, config.healDuration),
+  };
+  ball.attackDisabledUntil = Math.max(ball.attackDisabledUntil, currentTime + config.healDuration);
+  pushHeroEffect("heal", ball.position, 82, currentTime, config.color);
 }
 
 function createItemBuilding(owner, buildingConfig, position, currentTime) {
@@ -2698,6 +2731,10 @@ function updateItemBuildings(currentTime) {
     const buildingConfig = ItemBuildingConfig[building.buildingId];
     if (!buildingConfig || building.hp <= 0 || building.attacksRemaining <= 0) {
       building.expiresAt = Math.min(building.expiresAt, currentTime);
+      continue;
+    }
+
+    if (buildingConfig.supportKind === "heal") {
       continue;
     }
 
@@ -3955,6 +3992,8 @@ function updateStatusEffects(deltaTime, currentTime) {
       continue;
     }
 
+    updateGasStationHealing(ball, currentTime);
+
     if (ball.poisonUntil > currentTime && ball.poisonDamagePerSecond > 0) {
       const damage = damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
       recordCombatHit(ball.poisonOwner, ball, damage, "poison_tick");
@@ -3968,6 +4007,48 @@ function updateStatusEffects(deltaTime, currentTime) {
       ball.shockOwner = null;
     }
   }
+}
+
+function updateGasStationHealing(ball, currentTime) {
+  const state = ball.stationHealState;
+  if (!state) {
+    return;
+  }
+
+  const station = state.station;
+  if (!station || station.hp <= 0 || state.remainingHeal <= 0 || ball.hp >= ball.maxHp) {
+    finishGasStationHeal(ball, currentTime);
+    return;
+  }
+
+  const tickEnd = Math.min(currentTime, state.expiresAt, station.expiresAt);
+  const elapsed = Math.max(0, tickEnd - state.lastTickAt);
+  state.lastTickAt = currentTime;
+  const healed = healBall(ball, Math.min(state.remainingHeal, state.healRate * elapsed));
+  state.remainingHeal = Math.max(0, state.remainingHeal - healed);
+  if (healed > 0) {
+    station.lastAttackTime = currentTime;
+  }
+
+  if (state.remainingHeal <= 0 || currentTime >= state.expiresAt || station.expiresAt <= currentTime || ball.hp >= ball.maxHp) {
+    finishGasStationHeal(ball, currentTime);
+  }
+}
+
+function finishGasStationHeal(ball, currentTime) {
+  const state = ball.stationHealState;
+  if (!state) {
+    return;
+  }
+
+  const station = state.station;
+  if (station && station.hp > 0) {
+    station.expiresAt = Math.min(station.expiresAt, currentTime + 0.22);
+  }
+  if (ball.attackDisabledUntil <= state.lockUntil + 0.001) {
+    ball.attackDisabledUntil = Math.min(ball.attackDisabledUntil, currentTime);
+  }
+  ball.stationHealState = null;
 }
 
 function updateEnvironmentalHazards(currentTime) {
@@ -4403,8 +4484,17 @@ function isBallParalyzed(ball, currentTime) {
   return ball.paralyzedUntil > currentTime;
 }
 
+function isBallHealingAtStation(ball, currentTime) {
+  const state = ball.stationHealState;
+  return Boolean(state && state.expiresAt > currentTime && state.remainingHeal > 0);
+}
+
+function isBallMovementLocked(ball, currentTime) {
+  return isBallFrozen(ball, currentTime) || isBallParalyzed(ball, currentTime) || isBallHealingAtStation(ball, currentTime);
+}
+
 function isBallControlLocked(ball, currentTime) {
-  return isBallFrozen(ball, currentTime) || isBallParalyzed(ball, currentTime) || ball.attackDisabledUntil > currentTime;
+  return isBallMovementLocked(ball, currentTime) || ball.attackDisabledUntil > currentTime;
 }
 
 function keepSpeed(ball) {
@@ -5818,10 +5908,22 @@ function drawItemPreviewCard(itemEntry, itemConfig, x, y, width, height) {
   ctx.textBaseline = "middle";
   ctx.fillText(t(itemConfig.nameKey), getTextStartX(textX, textWidth), titleY);
   ctx.fillStyle = COLORS.muted;
-  const statText = isBuilding ? `${t("items.category.building")} / ${itemConfig.damage}` : `x${itemConfig.durability} / ${itemConfig.damage}`;
+  const statText = getItemPreviewStatText(itemEntry, itemConfig);
   ctx.font = canvasFont(getFittedFontSize(statText, textWidth, height < 58 ? 10 : 11, 8, 700), 700);
   ctx.fillText(statText, getTextStartX(textX, textWidth), statY);
   ctx.restore();
+}
+
+function getItemPreviewStatText(itemEntry, itemConfig) {
+  if (itemEntry.type !== "building") {
+    return `x${itemConfig.durability} / ${itemConfig.damage}`;
+  }
+
+  if (itemConfig.supportKind === "heal") {
+    return `${t("items.category.building")} / +${itemConfig.healAmount}`;
+  }
+
+  return `${t("items.category.building")} / ${itemConfig.damage}`;
 }
 
 function drawDroppedItems(context, currentTime) {
@@ -5894,17 +5996,26 @@ function drawItemBuildings(context, currentTime) {
 
 function drawItemBuilding(context, building, currentTime) {
   const life = clamp((building.expiresAt - currentTime) / Math.max(0.001, building.expiresAt - building.createdAt), 0, 1);
-  const attackPulse = clamp(1 - (currentTime - building.lastAttackTime) / 0.28, 0, 1);
+  const healPulse =
+    building.config.supportKind === "heal" && building.healingTarget
+      ? 0.32 + 0.68 * Math.abs(Math.sin(currentTime * 8.5))
+      : 0;
+  const attackPulse = Math.max(healPulse, clamp(1 - (currentTime - building.lastAttackTime) / 0.28, 0, 1));
   const center = snapVector(building.position, 4);
   context.save();
   context.globalAlpha = 0.58 + life * 0.38;
-  context.strokeStyle = building.config.color;
-  context.lineWidth = 2;
-  context.setLineDash([8, 10]);
-  context.beginPath();
-  context.arc(center.x, center.y, building.config.range, 0, Math.PI * 2);
-  context.stroke();
-  context.setLineDash([]);
+  if (building.config.range > 0) {
+    context.strokeStyle = building.config.color;
+    context.lineWidth = 2;
+    context.setLineDash([8, 10]);
+    context.beginPath();
+    context.arc(center.x, center.y, building.config.range, 0, Math.PI * 2);
+    context.stroke();
+    context.setLineDash([]);
+  }
+  if (building.config.supportKind === "heal") {
+    drawGasStationHealLink(context, building, currentTime);
+  }
   drawItemBuildingShape(context, building.buildingId, center, building.radius, attackPulse, life);
   if (Number.isFinite(building.attacksRemaining)) {
     drawBuildingAmmoPips(context, center, building.radius, building.attacksRemaining, building.config.maxAttacks || 0);
@@ -5936,6 +6047,11 @@ function drawItemBuildingShape(context, buildingId, center, radius, attackPulse 
 
   if (buildingId === "cannon") {
     drawCannonBuilding(context, center, radius, attackPulse, life);
+    return;
+  }
+
+  if (buildingId === "gasStation") {
+    drawGasStation(context, center, radius, attackPulse, life);
     return;
   }
 
@@ -6025,6 +6141,66 @@ function drawTeslaCoil(context, center, radius, attackPulse) {
     context.arc(center.x, center.y - radius * 0.18, radius * (0.74 + attackPulse * 0.42), 0, Math.PI * 2);
     context.stroke();
   }
+  context.restore();
+}
+
+function drawGasStationHealLink(context, building, currentTime) {
+  const target = building.healingTarget;
+  if (!target || target.hp <= 0 || !isBallHealingAtStation(target, currentTime)) {
+    return;
+  }
+
+  const progress = clamp(
+    (currentTime - building.healingStartedAt) / Math.max(0.001, building.healingUntil - building.healingStartedAt),
+    0,
+    1,
+  );
+  const start = snapVector(building.position, 4);
+  const end = snapVector(target.position, 4);
+  const pulseRadius = building.radius * (1.15 + Math.abs(Math.sin(currentTime * 9)) * 0.38);
+  context.save();
+  context.globalAlpha = 0.32 + 0.3 * (1 - progress);
+  context.strokeStyle = "#bbf7d0";
+  context.lineWidth = 6;
+  context.setLineDash([12, 8]);
+  context.lineDashOffset = -currentTime * 46;
+  context.beginPath();
+  moveToVector(context, start);
+  lineToVector(context, end);
+  context.stroke();
+  context.setLineDash([]);
+  context.globalAlpha = 0.42;
+  context.strokeStyle = "#22c55e";
+  context.lineWidth = 4;
+  context.beginPath();
+  context.arc(target.position.x, target.position.y, target.radius + pulseRadius * 0.32, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function drawGasStation(context, center, radius, attackPulse) {
+  const pulse = 1 + attackPulse * 0.12;
+  context.save();
+  context.fillStyle = "#050711";
+  context.fillRect(center.x - radius * 0.72, center.y - radius * 0.38, radius * 1.24, radius * 1.1);
+  context.fillStyle = "#166534";
+  context.fillRect(center.x - radius * 0.58, center.y - radius * 0.26, radius * 0.96, radius * 0.86);
+  context.fillStyle = "#ef4444";
+  context.fillRect(center.x - radius * 0.68, center.y - radius * 0.68, radius * 1.16, radius * 0.3);
+  context.fillStyle = "#f8fafc";
+  context.fillRect(center.x - radius * 0.32, center.y - radius * 0.16, radius * 0.42, radius * 0.32);
+  context.fillStyle = "#22c55e";
+  context.fillRect(center.x - radius * 0.18, center.y - radius * 0.3, radius * 0.14, radius * 0.6);
+  context.fillRect(center.x - radius * 0.36, center.y - radius * 0.06, radius * 0.5, radius * 0.14);
+  context.fillStyle = "#050711";
+  context.fillRect(center.x + radius * 0.48, center.y - radius * 0.12, radius * 0.18, radius * 0.62);
+  context.fillStyle = "#facc15";
+  context.fillRect(center.x + radius * 0.52, center.y - radius * 0.02, radius * 0.1, radius * 0.24);
+  context.strokeStyle = "#bbf7d0";
+  context.lineWidth = 3;
+  context.beginPath();
+  context.arc(center.x, center.y, radius * 1.12 * pulse, 0, Math.PI * 2);
+  context.stroke();
   context.restore();
 }
 

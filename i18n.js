@@ -177,6 +177,7 @@ const translations = {
       bunker: { name: "地堡" },
       cannon: { name: "巨炮" },
       teslaCoil: { name: "磁暴线圈" },
+      gasStation: { name: "加油站" },
       spells: { fire: "火球", ice: "冰锥", lightning: "闪电" },
     },
     professions: {
@@ -351,6 +352,7 @@ const translations = {
       bunker: { name: "Bunker" },
       cannon: { name: "Cannon" },
       teslaCoil: { name: "Tesla Coil" },
+      gasStation: { name: "Gas Station" },
       spells: { fire: "Fireball", ice: "Ice Shard", lightning: "Lightning" },
     },
     professions: {
@@ -480,6 +482,7 @@ const translations = {
       bunker: { name: "Bunker" },
       cannon: { name: "Grand canon" },
       teslaCoil: { name: "Bobine Tesla" },
+      gasStation: { name: "Station-service" },
       spells: { fire: "Boule de feu", ice: "Éclat de glace", lightning: "Éclair" },
     },
     professions: {
@@ -609,6 +612,7 @@ const translations = {
       bunker: { name: "Bunker" },
       cannon: { name: "Riesenkanone" },
       teslaCoil: { name: "Teslaspule" },
+      gasStation: { name: "Tankstelle" },
       spells: { fire: "Feuerball", ice: "Eissplitter", lightning: "Blitz" },
     },
     professions: {
@@ -738,6 +742,7 @@ const translations = {
       bunker: { name: "ملجأ" },
       cannon: { name: "مدفع ضخم" },
       teslaCoil: { name: "ملف تسلا" },
+      gasStation: { name: "محطة وقود" },
       spells: { fire: "كرة نار", ice: "شظية جليد", lightning: "برق" },
     },
     professions: {
@@ -1071,6 +1076,7 @@ translations.ja = {
     bunker: { name: "バンカー" },
     cannon: { name: "巨砲" },
     teslaCoil: { name: "テスラコイル" },
+    gasStation: { name: "ガソリンスタンド" },
     spells: { fire: "火球", ice: "氷柱", lightning: "雷撃" },
   },
   professions: {

@@ -109,6 +109,7 @@ class SimulatedBall {
     this.poisonUntil = 0;
     this.poisonDamagePerSecond = 0;
     this.lastCollisionAbilityTime = -Infinity;
+    this.stationHealState = null;
     this.lastHazardHitTime = -Infinity;
     this.lastWebHitTime = -Infinity;
     this.lastFlameHitTime = -Infinity;
@@ -119,7 +120,7 @@ class SimulatedBall {
 
   update(deltaTime, elapsedSeconds) {
     this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this, elapsedSeconds));
-    if (!isBallFrozen(this, elapsedSeconds) && !isBallParalyzed(this, elapsedSeconds)) {
+    if (!isBallMovementLocked(this, elapsedSeconds)) {
       this.position.x += this.velocity.x * deltaTime;
       this.position.y += this.velocity.y * deltaTime;
     }
@@ -208,11 +209,12 @@ class SimulatedItemBall {
     this.lastHazardHitTime = -Infinity;
     this.lastWebHitTime = -Infinity;
     this.lastFlameHitTime = -Infinity;
+    this.stationHealState = null;
   }
 
   update(deltaTime, elapsedSeconds) {
     this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this, elapsedSeconds));
-    if (!isBallFrozen(this, elapsedSeconds) && !isBallParalyzed(this, elapsedSeconds)) {
+    if (!isBallMovementLocked(this, elapsedSeconds)) {
       this.position.x += this.velocity.x * deltaTime;
       this.position.y += this.velocity.y * deltaTime;
     }
@@ -547,6 +549,7 @@ function simulateItemMode(seed, ballCount = 2) {
     });
     itemFlames = itemFlames.filter((flame) => flame.expiresAt > elapsedSeconds);
     itemBuildings = itemBuildings.filter((building) => building.expiresAt > elapsedSeconds && building.attacksRemaining > 0 && building.hp > 0);
+    updateStatusEffects(balls, STEP_SECONDS, elapsedSeconds);
     updateEnvironmentalHazards([], [], itemFlames, balls, elapsedSeconds);
     updateSimulatedBuildings(itemBuildings, balls, elapsedSeconds, stats);
     droppedItems = updateSimulatedItems(seed, elapsedSeconds, balls, droppedItems, spawnState, stats, itemBuildings);
@@ -764,7 +767,7 @@ function resolveSimulatedItemPickups(currentTime, balls, droppedItems, stats, it
     const itemType = item.itemType || (item.buildingId ? "building" : "weapon");
     const itemId = item.itemId || item.weaponId || item.buildingId;
     if (itemType === "building") {
-      deploySimulatedBuilding(picker, itemId, item.position, currentTime, itemBuildings);
+      deploySimulatedBuilding(picker, itemId, item.position, currentTime, itemBuildings, stats);
     } else {
       equipSimulatedItem(picker, itemId, currentTime);
     }
@@ -787,13 +790,13 @@ function equipSimulatedItem(ball, weaponId, currentTime) {
   ball.lastAttackTime = Math.min(ball.lastAttackTime, currentTime - weapon.cooldown * 0.5);
 }
 
-function deploySimulatedBuilding(owner, buildingId, position, currentTime, itemBuildings) {
+function deploySimulatedBuilding(owner, buildingId, position, currentTime, itemBuildings, stats) {
   const config = ItemBuildingConfig[buildingId];
   if (!config) {
     return;
   }
 
-  itemBuildings.push({
+  const building = {
     kind: "itemBuilding",
     buildingId,
     owner,
@@ -805,13 +808,49 @@ function deploySimulatedBuilding(owner, buildingId, position, currentTime, itemB
     lastAttackTime: currentTime - config.cooldown * 0.72,
     attacksRemaining: config.maxAttacks || Infinity,
     expiresAt: currentTime + config.duration,
-  });
+  };
+  itemBuildings.push(building);
+
+  if (config.supportKind === "heal") {
+    startSimulatedGasStationHeal(owner, building, currentTime);
+    stats.uses += 1;
+    stats.usesByWeapon[buildingId] += 1;
+  }
+}
+
+function startSimulatedGasStationHeal(ball, station, currentTime) {
+  const config = station.config;
+  const healableAmount = Math.min(config.healAmount || 0, Math.max(0, ball.config.maxHp - ball.hp));
+  station.healingTarget = ball;
+  station.healingStartedAt = currentTime;
+  station.healingUntil = currentTime + config.healDuration;
+  station.healingAmount = healableAmount;
+
+  if (healableAmount <= 0) {
+    station.expiresAt = Math.min(station.expiresAt, currentTime + 0.55);
+    return;
+  }
+
+  ball.attackState = null;
+  ball.stationHealState = {
+    station,
+    expiresAt: currentTime + config.healDuration,
+    lockUntil: currentTime + config.healDuration,
+    lastTickAt: currentTime,
+    remainingHeal: healableAmount,
+    healRate: healableAmount / Math.max(0.001, config.healDuration),
+  };
+  ball.attackDisabledUntil = Math.max(ball.attackDisabledUntil, currentTime + config.healDuration);
 }
 
 function updateSimulatedBuildings(itemBuildings, balls, currentTime, stats) {
   for (const building of itemBuildings) {
     const config = building.config;
     if (building.hp <= 0 || currentTime - building.lastAttackTime < config.cooldown || building.attacksRemaining <= 0) {
+      continue;
+    }
+
+    if (config.supportKind === "heal") {
       continue;
     }
 
@@ -1491,6 +1530,10 @@ function updateFlameTrail(ball, currentTime, flames) {
 
 function updateStatusEffects(balls, deltaTime, currentTime) {
   for (const ball of balls) {
+    if (ball.hp > 0) {
+      updateSimulatedGasStationHealing(ball, currentTime);
+    }
+
     if (ball.hp > 0 && ball.poisonUntil > currentTime && ball.poisonDamagePerSecond > 0) {
       damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
     }
@@ -1502,6 +1545,48 @@ function updateStatusEffects(balls, deltaTime, currentTime) {
       ball.shockOwner = null;
     }
   }
+}
+
+function updateSimulatedGasStationHealing(ball, currentTime) {
+  const state = ball.stationHealState;
+  if (!state) {
+    return;
+  }
+
+  const station = state.station;
+  if (!station || station.hp <= 0 || state.remainingHeal <= 0 || ball.hp >= ball.config.maxHp) {
+    finishSimulatedGasStationHeal(ball, currentTime);
+    return;
+  }
+
+  const tickEnd = Math.min(currentTime, state.expiresAt, station.expiresAt);
+  const elapsed = Math.max(0, tickEnd - state.lastTickAt);
+  state.lastTickAt = currentTime;
+  const healed = healBall(ball, Math.min(state.remainingHeal, state.healRate * elapsed));
+  state.remainingHeal = Math.max(0, state.remainingHeal - healed);
+  if (healed > 0) {
+    station.lastAttackTime = currentTime;
+  }
+
+  if (state.remainingHeal <= 0 || currentTime >= state.expiresAt || station.expiresAt <= currentTime || ball.hp >= ball.config.maxHp) {
+    finishSimulatedGasStationHeal(ball, currentTime);
+  }
+}
+
+function finishSimulatedGasStationHeal(ball, currentTime) {
+  const state = ball.stationHealState;
+  if (!state) {
+    return;
+  }
+
+  const station = state.station;
+  if (station && station.hp > 0) {
+    station.expiresAt = Math.min(station.expiresAt, currentTime + 0.22);
+  }
+  if (ball.attackDisabledUntil <= state.lockUntil + 0.001) {
+    ball.attackDisabledUntil = Math.min(ball.attackDisabledUntil, currentTime);
+  }
+  ball.stationHealState = null;
 }
 
 function updateEnvironmentalHazards(hazards, webLinks, flames, balls, currentTime) {
@@ -1888,8 +1973,17 @@ function isBallParalyzed(ball, currentTime) {
   return ball.paralyzedUntil > currentTime;
 }
 
+function isBallHealingAtStation(ball, currentTime) {
+  const state = ball.stationHealState;
+  return Boolean(state && state.expiresAt > currentTime && state.remainingHeal > 0);
+}
+
+function isBallMovementLocked(ball, currentTime) {
+  return isBallFrozen(ball, currentTime) || isBallParalyzed(ball, currentTime) || isBallHealingAtStation(ball, currentTime);
+}
+
 function isBallControlLocked(ball, currentTime) {
-  return isBallFrozen(ball, currentTime) || isBallParalyzed(ball, currentTime) || ball.attackDisabledUntil > currentTime;
+  return isBallMovementLocked(ball, currentTime) || ball.attackDisabledUntil > currentTime;
 }
 
 function keepSpeed(ball, elapsedSeconds) {
