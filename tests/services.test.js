@@ -1,14 +1,39 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ads, analytics, iap } from "../services.js";
+import { ads, analytics, iap, normalizeAnalyticsName, normalizeAnalyticsPayload } from "../services.js";
 
-test("analytics placeholder is callable and does not send events", () => {
-  const result = analytics.track("game_start", { a: "spear", b: "blade" });
+test("analytics placeholder is callable and does not send events", async () => {
+  await analytics.setCollectionEnabled(true);
+  const result = analytics.track("game_start", { a: "spear", b: "blade", enabled: true });
 
   assert.equal(result.sent, false);
   assert.equal(result.eventName, "game_start");
+  assert.deepEqual(result.payload, { a: "spear", b: "blade", enabled: 1 });
   assert.equal(result.reason, "analytics_not_configured");
+  await analytics.setCollectionEnabled(false);
+});
+
+test("analytics events stay local until consent enables collection", () => {
+  const result = analytics.track("game_start", { scene: "classic" });
+
+  assert.equal(result.sent, false);
+  assert.equal(result.eventName, "game_start");
+  assert.equal(result.reason, "analytics_collection_disabled");
+});
+
+test("analytics payload normalization keeps Firebase-compatible names and values", () => {
+  assert.equal(normalizeAnalyticsName("google.bad-name", "event"), "event_google_bad_name");
+  assert.deepEqual(normalizeAnalyticsPayload({
+    "own role": "summoner",
+    "attack-count": 12,
+    muted: false,
+    ignored: undefined,
+  }), {
+    own_role: "summoner",
+    attack_count: 12,
+    muted: 0,
+  });
 });
 
 test("ads placeholder reports unavailable and no-ops safely", async () => {

@@ -27,7 +27,7 @@ import {
 } from "./game-config.js";
 import { LegalConfig, getLegalDocument } from "./legal-config.js";
 import { GamePlatform, initializePlatform } from "./platform.js";
-import { ads, analytics, iap } from "./services.js";
+import { AnalyticsEvents, ads, analytics, iap } from "./services.js";
 import {
   CosmeticTrigger,
   createAttackEffectInstances,
@@ -114,6 +114,7 @@ let itemSpawnCounter = 0;
 let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
+let matchTelemetry = createMatchTelemetryState();
 let audioContext = null;
 let audioMasterGain = null;
 let audioMusicGain = null;
@@ -715,6 +716,7 @@ class Ball {
     this.frozenUntil = 0;
     this.poisonUntil = 0;
     this.poisonDamagePerSecond = 0;
+    this.poisonOwner = null;
     this.slowUntil = 0;
     this.slowMultiplier = 1;
     this.lastCollisionAbilityTime = -Infinity;
@@ -999,6 +1001,7 @@ function setActiveProfessionSide(side) {
 }
 
 function setSelectedScene(sceneId) {
+  const previousScene = selectedProfessions.scene;
   selectedProfessions = normalizeSelectedProfessions(
     {
       ...selectedProfessions,
@@ -1010,6 +1013,11 @@ function setSelectedScene(sceneId) {
   resetProfessionScroll();
   sceneDropdownOpen = false;
   serviceMessage = t("messages.selectedScene", { scene: getSceneName(selectedProfessions.scene) });
+  if (selectedProfessions.scene !== previousScene) {
+    trackSettingSelect("scene", selectedProfessions.scene, {
+      previous_value: previousScene,
+    });
+  }
 }
 
 function getSceneName(sceneId) {
@@ -1029,11 +1037,17 @@ function t(key, replacements = {}) {
 }
 
 function setLocale(locale) {
+  const previousLocale = currentLocale;
   currentLocale = saveLocale(normalizeLocale(locale));
   legalScrollOffset = 0;
   serviceMessage = "";
   pointerDownElementId = null;
   applyLocaleToDocument();
+  if (currentLocale !== previousLocale) {
+    trackSettingSelect("language", currentLocale, {
+      previous_value: previousLocale,
+    });
+  }
 }
 
 function applyLocaleToDocument() {
@@ -1177,14 +1191,20 @@ function openLegalDocument(type, returnScreen = screen) {
   setScreen(Screen.LEGAL_DOCUMENT);
 }
 
-function acceptLegalAndEnterMenu() {
+async function acceptLegalAndEnterMenu() {
   if (!hasCheckedLegalConsent) {
     serviceMessage = t("messages.checkAgreement");
     return;
   }
 
   complianceState.acceptCurrentLegal();
-  analytics.track("legal_accept", { version: LegalConfig.version });
+  settings = complianceState.saveSettings({
+    ...settings,
+    analyticsEnabled: true,
+  });
+  await syncAnalyticsCollection();
+  analytics.track(AnalyticsEvents.legalAccept, { version: LegalConfig.version });
+  trackGameInitSuccess("legal_accept");
   setScreen(Screen.MAIN_MENU);
 }
 
@@ -1201,8 +1221,8 @@ function startGame() {
   playGameSound("start", 0);
   triggerVibration([18], elapsedTimeSeconds);
   selectedProfessions = complianceState.saveSelectedProfessions(selectedProfessions);
-  analytics.track("game_start", selectedProfessions);
   restartGame();
+  analytics.track(AnalyticsEvents.gameStart, createGameStartAnalyticsPayload());
   setScreen(Screen.PLAYING);
   startMusic();
 }
@@ -1225,6 +1245,7 @@ function restartGame() {
   gameOver = false;
   resultMessage = "";
   matchElapsedTimeSeconds = 0;
+  matchTelemetry = createMatchTelemetryState();
   lastFrameTime = performance.now();
   if (isCurrentItemMode()) {
     spawnInitialItems(lastFrameTime / 1000);
@@ -1254,6 +1275,11 @@ function returnToMenu() {
 
 function withdrawConsent() {
   complianceState.withdrawConsent();
+  settings = complianceState.saveSettings({
+    ...settings,
+    analyticsEnabled: false,
+  });
+  void syncAnalyticsCollection();
   hasCheckedLegalConsent = false;
   serviceMessage = t("messages.consentWithdrawn");
   setScreen(Screen.CONSENT);
@@ -1262,15 +1288,192 @@ function withdrawConsent() {
 async function restorePurchases() {
   const result = await iap.restorePurchases();
   serviceMessage = result.restored ? t("messages.purchaseRestored") : t("messages.purchaseUnavailable");
-  analytics.track("restore_purchases", result);
+  analytics.track(AnalyticsEvents.restorePurchases, result);
+}
+
+function createMatchTelemetryState() {
+  return {
+    matchId: createMatchId(),
+    attackCountsBySide: {},
+    attackedCountsBySide: {},
+    damageDealtBySide: {},
+    damageTakenBySide: {},
+    hitSourceCounts: {},
+  };
+}
+
+function createMatchId() {
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.floor(Math.random() * 0xffffff).toString(36).padStart(5, "0");
+  return `${timestamp}_${randomPart}`;
+}
+
+function trackSettingSelect(settingName, settingValue, extraPayload = {}) {
+  analytics.track(AnalyticsEvents.settingSelect, {
+    setting_name: settingName,
+    setting_value: settingValue,
+    scene: selectedProfessions.scene,
+    locale: currentLocale,
+    ...extraPayload,
+  });
+}
+
+function isAnalyticsConsentGranted() {
+  return complianceState.hasAcceptedCurrentLegal() && Boolean(settings.analyticsEnabled);
+}
+
+async function syncAnalyticsCollection() {
+  return analytics.setCollectionEnabled(isAnalyticsConsentGranted());
+}
+
+function trackGameInitSuccess(consentSource = "boot") {
+  analytics.track(AnalyticsEvents.gameInitSuccess, {
+    scene: selectedProfessions.scene,
+    locale: currentLocale,
+    surface: getRuntimeSurface(),
+    analytics_enabled: analytics.enabled,
+    analytics_consent: isAnalyticsConsentGranted() ? "granted" : "denied",
+    consent_source: consentSource,
+  });
+}
+
+function createGameStartAnalyticsPayload() {
+  return {
+    ...getMatchBaseAnalyticsPayload(),
+    match_id: matchTelemetry.matchId,
+  };
+}
+
+function createGameEndAnalyticsPayload(result, winnerSide) {
+  const ownSide = "A";
+  const opponentSide = "B";
+
+  return {
+    ...getMatchBaseAnalyticsPayload(),
+    match_id: matchTelemetry.matchId,
+    duration_sec: roundAnalyticsNumber(matchElapsedTimeSeconds, 1),
+    result,
+    winner_side: winnerSide,
+    own_result: getOwnResult(winnerSide),
+    own_attack_count: getSideMetric(matchTelemetry.attackCountsBySide, ownSide),
+    opponent_attack_count: getSideMetric(matchTelemetry.attackCountsBySide, opponentSide),
+    own_attacked_count: getSideMetric(matchTelemetry.attackedCountsBySide, ownSide),
+    opponent_attacked_count: getSideMetric(matchTelemetry.attackedCountsBySide, opponentSide),
+    own_damage_dealt: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageDealtBySide, ownSide), 1),
+    opponent_damage_dealt: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageDealtBySide, opponentSide), 1),
+    own_damage_taken: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageTakenBySide, ownSide), 1),
+    opponent_damage_taken: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageTakenBySide, opponentSide), 1),
+    total_attack_count: sumMetric(matchTelemetry.attackCountsBySide),
+    total_attacked_count: sumMetric(matchTelemetry.attackedCountsBySide),
+  };
+}
+
+function getMatchBaseAnalyticsPayload() {
+  return {
+    scene: selectedProfessions.scene,
+    ball_count: selectedProfessions.ballCount || balls.length || 2,
+    own_side: "A",
+    opponent_side: "B",
+    own_role: getAnalyticsRoleForSide("A"),
+    opponent_role: getAnalyticsRoleForSide("B"),
+    locale: currentLocale,
+    surface: getRuntimeSurface(),
+  };
+}
+
+function getAnalyticsRoleForSide(side) {
+  if (isCurrentItemMode()) {
+    return "item_ball";
+  }
+
+  const key = String(side).toLowerCase();
+  return selectedProfessions[key] || "none";
+}
+
+function getRuntimeSurface() {
+  if (globalThis.Capacitor?.isNativePlatform?.()) {
+    return "native";
+  }
+  if (globalThis.FBInstant) {
+    return "meta_instant";
+  }
+  return "web";
+}
+
+function getOwnResult(winnerSide) {
+  if (winnerSide === "draw") {
+    return "draw";
+  }
+
+  return winnerSide === "A" ? "win" : "loss";
+}
+
+function recordCombatHit(attacker, defender, damage, source = "attack") {
+  if (damage <= 0 || !matchTelemetry) {
+    return;
+  }
+
+  const attackerSide = getCombatantTelemetrySide(attacker);
+  const defenderSide = getCombatantTelemetrySide(defender);
+  if (!attackerSide || !defenderSide || attackerSide === defenderSide) {
+    return;
+  }
+
+  incrementSideMetric(matchTelemetry.attackCountsBySide, attackerSide, 1);
+  incrementSideMetric(matchTelemetry.attackedCountsBySide, defenderSide, 1);
+  incrementSideMetric(matchTelemetry.damageDealtBySide, attackerSide, damage);
+  incrementSideMetric(matchTelemetry.damageTakenBySide, defenderSide, damage);
+  matchTelemetry.hitSourceCounts[source] = (matchTelemetry.hitSourceCounts[source] || 0) + 1;
+}
+
+function getCombatantTelemetrySide(combatant) {
+  const teamId = getCombatantTeamId(combatant);
+  return teamId ? String(teamId).charAt(0).toUpperCase() : "";
+}
+
+function getAttackTelemetrySource(attacker, attackVariant = null) {
+  if (attackVariant?.summonBearHit) {
+    return "summon_bear";
+  }
+  if (attackVariant?.heroSkillId) {
+    return `hero_${attackVariant.heroSkillId}`;
+  }
+  if (attackVariant?.itemWeaponId) {
+    return `item_${attackVariant.itemWeaponId}`;
+  }
+  if (attacker?.isHero) {
+    return "hero_attack";
+  }
+  return attacker?.profession || "attack";
+}
+
+function incrementSideMetric(metrics, side, value) {
+  metrics[side] = (metrics[side] || 0) + value;
+}
+
+function getSideMetric(metrics, side) {
+  return metrics[side] || 0;
+}
+
+function sumMetric(metrics) {
+  return Object.values(metrics).reduce((total, value) => total + value, 0);
+}
+
+function roundAnalyticsNumber(value, digits = 0) {
+  const multiplier = 10 ** digits;
+  return Math.round(value * multiplier) / multiplier;
 }
 
 function toggleFeedbackSetting(settingKey) {
+  const previousValue = Boolean(settings[settingKey]);
   settings = complianceState.saveSettings({
     ...settings,
     [settingKey]: !settings[settingKey],
   });
   serviceMessage = "";
+  trackSettingSelect(settingKey.replace(/Enabled$/, ""), Boolean(settings[settingKey]) ? "on" : "off", {
+    previous_value: previousValue ? "on" : "off",
+  });
 
   if (settingKey === "musicEnabled" && !settings.musicEnabled) {
     stopMusic();
@@ -1280,6 +1483,30 @@ function toggleFeedbackSetting(settingKey) {
   }
   if (settingKey === "soundEffectsEnabled" && settings.soundEffectsEnabled) {
     playGameSound("toggle", 0.35);
+  }
+}
+
+async function toggleAnalyticsSetting() {
+  const previousValue = Boolean(settings.analyticsEnabled);
+  const nextValue = !previousValue;
+
+  if (!nextValue) {
+    trackSettingSelect("analytics", "off", {
+      previous_value: "on",
+    });
+  }
+
+  settings = complianceState.saveSettings({
+    ...settings,
+    analyticsEnabled: nextValue,
+  });
+  await syncAnalyticsCollection();
+
+  if (nextValue) {
+    trackSettingSelect("analytics", "on", {
+      previous_value: "off",
+    });
+    trackGameInitSuccess("analytics_toggle");
   }
 }
 
@@ -2603,6 +2830,7 @@ function resolveProjectileExplosion(projectile, currentTime, directHitDefender =
     const damage = ball === directHitDefender ? projectile.explosionDamage * 0.45 : projectile.explosionDamage;
     const appliedDamage = damageBall(ball, damage);
     if (appliedDamage > 0) {
+      recordCombatHit(projectile.owner, ball, appliedDamage, "projectile_explosion");
       const normal = normalize(subtract(ball.position, projectile.position));
       ball.velocity = add(ball.velocity, scale(normal, 70));
       keepSpeed(ball);
@@ -2747,8 +2975,9 @@ function updateFrostOrbitForPair(attacker, defender, currentTime) {
   attacker.frostOrbitState.lastHitTime = currentTime;
   defender.frozenUntil = Math.max(defender.frozenUntil, currentTime + orbit.freezeDuration);
   defender.attackState = null;
-  damageBall(defender, orbit.damage);
-  playHitCosmetics(attacker, defender, hit.normal, orbit.damage, currentTime);
+  const damage = damageBall(defender, orbit.damage);
+  recordCombatHit(attacker, defender, damage, "frost_orbit");
+  playHitCosmetics(attacker, defender, hit.normal, damage, currentTime);
 }
 
 function updateYoyoWeapon(ball, deltaTime, currentTime) {
@@ -2941,6 +3170,7 @@ function resolveBatDrain(attacker, defender, normalFromAttackerToDefender, curre
   defender.attackState = null;
   defender.attackDisabledUntil = Math.max(defender.attackDisabledUntil, currentTime + drain.disableDuration);
   const damage = damageBall(defender, drain.damage);
+  recordCombatHit(attacker, defender, damage, "collision_drain");
   healBall(attacker, drain.heal);
   playHitCosmetics(attacker, defender, normalFromAttackerToDefender, damage, currentTime);
 }
@@ -3050,7 +3280,8 @@ function updateStatusEffects(deltaTime, currentTime) {
     }
 
     if (ball.poisonUntil > currentTime && ball.poisonDamagePerSecond > 0) {
-      damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
+      const damage = damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
+      recordCombatHit(ball.poisonOwner, ball, damage, "poison_tick");
     }
   }
 }
@@ -3071,7 +3302,8 @@ function updateEnvironmentalHazards(currentTime) {
         : null;
       if (hit && currentTime - ball.lastWebHitTime >= web.hitCooldown) {
         ball.lastWebHitTime = currentTime;
-        damageBall(ball, web.damage);
+        const damage = damageBall(ball, web.damage);
+        recordCombatHit(web.owner, ball, damage, "web_line");
       }
     }
   }
@@ -3088,7 +3320,8 @@ function updateEnvironmentalHazards(currentTime) {
         : null;
       if (hit && currentTime - ball.lastWebHitTime >= pendingWeb.hitCooldown) {
         ball.lastWebHitTime = currentTime;
-        damageBall(ball, pendingWeb.damage);
+        const damage = damageBall(ball, pendingWeb.damage);
+        recordCombatHit(pendingWeb.owner, ball, damage, "web_line");
       }
     }
   }
@@ -3098,7 +3331,8 @@ function updateEnvironmentalHazards(currentTime) {
       if (ball !== flame.owner && ball.hp > 0 && length(subtract(ball.position, flame.position)) <= ball.radius + flame.radius) {
         if (currentTime - ball.lastFlameHitTime >= flame.hitCooldown) {
           ball.lastFlameHitTime = currentTime;
-          damageBall(ball, flame.damage);
+          const damage = damageBall(ball, flame.damage);
+          recordCombatHit(flame.owner, ball, damage, "flame_trail");
         }
       }
     }
@@ -3112,8 +3346,10 @@ function applyVenomSpikeHit(hazard, ball, currentTime) {
 
   ball.lastHazardHitTime = currentTime;
   ball.poisonUntil = Math.max(ball.poisonUntil, currentTime + hazard.poisonDuration);
+  ball.poisonOwner = hazard.owner;
   ball.poisonDamagePerSecond = Math.max(ball.poisonDamagePerSecond, hazard.poisonDamagePerSecond);
-  damageBall(ball, hazard.damage);
+  const damage = damageBall(ball, hazard.damage);
+  recordCombatHit(hazard.owner, ball, damage, "venom_spike");
 }
 
 function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime, attackVariant = null) {
@@ -3122,6 +3358,7 @@ function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, curr
   }
 
   const damage = attacker.dealAttackDamageTo(defender, normalFromAttackerToDefender, attackVariant);
+  recordCombatHit(attacker, defender, damage, getAttackTelemetrySource(attacker, attackVariant));
   applyHeroAttackVariantEffects(defender, attackVariant, currentTime);
   applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, attackVariant);
   playHitCosmetics(attacker, defender, normalFromAttackerToDefender, damage, currentTime, attackVariant);
@@ -3890,15 +4127,12 @@ function checkGameOver() {
     }
 
     gameOver = true;
+    const winnerSide = aliveBalls.length === 0 ? "draw" : aliveBalls[0].label;
     resultMessage = aliveBalls.length === 0 ? t("result.draw") : t("result.winnerNoProfession", { side: getSideLabel(aliveBalls[0].label) });
     stopMusic();
     playGameSound("result", 1);
     triggerVibration([28, 28, 38], elapsedTimeSeconds);
-    analytics.track("game_result", {
-      result: resultMessage,
-      scene: selectedProfessions.scene,
-      ballCount: selectedProfessions.ballCount,
-    });
+    analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
     setScreen(Screen.RESULT);
     return;
   }
@@ -3909,16 +4143,21 @@ function checkGameOver() {
   }
 
   gameOver = true;
+  const winnerSide = getWinnerSide(ballA, ballB);
   resultMessage = getResultText(ballA, ballB);
   stopMusic();
   playGameSound("result", 1);
   triggerVibration([28, 28, 38], elapsedTimeSeconds);
-  analytics.track("game_result", {
-    result: resultMessage,
-    a: selectedProfessions.a,
-    b: selectedProfessions.b,
-  });
+  analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
   setScreen(Screen.RESULT);
+}
+
+function getWinnerSide(ballA, ballB) {
+  if (ballA.hp <= 0 && ballB.hp <= 0) {
+    return "draw";
+  }
+
+  return ballA.hp > 0 ? "A" : "B";
 }
 
 function getResultText(ballA, ballB) {
@@ -4176,7 +4415,7 @@ function drawItemModeSetup(panel, y, actionY) {
 }
 
 function drawSettingsScreen() {
-  const panel = getPanelRect(660, 720);
+  const panel = getPanelRect(660, 760);
   drawAppTitle(panel.y - 22, t("settings.subtitle"));
   drawPanel(panel);
 
@@ -4204,6 +4443,21 @@ function drawSettingsScreen() {
   );
   y += 14;
 
+  const analyticsEnabled = Boolean(settings.analyticsEnabled);
+  drawButton(
+    `${t("settings.analytics")}: ${analyticsEnabled ? t("settings.on") : t("settings.off")}`,
+    panel.x + 28,
+    y,
+    panel.width - 56,
+    40,
+    toggleAnalyticsSetting,
+    {
+      active: analyticsEnabled,
+      id: "settings-analytics",
+    },
+  );
+  y += 52;
+
   drawButton(t("settings.privacy"), panel.x + 28, y, (panel.width - 68) / 2, 42, () => openLegalDocument("privacy", Screen.SETTINGS), {
     id: "settings-privacy",
   });
@@ -4226,7 +4480,7 @@ function drawSettingsScreen() {
 
   y = drawWrappedText(
     t("settings.statsInfo", {
-      analytics: analytics.enabled ? t("common.enabled") : t("common.unavailable"),
+      analytics: getAnalyticsStatusText(),
       ads: ads.isAvailable() ? t("common.enabled") : t("common.unavailable"),
       iap: t("common.iap"),
     }),
@@ -4243,6 +4497,14 @@ function drawSettingsScreen() {
     serviceMessage = "";
     setScreen(Screen.MAIN_MENU);
   }, { id: "settings-back-main" });
+}
+
+function getAnalyticsStatusText() {
+  if (!settings.analyticsEnabled) {
+    return t("settings.off");
+  }
+
+  return analytics.available ? t("common.enabled") : t("common.unavailable");
 }
 
 function drawLegalDocumentScreen() {
@@ -4644,10 +4906,16 @@ function drawProfessionGridItem(x, y, width, height, professionId, options = {})
     rect: { x, y, width, height },
     clipRect: options.clipRect,
     action: () => {
+      const previousProfession = selectedProfessions[activeProfessionSide];
       selectedProfessions = {
         ...selectedProfessions,
         [activeProfessionSide]: professionId,
       };
+      if (previousProfession !== professionId) {
+        trackSettingSelect(`role_${activeProfessionSide}`, professionId, {
+          previous_value: previousProfession || "none",
+        });
+      }
       serviceMessage = t("messages.selectedProfession", { side: sideLabel, profession: professionName });
     },
   });
@@ -7334,6 +7602,8 @@ async function bootGame() {
   GamePlatform.setLoadingProgress(35);
   await initializePlatform();
   GamePlatform.setLoadingProgress(80);
+  await syncAnalyticsCollection();
+  trackGameInitSuccess();
   screen = complianceState.hasAcceptedCurrentLegal() ? Screen.MAIN_MENU : Screen.CONSENT;
   lastFrameTime = performance.now();
   requestAnimationFrame(gameLoop);

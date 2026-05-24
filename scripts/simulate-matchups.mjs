@@ -19,11 +19,11 @@ const TARGET_MIN_SECONDS = 18;
 const TARGET_MAX_SECONDS = 75;
 const SIMULATION_LIMIT_SECONDS = 120;
 const STEP_SECONDS = 1 / 60;
-const MATCHUP_SEEDS = Array.from({ length: 12 }, (_, index) => index + 1);
+const MATCHUP_SEEDS = Array.from({ length: 24 }, (_, index) => index + 1);
 const PROFESSION_MIN_WIN_RATE = 0.25;
 const PROFESSION_MAX_WIN_RATE = 0.75;
 const ITEM_MODE_BALL_COUNTS = [2, 3, 4, 5, 6];
-const ITEM_MODE_SEEDS = Array.from({ length: 20 }, (_, index) => index + 1);
+const ITEM_MODE_SEEDS = Array.from({ length: 32 }, (_, index) => index + 1);
 const ITEM_MODE_MAX_WINNER_SHARE = 0.75;
 
 const DUEL_STARTS = [

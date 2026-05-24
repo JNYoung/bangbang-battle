@@ -2,6 +2,11 @@
 
 ## Android
 
+Current local release artifacts:
+
+- `android/app/build/outputs/apk/release/app-release.apk`
+- `android/app/build/outputs/bundle/release/app-release.aab`
+
 Generate a local release keystore before building a signed release APK:
 
 ```sh
@@ -27,6 +32,8 @@ If those secrets are missing, CI generates a temporary signing key so the APK ar
 ## iOS
 
 The workflow produces an unsigned IPA artifact from a Release archive so packaging can be checked without exposing Apple signing credentials. That IPA is useful as a build artifact, but it is not suitable for App Store, TestFlight, or device installation.
+
+This workspace does not currently contain a signed `.ipa` release package.
 
 For a signed export, copy `ios/exportOptions.plist.example` to `ios/exportOptions.plist`, update the export method/team settings in Xcode, and run an archive/export on a machine with a valid Apple Developer certificate and provisioning profile.
 
