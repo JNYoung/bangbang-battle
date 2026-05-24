@@ -27,7 +27,7 @@ import {
 } from "./game-config.js";
 import { LegalConfig, getLegalDocument } from "./legal-config.js";
 import { GamePlatform, initializePlatform } from "./platform.js";
-import { ads, analytics, iap } from "./services.js";
+import { AnalyticsEvents, ads, analytics, iap } from "./services.js";
 import {
   CosmeticTrigger,
   createAttackEffectInstances,
@@ -68,6 +68,12 @@ const PROFESSION_SCROLL_DRAG_THRESHOLD = 6;
 const DAMAGE_TEXT_DURATION = 0.86;
 const DAMAGE_TEXT_MERGE_WINDOW = 0.22;
 const SCENE_DROPDOWN_BREAKPOINT = 560;
+const MUSIC_RAMP_SECONDS = 70;
+const MUSIC_LOOKAHEAD_SECONDS = 0.16;
+const MUSIC_NOTE_OFFSETS = [0, 7, 12, 7, 3, 10, 15, 10, 5, 12, 17, 12, 7, 14, 19, 14];
+const MUSIC_BASS_OFFSETS = [0, 0, 3, 5];
+const FEEDBACK_VIBRATION_COOLDOWN = 0.14;
+const COLLISION_FEEDBACK_COOLDOWN = 0.09;
 
 let balls = [];
 let gameOver = false;
@@ -108,6 +114,16 @@ let itemSpawnCounter = 0;
 let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
+let matchTelemetry = createMatchTelemetryState();
+let audioContext = null;
+let audioMasterGain = null;
+let audioMusicGain = null;
+let audioSfxGain = null;
+let isMusicPlaying = false;
+let nextMusicNoteTime = 0;
+let musicStepIndex = 0;
+let lastVibrationTime = -Infinity;
+let lastCollisionFeedbackTime = -Infinity;
 
 const voxelAssets = createVoxelAssets();
 
@@ -700,6 +716,7 @@ class Ball {
     this.frozenUntil = 0;
     this.poisonUntil = 0;
     this.poisonDamagePerSecond = 0;
+    this.poisonOwner = null;
     this.slowUntil = 0;
     this.slowMultiplier = 1;
     this.lastCollisionAbilityTime = -Infinity;
@@ -984,6 +1001,7 @@ function setActiveProfessionSide(side) {
 }
 
 function setSelectedScene(sceneId) {
+  const previousScene = selectedProfessions.scene;
   selectedProfessions = normalizeSelectedProfessions(
     {
       ...selectedProfessions,
@@ -995,6 +1013,11 @@ function setSelectedScene(sceneId) {
   resetProfessionScroll();
   sceneDropdownOpen = false;
   serviceMessage = t("messages.selectedScene", { scene: getSceneName(selectedProfessions.scene) });
+  if (selectedProfessions.scene !== previousScene) {
+    trackSettingSelect("scene", selectedProfessions.scene, {
+      previous_value: previousScene,
+    });
+  }
 }
 
 function getSceneName(sceneId) {
@@ -1014,11 +1037,17 @@ function t(key, replacements = {}) {
 }
 
 function setLocale(locale) {
+  const previousLocale = currentLocale;
   currentLocale = saveLocale(normalizeLocale(locale));
   legalScrollOffset = 0;
   serviceMessage = "";
   pointerDownElementId = null;
   applyLocaleToDocument();
+  if (currentLocale !== previousLocale) {
+    trackSettingSelect("language", currentLocale, {
+      previous_value: previousLocale,
+    });
+  }
 }
 
 function applyLocaleToDocument() {
@@ -1162,14 +1191,20 @@ function openLegalDocument(type, returnScreen = screen) {
   setScreen(Screen.LEGAL_DOCUMENT);
 }
 
-function acceptLegalAndEnterMenu() {
+async function acceptLegalAndEnterMenu() {
   if (!hasCheckedLegalConsent) {
     serviceMessage = t("messages.checkAgreement");
     return;
   }
 
   complianceState.acceptCurrentLegal();
-  analytics.track("legal_accept", { version: LegalConfig.version });
+  settings = complianceState.saveSettings({
+    ...settings,
+    analyticsEnabled: true,
+  });
+  await syncAnalyticsCollection();
+  analytics.track(AnalyticsEvents.legalAccept, { version: LegalConfig.version });
+  trackGameInitSuccess("legal_accept");
   setScreen(Screen.MAIN_MENU);
 }
 
@@ -1182,10 +1217,14 @@ function openMatchSetup() {
 }
 
 function startGame() {
+  resumeAudioContext();
+  playGameSound("start", 0);
+  triggerVibration([18], elapsedTimeSeconds);
   selectedProfessions = complianceState.saveSelectedProfessions(selectedProfessions);
-  analytics.track("game_start", selectedProfessions);
   restartGame();
+  analytics.track(AnalyticsEvents.gameStart, createGameStartAnalyticsPayload());
   setScreen(Screen.PLAYING);
+  startMusic();
 }
 
 function restartGame() {
@@ -1206,6 +1245,7 @@ function restartGame() {
   gameOver = false;
   resultMessage = "";
   matchElapsedTimeSeconds = 0;
+  matchTelemetry = createMatchTelemetryState();
   lastFrameTime = performance.now();
   if (isCurrentItemMode()) {
     spawnInitialItems(lastFrameTime / 1000);
@@ -1214,6 +1254,7 @@ function restartGame() {
 }
 
 function returnToMenu() {
+  stopMusic();
   balls = [];
   attackEffectInstances = [];
   projectiles = [];
@@ -1234,6 +1275,11 @@ function returnToMenu() {
 
 function withdrawConsent() {
   complianceState.withdrawConsent();
+  settings = complianceState.saveSettings({
+    ...settings,
+    analyticsEnabled: false,
+  });
+  void syncAnalyticsCollection();
   hasCheckedLegalConsent = false;
   serviceMessage = t("messages.consentWithdrawn");
   setScreen(Screen.CONSENT);
@@ -1242,7 +1288,489 @@ function withdrawConsent() {
 async function restorePurchases() {
   const result = await iap.restorePurchases();
   serviceMessage = result.restored ? t("messages.purchaseRestored") : t("messages.purchaseUnavailable");
-  analytics.track("restore_purchases", result);
+  analytics.track(AnalyticsEvents.restorePurchases, result);
+}
+
+function createMatchTelemetryState() {
+  return {
+    matchId: createMatchId(),
+    attackCountsBySide: {},
+    attackedCountsBySide: {},
+    damageDealtBySide: {},
+    damageTakenBySide: {},
+    hitSourceCounts: {},
+  };
+}
+
+function createMatchId() {
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.floor(Math.random() * 0xffffff).toString(36).padStart(5, "0");
+  return `${timestamp}_${randomPart}`;
+}
+
+function trackSettingSelect(settingName, settingValue, extraPayload = {}) {
+  analytics.track(AnalyticsEvents.settingSelect, {
+    setting_name: settingName,
+    setting_value: settingValue,
+    scene: selectedProfessions.scene,
+    locale: currentLocale,
+    ...extraPayload,
+  });
+}
+
+function isAnalyticsConsentGranted() {
+  return complianceState.hasAcceptedCurrentLegal() && Boolean(settings.analyticsEnabled);
+}
+
+async function syncAnalyticsCollection() {
+  return analytics.setCollectionEnabled(isAnalyticsConsentGranted());
+}
+
+function trackGameInitSuccess(consentSource = "boot") {
+  analytics.track(AnalyticsEvents.gameInitSuccess, {
+    scene: selectedProfessions.scene,
+    locale: currentLocale,
+    surface: getRuntimeSurface(),
+    analytics_enabled: analytics.enabled,
+    analytics_consent: isAnalyticsConsentGranted() ? "granted" : "denied",
+    consent_source: consentSource,
+  });
+}
+
+function createGameStartAnalyticsPayload() {
+  return {
+    ...getMatchBaseAnalyticsPayload(),
+    match_id: matchTelemetry.matchId,
+  };
+}
+
+function createGameEndAnalyticsPayload(result, winnerSide) {
+  const ownSide = "A";
+  const opponentSide = "B";
+
+  return {
+    ...getMatchBaseAnalyticsPayload(),
+    match_id: matchTelemetry.matchId,
+    duration_sec: roundAnalyticsNumber(matchElapsedTimeSeconds, 1),
+    result,
+    winner_side: winnerSide,
+    own_result: getOwnResult(winnerSide),
+    own_attack_count: getSideMetric(matchTelemetry.attackCountsBySide, ownSide),
+    opponent_attack_count: getSideMetric(matchTelemetry.attackCountsBySide, opponentSide),
+    own_attacked_count: getSideMetric(matchTelemetry.attackedCountsBySide, ownSide),
+    opponent_attacked_count: getSideMetric(matchTelemetry.attackedCountsBySide, opponentSide),
+    own_damage_dealt: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageDealtBySide, ownSide), 1),
+    opponent_damage_dealt: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageDealtBySide, opponentSide), 1),
+    own_damage_taken: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageTakenBySide, ownSide), 1),
+    opponent_damage_taken: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageTakenBySide, opponentSide), 1),
+    total_attack_count: sumMetric(matchTelemetry.attackCountsBySide),
+    total_attacked_count: sumMetric(matchTelemetry.attackedCountsBySide),
+  };
+}
+
+function getMatchBaseAnalyticsPayload() {
+  return {
+    scene: selectedProfessions.scene,
+    ball_count: selectedProfessions.ballCount || balls.length || 2,
+    own_side: "A",
+    opponent_side: "B",
+    own_role: getAnalyticsRoleForSide("A"),
+    opponent_role: getAnalyticsRoleForSide("B"),
+    locale: currentLocale,
+    surface: getRuntimeSurface(),
+  };
+}
+
+function getAnalyticsRoleForSide(side) {
+  if (isCurrentItemMode()) {
+    return "item_ball";
+  }
+
+  const key = String(side).toLowerCase();
+  return selectedProfessions[key] || "none";
+}
+
+function getRuntimeSurface() {
+  if (globalThis.Capacitor?.isNativePlatform?.()) {
+    return "native";
+  }
+  if (globalThis.FBInstant) {
+    return "meta_instant";
+  }
+  return "web";
+}
+
+function getOwnResult(winnerSide) {
+  if (winnerSide === "draw") {
+    return "draw";
+  }
+
+  return winnerSide === "A" ? "win" : "loss";
+}
+
+function recordCombatHit(attacker, defender, damage, source = "attack") {
+  if (damage <= 0 || !matchTelemetry) {
+    return;
+  }
+
+  const attackerSide = getCombatantTelemetrySide(attacker);
+  const defenderSide = getCombatantTelemetrySide(defender);
+  if (!attackerSide || !defenderSide || attackerSide === defenderSide) {
+    return;
+  }
+
+  incrementSideMetric(matchTelemetry.attackCountsBySide, attackerSide, 1);
+  incrementSideMetric(matchTelemetry.attackedCountsBySide, defenderSide, 1);
+  incrementSideMetric(matchTelemetry.damageDealtBySide, attackerSide, damage);
+  incrementSideMetric(matchTelemetry.damageTakenBySide, defenderSide, damage);
+  matchTelemetry.hitSourceCounts[source] = (matchTelemetry.hitSourceCounts[source] || 0) + 1;
+}
+
+function getCombatantTelemetrySide(combatant) {
+  const teamId = getCombatantTeamId(combatant);
+  return teamId ? String(teamId).charAt(0).toUpperCase() : "";
+}
+
+function getAttackTelemetrySource(attacker, attackVariant = null) {
+  if (attackVariant?.summonBearHit) {
+    return "summon_bear";
+  }
+  if (attackVariant?.heroSkillId) {
+    return `hero_${attackVariant.heroSkillId}`;
+  }
+  if (attackVariant?.itemWeaponId) {
+    return `item_${attackVariant.itemWeaponId}`;
+  }
+  if (attacker?.isHero) {
+    return "hero_attack";
+  }
+  return attacker?.profession || "attack";
+}
+
+function incrementSideMetric(metrics, side, value) {
+  metrics[side] = (metrics[side] || 0) + value;
+}
+
+function getSideMetric(metrics, side) {
+  return metrics[side] || 0;
+}
+
+function sumMetric(metrics) {
+  return Object.values(metrics).reduce((total, value) => total + value, 0);
+}
+
+function roundAnalyticsNumber(value, digits = 0) {
+  const multiplier = 10 ** digits;
+  return Math.round(value * multiplier) / multiplier;
+}
+
+function toggleFeedbackSetting(settingKey) {
+  const previousValue = Boolean(settings[settingKey]);
+  settings = complianceState.saveSettings({
+    ...settings,
+    [settingKey]: !settings[settingKey],
+  });
+  serviceMessage = "";
+  trackSettingSelect(settingKey.replace(/Enabled$/, ""), Boolean(settings[settingKey]) ? "on" : "off", {
+    previous_value: previousValue ? "on" : "off",
+  });
+
+  if (settingKey === "musicEnabled" && !settings.musicEnabled) {
+    stopMusic();
+  }
+  if (settingKey === "vibrationEnabled" && settings.vibrationEnabled) {
+    triggerVibration([12], elapsedTimeSeconds);
+  }
+  if (settingKey === "soundEffectsEnabled" && settings.soundEffectsEnabled) {
+    playGameSound("toggle", 0.35);
+  }
+}
+
+async function toggleAnalyticsSetting() {
+  const previousValue = Boolean(settings.analyticsEnabled);
+  const nextValue = !previousValue;
+
+  if (!nextValue) {
+    trackSettingSelect("analytics", "off", {
+      previous_value: "on",
+    });
+  }
+
+  settings = complianceState.saveSettings({
+    ...settings,
+    analyticsEnabled: nextValue,
+  });
+  await syncAnalyticsCollection();
+
+  if (nextValue) {
+    trackSettingSelect("analytics", "on", {
+      previous_value: "off",
+    });
+    trackGameInitSuccess("analytics_toggle");
+  }
+}
+
+function ensureAudioContext() {
+  if (audioContext) {
+    return audioContext;
+  }
+
+  const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
+  if (!AudioContextClass) {
+    return null;
+  }
+
+  audioContext = new AudioContextClass();
+  audioMasterGain = audioContext.createGain();
+  audioMusicGain = audioContext.createGain();
+  audioSfxGain = audioContext.createGain();
+
+  audioMasterGain.gain.value = 0.22;
+  audioMusicGain.gain.value = 0.28;
+  audioSfxGain.gain.value = 0.68;
+  audioMusicGain.connect(audioMasterGain);
+  audioSfxGain.connect(audioMasterGain);
+  audioMasterGain.connect(audioContext.destination);
+  return audioContext;
+}
+
+function resumeAudioContext() {
+  const context = ensureAudioContext();
+  if (context?.state === "suspended") {
+    void context.resume();
+  }
+}
+
+function updateAudioEngine() {
+  if (screen !== Screen.PLAYING || gameOver || !settings.musicEnabled) {
+    stopMusic();
+    return;
+  }
+
+  updateMusicLoop();
+}
+
+function startMusic() {
+  if (!settings.musicEnabled) {
+    return;
+  }
+
+  const context = ensureAudioContext();
+  if (!context) {
+    return;
+  }
+
+  resumeAudioContext();
+  if (isMusicPlaying) {
+    return;
+  }
+
+  if (audioMusicGain) {
+    audioMusicGain.gain.cancelScheduledValues(context.currentTime);
+    audioMusicGain.gain.setTargetAtTime(0.28, context.currentTime, 0.04);
+  }
+  isMusicPlaying = true;
+  nextMusicNoteTime = context.currentTime + 0.04;
+  musicStepIndex = 0;
+}
+
+function stopMusic() {
+  if (!isMusicPlaying) {
+    return;
+  }
+
+  isMusicPlaying = false;
+  if (audioMusicGain && audioContext) {
+    audioMusicGain.gain.cancelScheduledValues(audioContext.currentTime);
+    audioMusicGain.gain.setTargetAtTime(0.0001, audioContext.currentTime, 0.04);
+  }
+}
+
+function updateMusicLoop() {
+  const context = ensureAudioContext();
+  if (!context) {
+    return;
+  }
+
+  startMusic();
+  const intensity = getMusicIntensity();
+  const bpm = lerp(92, 184, intensity);
+  const stepDuration = 60 / bpm / 2;
+
+  while (nextMusicNoteTime < context.currentTime + MUSIC_LOOKAHEAD_SECONDS) {
+    scheduleMusicStep(musicStepIndex, nextMusicNoteTime, stepDuration, intensity);
+    nextMusicNoteTime += stepDuration;
+    musicStepIndex += 1;
+  }
+}
+
+function scheduleMusicStep(stepIndex, startTime, stepDuration, intensity) {
+  const melodyOffset = MUSIC_NOTE_OFFSETS[stepIndex % MUSIC_NOTE_OFFSETS.length];
+  const octaveBoost = intensity > 0.72 && stepIndex % 4 === 3 ? 12 : 0;
+  const noteDuration = stepDuration * lerp(0.46, 0.28, intensity);
+  scheduleChipNote(getSemitoneFrequency(220, melodyOffset + octaveBoost), startTime, noteDuration, {
+    destination: audioMusicGain,
+    volume: lerp(0.045, 0.07, intensity),
+    wave: stepIndex % 2 === 0 ? "square" : "triangle",
+  });
+
+  if (stepIndex % 4 === 0) {
+    const bassOffset = MUSIC_BASS_OFFSETS[Math.floor(stepIndex / 4) % MUSIC_BASS_OFFSETS.length] - 12;
+    scheduleChipNote(getSemitoneFrequency(220, bassOffset), startTime, stepDuration * 0.82, {
+      destination: audioMusicGain,
+      volume: 0.065,
+      wave: "square",
+    });
+  }
+
+  if (intensity > 0.42 && stepIndex % 2 === 1) {
+    scheduleChipNoise(startTime, 0.018, {
+      destination: audioMusicGain,
+      volume: lerp(0.018, 0.038, intensity),
+      frequency: lerp(1800, 3200, intensity),
+    });
+  }
+}
+
+function playGameSound(type, intensity = getMusicIntensity()) {
+  if (!settings.soundEffectsEnabled) {
+    return;
+  }
+
+  const context = ensureAudioContext();
+  if (!context) {
+    return;
+  }
+
+  resumeAudioContext();
+  const now = context.currentTime;
+  const pitchBoost = lerp(0, 5, intensity);
+
+  if (type === "ui") {
+    scheduleChipNote(660, now, 0.045, { volume: 0.08 });
+    return;
+  }
+
+  if (type === "toggle") {
+    scheduleChipNote(520, now, 0.045, { volume: 0.08 });
+    scheduleChipNote(780, now + 0.045, 0.05, { volume: 0.07 });
+    return;
+  }
+
+  if (type === "start") {
+    [0, 7, 12].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(330, offset), now + index * 0.055, 0.06, { volume: 0.09 });
+    });
+    return;
+  }
+
+  if (type === "collision") {
+    scheduleChipNote(getSemitoneFrequency(112, pitchBoost), now, 0.045, { volume: 0.08, wave: "square" });
+    scheduleChipNoise(now, 0.025, { volume: 0.05, frequency: 720 });
+    return;
+  }
+
+  if (type === "wall") {
+    scheduleChipNote(96, now, 0.035, { volume: 0.045, wave: "square" });
+    return;
+  }
+
+  if (type === "hit") {
+    scheduleChipNote(getSemitoneFrequency(176, pitchBoost), now, 0.055, { volume: 0.095, wave: "square" });
+    scheduleChipNote(getSemitoneFrequency(352, pitchBoost), now + 0.018, 0.035, { volume: 0.05, wave: "triangle" });
+    return;
+  }
+
+  if (type === "skill") {
+    [0, 4, 7].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(440, offset + pitchBoost), now + index * 0.035, 0.06, { volume: 0.075 });
+    });
+    return;
+  }
+
+  if (type === "bearBoost") {
+    [0, 7, 12, 19].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(247, offset), now + index * 0.03, 0.055, { volume: 0.07 });
+    });
+    return;
+  }
+
+  if (type === "result") {
+    [0, 4, 7, 12].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(330, offset), now + index * 0.085, 0.11, { volume: 0.085 });
+    });
+  }
+}
+
+function scheduleChipNote(frequency, startTime, duration, options = {}) {
+  const context = ensureAudioContext();
+  const destination = options.destination || audioSfxGain;
+  if (!context || !destination) {
+    return;
+  }
+
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = options.wave || "square";
+  oscillator.frequency.setValueAtTime(frequency, startTime);
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, options.volume || 0.08), startTime + 0.006);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  oscillator.connect(gain);
+  gain.connect(destination);
+  oscillator.start(startTime);
+  oscillator.stop(startTime + duration + 0.018);
+}
+
+function scheduleChipNoise(startTime, duration, options = {}) {
+  const context = ensureAudioContext();
+  const destination = options.destination || audioSfxGain;
+  if (!context || !destination) {
+    return;
+  }
+
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = "sawtooth";
+  oscillator.frequency.setValueAtTime(options.frequency || 1200, startTime);
+  oscillator.frequency.exponentialRampToValueAtTime(Math.max(80, (options.frequency || 1200) * 0.34), startTime + duration);
+  gain.gain.setValueAtTime(options.volume || 0.045, startTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  oscillator.connect(gain);
+  gain.connect(destination);
+  oscillator.start(startTime);
+  oscillator.stop(startTime + duration + 0.01);
+}
+
+function getSemitoneFrequency(baseFrequency, semitoneOffset) {
+  return baseFrequency * 2 ** (semitoneOffset / 12);
+}
+
+function getMusicIntensity() {
+  return clamp(matchElapsedTimeSeconds / MUSIC_RAMP_SECONDS, 0, 1);
+}
+
+function playCollisionFeedback(impactSpeed, currentTime) {
+  if (currentTime - lastCollisionFeedbackTime < COLLISION_FEEDBACK_COOLDOWN) {
+    return;
+  }
+
+  lastCollisionFeedbackTime = currentTime;
+  playGameSound("collision", clamp(impactSpeed / 520, 0, 1));
+  triggerVibration(impactSpeed > 260 ? [8, 16, 8] : [8], currentTime);
+}
+
+function triggerVibration(pattern, currentTime = elapsedTimeSeconds) {
+  if (!settings.vibrationEnabled || !globalThis.navigator?.vibrate) {
+    return;
+  }
+
+  if (currentTime - lastVibrationTime < FEEDBACK_VIBRATION_COOLDOWN) {
+    return;
+  }
+
+  lastVibrationTime = currentTime;
+  globalThis.navigator.vibrate(pattern);
 }
 
 function resizeCanvas() {
@@ -1349,6 +1877,7 @@ function gameLoop(timestamp) {
     update(deltaTime, elapsedTimeSeconds);
   }
 
+  updateAudioEngine();
   damageIndicators = updateDamageIndicators(damageIndicators, elapsedTimeSeconds);
   draw();
   requestAnimationFrame(gameLoop);
@@ -1999,8 +2528,12 @@ function resolveBallCollision(ballA, ballB, currentTime) {
 
   const normal = distance === 0 ? { x: 1, y: 0 } : scale(difference, 1 / distance);
   distance = Math.max(distance, 0.001);
+  const impactSpeed = Math.abs(dot(subtract(ballB.velocity, ballA.velocity), normal));
   separateBalls(ballA, ballB, normal, minDistance - distance);
   bounceBalls(ballA, ballB, normal);
+  if (impactSpeed > 120) {
+    playCollisionFeedback(impactSpeed, currentTime);
+  }
   resolveCollisionAbilities(ballA, ballB, normal, currentTime);
   resolveSummonedBearCollisionEffects(ballA, ballB, normal, currentTime);
 }
@@ -2297,6 +2830,7 @@ function resolveProjectileExplosion(projectile, currentTime, directHitDefender =
     const damage = ball === directHitDefender ? projectile.explosionDamage * 0.45 : projectile.explosionDamage;
     const appliedDamage = damageBall(ball, damage);
     if (appliedDamage > 0) {
+      recordCombatHit(projectile.owner, ball, appliedDamage, "projectile_explosion");
       const normal = normalize(subtract(ball.position, projectile.position));
       ball.velocity = add(ball.velocity, scale(normal, 70));
       keepSpeed(ball);
@@ -2441,8 +2975,9 @@ function updateFrostOrbitForPair(attacker, defender, currentTime) {
   attacker.frostOrbitState.lastHitTime = currentTime;
   defender.frozenUntil = Math.max(defender.frozenUntil, currentTime + orbit.freezeDuration);
   defender.attackState = null;
-  damageBall(defender, orbit.damage);
-  playHitCosmetics(attacker, defender, hit.normal, orbit.damage, currentTime);
+  const damage = damageBall(defender, orbit.damage);
+  recordCombatHit(attacker, defender, damage, "frost_orbit");
+  playHitCosmetics(attacker, defender, hit.normal, damage, currentTime);
 }
 
 function updateYoyoWeapon(ball, deltaTime, currentTime) {
@@ -2535,6 +3070,8 @@ function resolveSummonedBearOwnerCollision(owner, bear, currentTime) {
     growSummonedBear(owner, bear);
     bear.lastOwnerBoostTime = currentTime;
     bear.boostFlashTime = 0.32;
+    playGameSound("bearBoost", getMusicIntensity());
+    triggerVibration([10, 18, 10], currentTime);
     triggerBallPendants(owner, CosmeticTrigger.SKILL, currentTime);
   }
 
@@ -2633,6 +3170,7 @@ function resolveBatDrain(attacker, defender, normalFromAttackerToDefender, curre
   defender.attackState = null;
   defender.attackDisabledUntil = Math.max(defender.attackDisabledUntil, currentTime + drain.disableDuration);
   const damage = damageBall(defender, drain.damage);
+  recordCombatHit(attacker, defender, damage, "collision_drain");
   healBall(attacker, drain.heal);
   playHitCosmetics(attacker, defender, normalFromAttackerToDefender, damage, currentTime);
 }
@@ -2641,6 +3179,8 @@ function handleWallCollision(ball, contact, currentTime) {
   if (ball.hp <= 0) {
     return;
   }
+
+  playGameSound("wall", getMusicIntensity());
 
   if (ball.config.venomSpike) {
     createVenomSpike(ball, contact, currentTime);
@@ -2740,7 +3280,8 @@ function updateStatusEffects(deltaTime, currentTime) {
     }
 
     if (ball.poisonUntil > currentTime && ball.poisonDamagePerSecond > 0) {
-      damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
+      const damage = damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
+      recordCombatHit(ball.poisonOwner, ball, damage, "poison_tick");
     }
   }
 }
@@ -2761,7 +3302,8 @@ function updateEnvironmentalHazards(currentTime) {
         : null;
       if (hit && currentTime - ball.lastWebHitTime >= web.hitCooldown) {
         ball.lastWebHitTime = currentTime;
-        damageBall(ball, web.damage);
+        const damage = damageBall(ball, web.damage);
+        recordCombatHit(web.owner, ball, damage, "web_line");
       }
     }
   }
@@ -2778,7 +3320,8 @@ function updateEnvironmentalHazards(currentTime) {
         : null;
       if (hit && currentTime - ball.lastWebHitTime >= pendingWeb.hitCooldown) {
         ball.lastWebHitTime = currentTime;
-        damageBall(ball, pendingWeb.damage);
+        const damage = damageBall(ball, pendingWeb.damage);
+        recordCombatHit(pendingWeb.owner, ball, damage, "web_line");
       }
     }
   }
@@ -2788,7 +3331,8 @@ function updateEnvironmentalHazards(currentTime) {
       if (ball !== flame.owner && ball.hp > 0 && length(subtract(ball.position, flame.position)) <= ball.radius + flame.radius) {
         if (currentTime - ball.lastFlameHitTime >= flame.hitCooldown) {
           ball.lastFlameHitTime = currentTime;
-          damageBall(ball, flame.damage);
+          const damage = damageBall(ball, flame.damage);
+          recordCombatHit(flame.owner, ball, damage, "flame_trail");
         }
       }
     }
@@ -2802,8 +3346,10 @@ function applyVenomSpikeHit(hazard, ball, currentTime) {
 
   ball.lastHazardHitTime = currentTime;
   ball.poisonUntil = Math.max(ball.poisonUntil, currentTime + hazard.poisonDuration);
+  ball.poisonOwner = hazard.owner;
   ball.poisonDamagePerSecond = Math.max(ball.poisonDamagePerSecond, hazard.poisonDamagePerSecond);
-  damageBall(ball, hazard.damage);
+  const damage = damageBall(ball, hazard.damage);
+  recordCombatHit(hazard.owner, ball, damage, "venom_spike");
 }
 
 function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime, attackVariant = null) {
@@ -2812,6 +3358,7 @@ function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, curr
   }
 
   const damage = attacker.dealAttackDamageTo(defender, normalFromAttackerToDefender, attackVariant);
+  recordCombatHit(attacker, defender, damage, getAttackTelemetrySource(attacker, attackVariant));
   applyHeroAttackVariantEffects(defender, attackVariant, currentTime);
   applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, attackVariant);
   playHitCosmetics(attacker, defender, normalFromAttackerToDefender, damage, currentTime, attackVariant);
@@ -3010,6 +3557,9 @@ function playHitCosmetics(attacker, defender, normalFromAttackerToDefender, dama
     return;
   }
 
+  const isSkillHit = attacker.isSkillHit(defender, normalFromAttackerToDefender, damage, attackVariant);
+  playGameSound(attackVariant?.summonBearHit || isSkillHit ? "skill" : "hit", getMusicIntensity());
+  triggerVibration(damage >= 28 ? [12, 18, 12] : [10], currentTime);
   triggerBallPendants(attacker, CosmeticTrigger.ATTACK, currentTime);
   attackEffectInstances.push(
     ...createAttackEffectInstances({
@@ -3021,7 +3571,6 @@ function playHitCosmetics(attacker, defender, normalFromAttackerToDefender, dama
     }),
   );
 
-  const isSkillHit = attacker.isSkillHit(defender, normalFromAttackerToDefender, damage, attackVariant);
   if (!isSkillHit) {
     return;
   }
@@ -3578,12 +4127,12 @@ function checkGameOver() {
     }
 
     gameOver = true;
+    const winnerSide = aliveBalls.length === 0 ? "draw" : aliveBalls[0].label;
     resultMessage = aliveBalls.length === 0 ? t("result.draw") : t("result.winnerNoProfession", { side: getSideLabel(aliveBalls[0].label) });
-    analytics.track("game_result", {
-      result: resultMessage,
-      scene: selectedProfessions.scene,
-      ballCount: selectedProfessions.ballCount,
-    });
+    stopMusic();
+    playGameSound("result", 1);
+    triggerVibration([28, 28, 38], elapsedTimeSeconds);
+    analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
     setScreen(Screen.RESULT);
     return;
   }
@@ -3594,13 +4143,21 @@ function checkGameOver() {
   }
 
   gameOver = true;
+  const winnerSide = getWinnerSide(ballA, ballB);
   resultMessage = getResultText(ballA, ballB);
-  analytics.track("game_result", {
-    result: resultMessage,
-    a: selectedProfessions.a,
-    b: selectedProfessions.b,
-  });
+  stopMusic();
+  playGameSound("result", 1);
+  triggerVibration([28, 28, 38], elapsedTimeSeconds);
+  analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
   setScreen(Screen.RESULT);
+}
+
+function getWinnerSide(ballA, ballB) {
+  if (ballA.hp <= 0 && ballB.hp <= 0) {
+    return "draw";
+  }
+
+  return ballA.hp > 0 ? "A" : "B";
 }
 
 function getResultText(ballA, ballB) {
@@ -3858,7 +4415,7 @@ function drawItemModeSetup(panel, y, actionY) {
 }
 
 function drawSettingsScreen() {
-  const panel = getPanelRect(660, 620);
+  const panel = getPanelRect(660, 760);
   drawAppTitle(panel.y - 22, t("settings.subtitle"));
   drawPanel(panel);
 
@@ -3866,8 +4423,11 @@ function drawSettingsScreen() {
   drawPanelTitle(t("settings.languageTitle"), panel.x + 28, y, panel.width - 56);
   y += 36;
   y += drawLanguageSelector(panel.x + 28, y, panel.width - 56) + 18;
+  drawPanelTitle(t("settings.feedbackTitle"), panel.x + 28, y, panel.width - 56);
+  y += 34;
+  y += drawFeedbackSettings(panel.x + 28, y, panel.width - 56) + 18;
   drawPanelTitle(t("settings.legalTitle"), panel.x + 28, y, panel.width - 56);
-  y += 42;
+  y += 36;
   y = drawWrappedText(
     t("settings.legalInfo", {
       version: LegalConfig.version,
@@ -3881,7 +4441,22 @@ function drawSettingsScreen() {
     COLORS.text,
     15,
   );
-  y += 18;
+  y += 14;
+
+  const analyticsEnabled = Boolean(settings.analyticsEnabled);
+  drawButton(
+    `${t("settings.analytics")}: ${analyticsEnabled ? t("settings.on") : t("settings.off")}`,
+    panel.x + 28,
+    y,
+    panel.width - 56,
+    40,
+    toggleAnalyticsSetting,
+    {
+      active: analyticsEnabled,
+      id: "settings-analytics",
+    },
+  );
+  y += 52;
 
   drawButton(t("settings.privacy"), panel.x + 28, y, (panel.width - 68) / 2, 42, () => openLegalDocument("privacy", Screen.SETTINGS), {
     id: "settings-privacy",
@@ -3895,17 +4470,17 @@ function drawSettingsScreen() {
     () => openLegalDocument("terms", Screen.SETTINGS),
     { id: "settings-terms" },
   );
-  y += 60;
+  y += 54;
 
   drawButton(t("settings.restore"), panel.x + 28, y, (panel.width - 68) / 2, 42, restorePurchases, { id: "settings-restore" });
   drawButton(t("settings.withdraw"), panel.x + 40 + (panel.width - 68) / 2, y, (panel.width - 68) / 2, 42, withdrawConsent, {
     id: "settings-withdraw",
   });
-  y += 60;
+  y += 54;
 
   y = drawWrappedText(
     t("settings.statsInfo", {
-      analytics: analytics.enabled ? t("common.enabled") : t("common.unavailable"),
+      analytics: getAnalyticsStatusText(),
       ads: ads.isAvailable() ? t("common.enabled") : t("common.unavailable"),
       iap: t("common.iap"),
     }),
@@ -3916,12 +4491,20 @@ function drawSettingsScreen() {
     COLORS.text,
     15,
   );
-  y += 18;
+  y += 14;
   drawSmallNotice(panel.x + 28, y, panel.width - 56, serviceMessage || t("settings.sdkNotice"));
   drawButton(t("settings.backMain"), panel.x + 28, panel.y + panel.height - 70, panel.width - 56, 46, () => {
     serviceMessage = "";
     setScreen(Screen.MAIN_MENU);
   }, { id: "settings-back-main" });
+}
+
+function getAnalyticsStatusText() {
+  if (!settings.analyticsEnabled) {
+    return t("settings.off");
+  }
+
+  return analytics.available ? t("common.enabled") : t("common.unavailable");
 }
 
 function drawLegalDocumentScreen() {
@@ -3981,6 +4564,34 @@ function drawResultOverlay() {
   buttonY += 54;
   drawButton(t("result.backMain"), buttonX, buttonY, panelWidth - 56, 42, returnToMenu, { id: "result-back-main" });
   ctx.restore();
+}
+
+function drawFeedbackSettings(x, y, width) {
+  const options = [
+    { key: "vibrationEnabled", labelKey: "settings.vibration", id: "settings-vibration" },
+    { key: "musicEnabled", labelKey: "settings.music", id: "settings-music" },
+    { key: "soundEffectsEnabled", labelKey: "settings.soundEffects", id: "settings-sound-effects" },
+  ];
+  const gap = 10;
+  const buttonHeight = 38;
+  const columns = width >= 540 ? 3 : width >= 400 ? 2 : 1;
+  const rows = Math.ceil(options.length / columns);
+  const buttonWidth = (width - gap * (columns - 1)) / columns;
+
+  options.forEach((option, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const enabled = Boolean(settings[option.key]);
+    const stateText = enabled ? t("settings.on") : t("settings.off");
+    drawButton(`${t(option.labelKey)}: ${stateText}`, x + column * (buttonWidth + gap), y + row * (buttonHeight + gap), buttonWidth, buttonHeight, () => {
+      toggleFeedbackSetting(option.key);
+    }, {
+      active: enabled,
+      id: option.id,
+    });
+  });
+
+  return rows * buttonHeight + Math.max(0, rows - 1) * gap;
 }
 
 function drawLanguageSelector(x, y, width) {
@@ -4295,10 +4906,16 @@ function drawProfessionGridItem(x, y, width, height, professionId, options = {})
     rect: { x, y, width, height },
     clipRect: options.clipRect,
     action: () => {
+      const previousProfession = selectedProfessions[activeProfessionSide];
       selectedProfessions = {
         ...selectedProfessions,
         [activeProfessionSide]: professionId,
       };
+      if (previousProfession !== professionId) {
+        trackSettingSelect(`role_${activeProfessionSide}`, professionId, {
+          previous_value: previousProfession || "none",
+        });
+      }
       serviceMessage = t("messages.selectedProfession", { side: sideLabel, profession: professionName });
     },
   });
@@ -6617,6 +7234,8 @@ function handlePointerUp(event) {
   professionScrollPointer = null;
 
   if (shouldRunAction) {
+    resumeAudioContext();
+    playGameSound("ui", 0.2);
     element.action();
   } else if (didScrollProfessionGrid) {
     event.preventDefault();
@@ -6672,7 +7291,9 @@ function handleKeyDown(event) {
   }
 
   if (event.code === "Space" || event.code === "Enter") {
+    resumeAudioContext();
     if (screen === Screen.MAIN_MENU) {
+      playGameSound("ui", 0.2);
       openMatchSetup();
     } else if (screen === Screen.RESULT) {
       startGame();
@@ -6680,6 +7301,7 @@ function handleKeyDown(event) {
   }
 
   if (event.key.toLowerCase() === "r" && screen === Screen.RESULT) {
+    resumeAudioContext();
     startGame();
   }
 }
@@ -6980,6 +7602,8 @@ async function bootGame() {
   GamePlatform.setLoadingProgress(35);
   await initializePlatform();
   GamePlatform.setLoadingProgress(80);
+  await syncAnalyticsCollection();
+  trackGameInitSuccess();
   screen = complianceState.hasAcceptedCurrentLegal() ? Screen.MAIN_MENU : Screen.CONSENT;
   lastFrameTime = performance.now();
   requestAnimationFrame(gameLoop);

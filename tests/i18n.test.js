@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  getClientLocaleCandidates,
   getInitialLocale,
   getLocalizedLegalDocument,
   getLocaleOptions,
+  getSavedLocale,
   getTextDirection,
   normalizeLocale,
   saveLocale,
@@ -33,6 +36,10 @@ test("locale options and translations are complete enough for the UI", () => {
   for (const locale of SUPPORTED_LOCALES) {
     assert.notEqual(translate(locale, "app.name"), "app.name");
     assert.notEqual(translate(locale, "main.start"), "main.start");
+    assert.notEqual(translate(locale, "settings.feedbackTitle"), "settings.feedbackTitle");
+    assert.notEqual(translate(locale, "settings.vibration"), "settings.vibration");
+    assert.notEqual(translate(locale, "settings.music"), "settings.music");
+    assert.notEqual(translate(locale, "settings.soundEffects"), "settings.soundEffects");
     assert.notEqual(translate(locale, "professions.archer.name"), "professions.archer.name");
     assert.notEqual(translate(locale, "professions.bat.name"), "professions.bat.name");
     assert.notEqual(translate(locale, "professions.summoner.name"), "professions.summoner.name");
@@ -86,10 +93,26 @@ test("localized legal documents interpolate store metadata", () => {
 
 test("locale persistence uses safe storage", () => {
   const storage = createMemoryStorage();
+  assert.equal(getSavedLocale(storage), null);
   assert.equal(saveLocale("de-DE", storage), "de");
+  assert.equal(storage.getItem(LOCALE_STORAGE_KEY), "de");
+  assert.equal(getSavedLocale(storage), "de");
   assert.equal(getInitialLocale(storage), "de");
   assert.equal(saveLocale("zh-HK", storage), "zh-TW");
+  assert.equal(storage.getItem(LOCALE_STORAGE_KEY), "zh-TW");
   assert.equal(getInitialLocale(storage), "zh-TW");
+});
+
+test("saved locale wins over client language environment", () => {
+  const storage = createMemoryStorage({
+    [LOCALE_STORAGE_KEY]: "fr-FR",
+  });
+  const client = {
+    navigator: { languages: ["ja-JP", "en-US"], language: "de-DE" },
+    Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ locale: "ar-SA" }) }) },
+  };
+
+  assert.equal(getInitialLocale(storage, client), "fr");
 });
 
 test("browser locale detection skips unsupported languages", () => {
@@ -105,4 +128,21 @@ test("browser locale detection skips unsupported languages", () => {
     configurable: true,
     value: originalNavigator,
   });
+});
+
+test("client locale detection covers navigator variants and Intl fallback", () => {
+  assert.deepEqual(getClientLocaleCandidates({
+    navigator: {
+      languages: ["es-ES", "ja-JP"],
+      language: "fr-FR",
+      userLanguage: "de-DE",
+      browserLanguage: "ar-SA",
+    },
+    Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ locale: "zh-Hant-TW" }) }) },
+  }), ["es-ES", "ja-JP", "fr-FR", "de-DE", "ar-SA", "zh-Hant-TW"]);
+
+  assert.equal(getInitialLocale(createMemoryStorage(), {
+    navigator: { languages: ["es-ES"] },
+    Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ locale: "de-DE" }) }) },
+  }), "de");
 });

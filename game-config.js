@@ -185,7 +185,7 @@ export const ItemWeaponConfig = {
     kind: "projectile",
     sprite: "pistol",
     projectileKind: "bullet",
-    damage: 5,
+    damage: 4,
     cooldown: 0.58,
     range: Infinity,
     durability: 12,
@@ -690,9 +690,9 @@ export const ProfessionConfig = {
       animation: "碰撞吸血",
     },
     collisionDrain: {
-      damage: 14,
+      damage: 13,
       heal: 0.5,
-      disableDuration: 0.62,
+      disableDuration: 0.56,
       cooldown: 0.82,
     },
     getDamage() {
@@ -991,7 +991,7 @@ export const ProfessionConfig = {
     maxHp: 120,
     radius: 26,
     moveSpeed: 180,
-    attackDamage: 20,
+    attackDamage: 19,
     attackCooldown: 0.65,
     weaponRange: 32,
     color: "#ffbd45",
@@ -1015,7 +1015,7 @@ export const ProfessionConfig = {
   shield: {
     id: "shield",
     name: "盾牌球",
-    maxHp: 140,
+    maxHp: 136,
     radius: 28,
     moveSpeed: 170,
     attackDamage: 14,

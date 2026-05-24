@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   ComplianceStorageKeys,
+  DefaultSettings,
   createComplianceState,
   createMemoryStorage,
   normalizeSelectedProfessions,
@@ -168,5 +169,30 @@ test("URL-style overrides take precedence over saved professions when valid", ()
     a: null,
     b: null,
     ballCount: 4,
+  });
+});
+
+test("feedback settings default on and persist toggles", () => {
+  const storage = createMemoryStorage();
+  const state = createComplianceState({ storage });
+
+  assert.equal(DefaultSettings.vibrationEnabled, true);
+  assert.equal(DefaultSettings.musicEnabled, true);
+  assert.equal(DefaultSettings.soundEffectsEnabled, true);
+  assert.equal(state.getSettings().vibrationEnabled, true);
+  assert.equal(state.getSettings().musicEnabled, true);
+  assert.equal(state.getSettings().soundEffectsEnabled, true);
+
+  state.saveSettings({
+    vibrationEnabled: false,
+    musicEnabled: false,
+    soundEffectsEnabled: false,
+  });
+
+  assert.deepEqual(createComplianceState({ storage }).getSettings(), {
+    ...DefaultSettings,
+    vibrationEnabled: false,
+    musicEnabled: false,
+    soundEffectsEnabled: false,
   });
 });
