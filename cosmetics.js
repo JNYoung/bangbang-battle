@@ -252,6 +252,36 @@ export const ProfessionCosmeticConfig = {
       },
     ],
   },
+  static: {
+    profession: "static",
+    skinPacks: ["default", "charged-core"],
+    pendants: [
+      {
+        id: "static-electric-halo",
+        name: "静电光环",
+        type: PendantType.HALO,
+        trigger: CosmeticTrigger.ALWAYS,
+        effect: "softHalo",
+        color: "#fff7a3",
+        duration: 0,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+    attackEffects: [
+      {
+        id: "static-discharge-burst",
+        name: "静电放电",
+        type: AttackEffectType.MAGIC,
+        trigger: CosmeticTrigger.SKILL,
+        effect: "spellBurstPixels",
+        color: "#facc15",
+        duration: 0.28,
+        rarity: Rarity.COMMON,
+        skinPack: "default",
+      },
+    ],
+  },
   summoner: {
     profession: "summoner",
     skinPacks: ["default", "bear-pact"],

@@ -55,6 +55,7 @@ const Screen = Object.freeze({
   PROFESSION_SELECT: "professionSelect",
   SETTINGS: "settings",
   PLAYING: "playing",
+  PAUSED: "paused",
   RESULT: "result",
 });
 
@@ -87,6 +88,7 @@ let pendingResizeFrame = 0;
 let layout = null;
 let screen = Screen.CONSENT;
 let previousScreen = Screen.MAIN_MENU;
+let settingsReturnScreen = Screen.MAIN_MENU;
 let activeLegalDocument = "privacy";
 let legalScrollOffset = 0;
 let hasCheckedLegalConsent = false;
@@ -716,6 +718,11 @@ class Ball {
     this.attackState = null;
     this.attackDisabledUntil = 0;
     this.frozenUntil = 0;
+    this.paralyzedUntil = 0;
+    this.shockUntil = 0;
+    this.shockDamagePerSecond = 0;
+    this.shockOwner = null;
+    this.shockFlashTime = 0;
     this.poisonUntil = 0;
     this.poisonDamagePerSecond = 0;
     this.poisonOwner = null;
@@ -736,6 +743,7 @@ class Ball {
     this.chainWeaponState = createChainWeaponState(this);
     this.frostOrbitState = createFrostOrbitState(this);
     this.yoyoWeaponState = createYoyoWeaponState(this);
+    this.staticChargeState = createStaticChargeState(this);
     this.summonedBearState = createSummonedBearState(this);
     this.cosmeticState = createCosmeticState();
   }
@@ -743,11 +751,12 @@ class Ball {
   update(deltaTime, currentTime) {
     regenerateHeroMana(this, deltaTime);
     this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this));
-    if (!isBallFrozen(this, currentTime)) {
+    if (!isBallFrozen(this, currentTime) && !isBallParalyzed(this, currentTime)) {
       this.position.x += this.velocity.x * deltaTime;
       this.position.y += this.velocity.y * deltaTime;
     }
     this.hitFlashTime = Math.max(0, this.hitFlashTime - deltaTime);
+    this.shockFlashTime = Math.max(0, this.shockFlashTime - deltaTime);
     updateBallCosmetics(this, currentTime);
     this.bounceOffWalls(currentTime);
     updateFlameTrailForBall(this, currentTime);
@@ -1140,6 +1149,19 @@ function createYoyoWeaponState(ball) {
   };
 }
 
+function createStaticChargeState(ball) {
+  if (ball.config.attackMode !== "staticCharge") {
+    return null;
+  }
+
+  return {
+    charge: 0,
+    active: false,
+    flashTime: 0,
+    lastDischargeTime: -Infinity,
+  };
+}
+
 function createSummonedBearState(ball) {
   if (ball.config.attackMode !== "summonBear") {
     return null;
@@ -1227,6 +1249,43 @@ function startGame() {
   analytics.track(AnalyticsEvents.gameStart, createGameStartAnalyticsPayload());
   setScreen(Screen.PLAYING);
   startMusic();
+}
+
+function pauseGame() {
+  if (screen !== Screen.PLAYING || gameOver) {
+    return;
+  }
+
+  stopMusic();
+  setScreen(Screen.PAUSED);
+}
+
+function resumeGame() {
+  if (screen !== Screen.PAUSED) {
+    return;
+  }
+
+  lastFrameTime = performance.now();
+  setScreen(Screen.PLAYING);
+  startMusic();
+}
+
+function restartFromPause() {
+  startGame();
+}
+
+function openSettingsFromPause() {
+  settingsReturnScreen = Screen.PAUSED;
+  setScreen(Screen.SETTINGS);
+}
+
+function exitFromPause() {
+  returnToMenu();
+}
+
+function openMainSettings() {
+  settingsReturnScreen = Screen.MAIN_MENU;
+  setScreen(Screen.SETTINGS);
 }
 
 function restartGame() {
@@ -1938,6 +1997,7 @@ function update(deltaTime, currentTime) {
   for (const ball of balls) {
     if (ball.hp > 0) {
       updateSummonedBear(ball, deltaTime, currentTime);
+      updateStaticCharge(ball, deltaTime);
     }
   }
   forEachAliveCollisionCombatantPair((ballA, ballB) => {
@@ -2603,7 +2663,7 @@ function resolveBallCollision(ballA, ballB, currentTime) {
 }
 
 function updateAttackForPair(attacker, defender, currentTime) {
-  if (["chainSpin", "frostOrbit", "yoyo", "summonBear"].includes(attacker.config.attackMode)) {
+  if (["chainSpin", "frostOrbit", "yoyo", "summonBear", "staticCharge"].includes(attacker.config.attackMode)) {
     return;
   }
 
@@ -3112,6 +3172,56 @@ function updateYoyoWeaponForPair(attacker, defender, currentTime) {
   resolveAttackHit(attacker, defender, hit.normal, currentTime, hit.variant);
 }
 
+function updateStaticCharge(ball, deltaTime) {
+  const state = ball.staticChargeState;
+  const charge = ball.config.staticCharge;
+  if (!state || !charge || ball.hp <= 0) {
+    return;
+  }
+
+  state.flashTime = Math.max(0, state.flashTime - deltaTime);
+  if (state.active) {
+    return;
+  }
+
+  state.charge = Math.min(charge.chargeDuration, state.charge + deltaTime);
+  if (state.charge >= charge.chargeDuration) {
+    state.active = true;
+    state.flashTime = 0.36;
+  }
+}
+
+function resolveStaticCharge(attacker, defender, normalFromAttackerToDefender, currentTime) {
+  const charge = attacker.config?.staticCharge;
+  const state = attacker.staticChargeState;
+  if (
+    !charge ||
+    !state?.active ||
+    attacker.hp <= 0 ||
+    defender.hp <= 0 ||
+    currentTime - state.lastDischargeTime < charge.hitCooldown
+  ) {
+    return;
+  }
+
+  state.active = false;
+  state.charge = 0;
+  state.lastDischargeTime = currentTime;
+  state.flashTime = 0.38;
+  defender.paralyzedUntil = Math.max(defender.paralyzedUntil, currentTime + charge.paralyzeDuration);
+  defender.shockUntil = Math.max(defender.shockUntil, currentTime + charge.shockDuration);
+  defender.shockDamagePerSecond = Math.max(defender.shockDamagePerSecond, charge.shockDamagePerSecond);
+  defender.shockOwner = attacker;
+  defender.shockFlashTime = 0.34;
+  defender.attackState = null;
+
+  resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime, {
+    damage: charge.impactDamage,
+    knockbackMultiplier: 0.7,
+    staticDischarge: true,
+  });
+}
+
 function updateSummonedBear(owner, deltaTime, currentTime) {
   const bear = owner.summonedBearState;
   if (!bear || owner.hp <= 0) {
@@ -3222,6 +3332,8 @@ function resolveCollisionAbilities(ballA, ballB, normalFromAToB, currentTime) {
 
   resolveBatDrain(ballA, ballB, normalFromAToB, currentTime);
   resolveBatDrain(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+  resolveStaticCharge(ballA, ballB, normalFromAToB, currentTime);
+  resolveStaticCharge(ballB, ballA, scale(normalFromAToB, -1), currentTime);
 }
 
 function resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime) {
@@ -3346,6 +3458,14 @@ function updateStatusEffects(deltaTime, currentTime) {
     if (ball.poisonUntil > currentTime && ball.poisonDamagePerSecond > 0) {
       const damage = damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
       recordCombatHit(ball.poisonOwner, ball, damage, "poison_tick");
+    }
+
+    if (ball.shockUntil > currentTime && ball.shockDamagePerSecond > 0) {
+      const damage = damageBall(ball, ball.shockDamagePerSecond * deltaTime);
+      recordCombatHit(ball.shockOwner, ball, damage, "static_shock_tick");
+    } else if (ball.shockUntil <= currentTime) {
+      ball.shockDamagePerSecond = 0;
+      ball.shockOwner = null;
     }
   }
 }
@@ -3722,6 +3842,10 @@ function tryHeroRebirth(ball, currentTime) {
   ball.hp = ball.maxHp;
   ball.mp = Math.min(ball.maxMp, Math.max(ball.mp, ball.maxMp * 0.35));
   ball.frozenUntil = 0;
+  ball.paralyzedUntil = 0;
+  ball.shockUntil = 0;
+  ball.shockDamagePerSecond = 0;
+  ball.shockOwner = null;
   ball.attackDisabledUntil = currentTime + 0.35;
   pushHeroEffect("rebirth", ball.position, 150, currentTime, ball.visual.accentColor);
   return true;
@@ -3775,8 +3899,12 @@ function isBallFrozen(ball, currentTime) {
   return ball.frozenUntil > currentTime;
 }
 
+function isBallParalyzed(ball, currentTime) {
+  return ball.paralyzedUntil > currentTime;
+}
+
 function isBallControlLocked(ball, currentTime) {
-  return isBallFrozen(ball, currentTime) || ball.attackDisabledUntil > currentTime;
+  return isBallFrozen(ball, currentTime) || isBallParalyzed(ball, currentTime) || ball.attackDisabledUntil > currentTime;
 }
 
 function keepSpeed(ball) {
@@ -4264,6 +4392,11 @@ function draw() {
       drawHud(t("status.playing"));
       drawArenaScene();
       break;
+    case Screen.PAUSED:
+      drawHud(t("status.paused"));
+      drawArenaScene();
+      drawPauseOverlay();
+      break;
     case Screen.RESULT:
       drawHud(resultMessage);
       drawArenaScene();
@@ -4309,6 +4442,38 @@ function drawHud(statusText) {
   ctx.font = canvasFont(layout.status.fontSize, 600);
   ctx.fillText(statusText, layout.status.x, layout.status.y);
   ctx.restore();
+
+  if (screen === Screen.PLAYING) {
+    drawPauseHudButton();
+  }
+}
+
+function drawPauseHudButton() {
+  const size = 42;
+  const x = layout.content.x + layout.content.width - size - 10;
+  const y = layout.content.y + 10;
+
+  ctx.save();
+  drawPixelFrame(x, y, size, size, {
+    fill: "#162642",
+    border: "#8be8ff",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.deepslate,
+  });
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(x + 14, y + 12, 6, 18);
+  ctx.fillRect(x + 24, y + 12, 6, 18);
+  ctx.fillStyle = "#f8fbff";
+  ctx.fillRect(x + 13, y + 11, 5, 18);
+  ctx.fillRect(x + 23, y + 11, 5, 18);
+  ctx.restore();
+
+  addInteractiveElement({
+    id: "hud-pause",
+    rect: { x, y, width: size, height: size },
+    action: pauseGame,
+  });
 }
 
 function drawConsentScreen() {
@@ -4375,7 +4540,7 @@ function drawMainMenuScreen() {
   let y = panel.y + 38;
   drawButton(t("main.start"), panel.x + 28, y, panel.width - 56, 52, openMatchSetup, { id: "main-start" });
   y += 70;
-  drawButton(t("main.settings"), panel.x + 28, y, panel.width - 56, 46, () => setScreen(Screen.SETTINGS), { id: "main-settings" });
+  drawButton(t("main.settings"), panel.x + 28, y, panel.width - 56, 46, openMainSettings, { id: "main-settings" });
 }
 
 function drawProfessionSelectScreen() {
@@ -4558,10 +4723,11 @@ function drawSettingsScreen() {
   );
   y += 14;
   drawSmallNotice(panel.x + 28, y, panel.width - 56, serviceMessage || t("settings.sdkNotice"));
-  drawButton(t("settings.backMain"), panel.x + 28, panel.y + panel.height - 70, panel.width - 56, 46, () => {
+  const backLabel = settingsReturnScreen === Screen.PAUSED ? t("pause.backToPause") : t("settings.backMain");
+  drawButton(backLabel, panel.x + 28, panel.y + panel.height - 70, panel.width - 56, 46, () => {
     serviceMessage = "";
-    setScreen(Screen.MAIN_MENU);
-  }, { id: "settings-back-main" });
+    setScreen(settingsReturnScreen);
+  }, { id: "settings-back" });
 }
 
 function getAnalyticsStatusText() {
@@ -4628,6 +4794,42 @@ function drawResultOverlay() {
   drawButton(t("result.setup"), buttonX, buttonY, panelWidth - 56, 42, openMatchSetup, { id: "result-setup" });
   buttonY += 54;
   drawButton(t("result.backMain"), buttonX, buttonY, panelWidth - 56, 42, returnToMenu, { id: "result-back-main" });
+  ctx.restore();
+}
+
+function drawPauseOverlay() {
+  ctx.save();
+  ctx.fillStyle = "rgba(8, 11, 15, 0.58)";
+  ctx.fillRect(0, 0, viewport.width, viewport.height);
+
+  const panelWidth = Math.min(390, viewport.width - 36);
+  const panelHeight = Math.min(308, viewport.height - 36);
+  const panelX = (viewport.width - panelWidth) / 2;
+  const panelY = (viewport.height - panelHeight) / 2;
+  const buttonX = panelX + 28;
+  const buttonWidth = panelWidth - 56;
+  const buttonHeight = 42;
+  const gap = 12;
+
+  drawPanel({ x: panelX, y: panelY, width: panelWidth, height: panelHeight });
+  ctx.fillStyle = COLORS.text;
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = canvasFont(getFittedFontSize(t("pause.title"), panelWidth - 56, 26, 15, 900), 900);
+  ctx.fillText(t("pause.title"), panelX + panelWidth / 2, panelY + 48);
+
+  const buttons = [
+    { label: t("pause.resume"), action: resumeGame, id: "pause-resume" },
+    { label: t("pause.restart"), action: restartFromPause, id: "pause-restart" },
+    { label: t("pause.settings"), action: openSettingsFromPause, id: "pause-settings" },
+    { label: t("pause.exit"), action: exitFromPause, id: "pause-exit" },
+  ];
+  let buttonY = panelY + 82;
+  for (const button of buttons) {
+    drawButton(button.label, buttonX, buttonY, buttonWidth, buttonHeight, button.action, { id: button.id });
+    buttonY += buttonHeight + gap;
+  }
   ctx.restore();
 }
 
@@ -5291,6 +5493,19 @@ function drawPixelProfessionIcon(x, y, size, professionId, isSelected) {
       W: "#ffffff",
       S: "#fff1a8",
     });
+  } else if (professionId === "static") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "......SS........",
+      ".....SS.........",
+      "....SSSSSS......",
+      ".......SS.......",
+      "......SS........",
+      ".....SS.........",
+      "....SSSSSS......",
+    ], {
+      S: "#fff7a3",
+    });
   } else if (professionId === "summoner") {
     drawPixelCells(left, top, cell, [
       "................",
@@ -5532,6 +5747,7 @@ function getProfessionItemSprite(professionId) {
     reaper: { sprite: items.sword, angle: -0.78, scale: 0.92 },
     frost: { sprite: items.iceShard, angle: -0.38, scale: 0.62 },
     yoyo: { sprite: items.yoyo, angle: -0.28, scale: 0.58 },
+    static: { sprite: items.lightning, angle: -0.2, scale: 0.64 },
     summoner: { sprite: items.totem, angle: -0.3, scale: 0.58 },
     spear: { sprite: items.spear, angle: -0.78, scale: 0.9 },
     assassin: { sprite: items.dagger, angle: -0.72, scale: 0.72 },
@@ -5890,6 +6106,18 @@ function drawBallBody(ctx, ball) {
     ctx.globalAlpha = clamp(ball.hitFlashTime / 0.16, 0, 1) * 0.45;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(x + cell * 2, y + cell * 2, cell * 8, cell * 8);
+    ctx.globalAlpha = 1;
+  }
+
+  if (ball.shockUntil > elapsedTimeSeconds || ball.shockFlashTime > 0) {
+    const shockAlpha = ball.shockUntil > elapsedTimeSeconds ? 0.44 : clamp(ball.shockFlashTime / 0.34, 0, 1) * 0.48;
+    ctx.globalAlpha = shockAlpha;
+    ctx.fillStyle = "#fff7a3";
+    ctx.fillRect(x + cell * 2, y + cell * 3, cell * 8, cell);
+    ctx.fillRect(x + cell * 3, y + cell * 8, cell * 6, cell);
+    ctx.fillRect(x + cell * 5, y + cell, cell, cell * 10);
+    ctx.fillRect(x + cell * 7, y + cell, cell, cell * 10);
+    ctx.globalAlpha = 1;
   }
   drawProfessionBodyDetails(ctx, ball, x, y, cell);
   ctx.restore();
@@ -6011,6 +6239,13 @@ function drawProfessionBodyDetails(ctx, ball, x, y, cell) {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(x + cell * 5, y + cell * 5, cell, cell);
     ctx.fillRect(x + cell * 7, y + cell * 5, cell, cell);
+  } else if (ball.profession === "static") {
+    ctx.fillStyle = "#fff7a3";
+    ctx.fillRect(x + cell * 5, y + cell * 3, cell * 2, cell * 6);
+    ctx.fillRect(x + cell * 3, y + cell * 6, cell * 6, cell);
+    ctx.fillStyle = "#050711";
+    ctx.fillRect(x + cell * 6, y + cell * 4, cell, cell);
+    ctx.fillRect(x + cell * 5, y + cell * 7, cell, cell);
   } else if (ball.profession === "summoner") {
     ctx.fillStyle = "#fde68a";
     ctx.fillRect(x + cell * 4, y + cell * 3, cell * 4, cell);
@@ -6159,6 +6394,11 @@ function drawWeapon(ctx, ball, currentTime, target) {
 
   if (ball.profession === "yoyo") {
     drawYoyoWeapon(ctx, ball, currentTime);
+    return;
+  }
+
+  if (ball.profession === "static") {
+    drawStaticField(ctx, ball, currentTime);
     return;
   }
 
@@ -7071,6 +7311,53 @@ function drawFrostOrbits(ctx, ball) {
   ctx.restore();
 }
 
+function drawStaticField(ctx, ball, currentTime) {
+  const state = ball.staticChargeState;
+  const charge = ball.config.staticCharge;
+  if (!state || !charge) {
+    return;
+  }
+
+  const progress = state.active ? 1 : clamp(state.charge / charge.chargeDuration, 0, 1);
+  if (progress <= 0 && state.flashTime <= 0) {
+    return;
+  }
+  const pulse = 0.5 + Math.sin(currentTime * (state.active ? 12 : 7)) * 0.5;
+  const fieldRadius = lerp(ball.radius * 1.15, charge.fieldRadius, easeOutCubic(progress));
+  const alpha = lerp(0, state.active ? 0.74 : 0.42, progress);
+  const segmentCount = state.active ? 10 : 6;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = "#050711";
+  ctx.lineWidth = state.active ? 7 : 5;
+  ctx.strokeRect(ball.position.x - fieldRadius, ball.position.y - fieldRadius, fieldRadius * 2, fieldRadius * 2);
+  ctx.strokeStyle = "#fff7a3";
+  ctx.lineWidth = state.active ? 4 : 3;
+  ctx.strokeRect(
+    ball.position.x - fieldRadius + 4,
+    ball.position.y - fieldRadius + 4,
+    Math.max(0, fieldRadius * 2 - 8),
+    Math.max(0, fieldRadius * 2 - 8),
+  );
+
+  for (let index = 0; index < segmentCount; index += 1) {
+    const angle = (index * Math.PI * 2) / segmentCount + currentTime * (state.active ? 3.2 : 1.2);
+    const start = add(ball.position, scale(vectorFromAngle(angle), ball.radius + 8 + progress * 10));
+    const end = add(ball.position, scale(vectorFromAngle(angle + 0.28 + pulse * 0.18), fieldRadius - 6));
+    drawPixelLine(ctx, start, end, state.active ? 7 : 5, "#050711");
+    drawPixelLine(ctx, start, end, state.active ? 4 : 3, state.active ? "#fff7a3" : "#facc15");
+  }
+
+  if (state.flashTime > 0) {
+    ctx.globalAlpha = clamp(state.flashTime / 0.38, 0, 1) * 0.68;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 5;
+    ctx.strokeRect(ball.position.x - fieldRadius - 8, ball.position.y - fieldRadius - 8, (fieldRadius + 8) * 2, (fieldRadius + 8) * 2);
+  }
+  ctx.restore();
+}
+
 function drawYoyoWeapon(ctx, ball, currentTime) {
   if (!ball.yoyoWeaponState) {
     return;
@@ -7361,7 +7648,13 @@ function handleKeyDown(event) {
   if (event.key === "Escape") {
     if (screen === Screen.LEGAL_DOCUMENT) {
       setScreen(previousScreen);
-    } else if (screen === Screen.PROFESSION_SELECT || screen === Screen.SETTINGS) {
+    } else if (screen === Screen.PLAYING) {
+      pauseGame();
+    } else if (screen === Screen.PAUSED) {
+      resumeGame();
+    } else if (screen === Screen.SETTINGS) {
+      setScreen(settingsReturnScreen);
+    } else if (screen === Screen.PROFESSION_SELECT) {
       setScreen(Screen.MAIN_MENU);
     }
     return;
@@ -7372,12 +7665,14 @@ function handleKeyDown(event) {
     if (screen === Screen.MAIN_MENU) {
       playGameSound("ui", 0.2);
       openMatchSetup();
+    } else if (screen === Screen.PAUSED) {
+      resumeGame();
     } else if (screen === Screen.RESULT) {
       startGame();
     }
   }
 
-  if (event.key.toLowerCase() === "r" && screen === Screen.RESULT) {
+  if (event.key.toLowerCase() === "r" && (screen === Screen.RESULT || screen === Screen.PAUSED)) {
     resumeAudioContext();
     startGame();
   }

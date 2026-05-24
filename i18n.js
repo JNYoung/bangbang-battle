@@ -16,6 +16,7 @@ const translations = {
     },
     status: {
       playing: "自动开战中",
+      paused: "已暂停",
     },
     messages: {
       checkAgreement: "请先勾选同意协议",
@@ -52,6 +53,14 @@ const translations = {
       itemModeDescription: "双方球球没有职业，初始血量均为 100。场中会随机出现道具，碰到后立即装备，耐久耗尽后继续等待下一件道具。",
       saveBack: "保存并返回",
       start: "开始游戏",
+    },
+    pause: {
+      title: "暂停",
+      resume: "继续",
+      restart: "重新开始",
+      settings: "设置",
+      exit: "退出",
+      backToPause: "返回暂停菜单",
     },
     settings: {
       subtitle: "设置",
@@ -172,6 +181,7 @@ const translations = {
       reaper: { name: "死神球", skill: "镰刃收割", item: "终末大镰刀" },
       frost: { name: "冰冻球", skill: "冰轮冻结", item: "环绕冰轮" },
       yoyo: { name: "悠悠球", skill: "像素回旋", item: "像素悠悠球" },
+      static: { name: "静电球", skill: "静电充能", item: "静电核心" },
       summoner: { name: "召唤师", skill: "熊灵契约", item: "召熊图腾" },
       spear: { name: "长矛球", skill: "正面突刺", item: "破风长矛" },
       blade: { name: "大刀球", skill: "重斩", item: "厚刃大刀" },
@@ -194,7 +204,7 @@ const translations = {
     app: { name: "Profession Ball Arena" },
     side: { a: "Ball A", b: "Ball B" },
     common: { enabled: "Enabled", unavailable: "Not configured", iap: "IAP" },
-    status: { playing: "Auto battle" },
+    status: { playing: "Auto battle", paused: "Paused" },
     messages: {
       checkAgreement: "Please agree to the terms first",
       consentWithdrawn: "Consent withdrawn. Please review and confirm again",
@@ -230,6 +240,14 @@ const translations = {
       itemModeDescription: "Both balls have no profession and start at 100 HP. Items spawn randomly in the arena; touching one equips it immediately until its durability runs out.",
       saveBack: "Save & Back",
       start: "Start Game",
+    },
+    pause: {
+      title: "Paused",
+      resume: "Resume",
+      restart: "Restart",
+      settings: "Settings",
+      exit: "Exit",
+      backToPause: "Back to Pause",
     },
     settings: {
       subtitle: "Settings",
@@ -331,6 +349,7 @@ const translations = {
       reaper: { name: "Reaper Ball", skill: "Scythe Edge", item: "Great Scythe" },
       frost: { name: "Frost Ball", skill: "Ice Orbit", item: "Frost Wheels" },
       yoyo: { name: "Yo-Yo Ball", skill: "Pixel Loop", item: "Pixel Yo-Yo" },
+      static: { name: "Static Ball", skill: "Static Charge", item: "Static Core" },
       summoner: { name: "Summoner Ball", skill: "Bear Pact", item: "Bear Totem" },
       spear: { name: "Spear Ball", skill: "Frontal Thrust", item: "Wind Spear" },
       blade: { name: "Blade Ball", skill: "Heavy Slash", item: "Broad Blade" },
@@ -353,7 +372,7 @@ const translations = {
     app: { name: "Arène des Balles" },
     side: { a: "Balle A", b: "Balle B" },
     common: { enabled: "Activé", unavailable: "Non configuré", iap: "IAP" },
-    status: { playing: "Combat auto" },
+    status: { playing: "Combat auto", paused: "Pause" },
     messages: {
       checkAgreement: "Veuillez accepter les conditions",
       consentWithdrawn: "Consentement retiré. Veuillez relire et confirmer",
@@ -382,6 +401,7 @@ const translations = {
       notice: "Les statistiques ne fonctionnent qu'après accord. Cette version n'intègre pas de publicité ni d'IAP réels. Pour les stores, indiquez un combat cartoon/fantasy léger.",
     },
     setup: { subtitle: "Préparation", sceneLabel: "Scène", professionHeader: "Profession {side}", itemModeHeader: "Mode objets", itemModeDescription: "Les deux balles n'ont pas de profession et commencent avec 100 PV. Des objets apparaissent au hasard dans l'arène ; toucher un objet l'équipe jusqu'à épuisement de sa durabilité.", saveBack: "Sauver & retour", start: "Jouer" },
+    pause: { title: "Pause", resume: "Reprendre", restart: "Redémarrer", settings: "Réglages", exit: "Quitter", backToPause: "Retour à la pause" },
     settings: {
       subtitle: "Réglages",
       languageTitle: "Langue",
@@ -452,6 +472,7 @@ const translations = {
       reaper: { name: "Balle faucheuse", skill: "Tranchant de faux", item: "Grande faux" },
       frost: { name: "Balle gel", skill: "Orbite glacée", item: "Roues de glace" },
       yoyo: { name: "Balle yo-yo", skill: "Boucle pixel", item: "Yo-yo pixel" },
+      static: { name: "Balle statique", skill: "Charge statique", item: "Coeur statique" },
       summoner: { name: "Balle invocateur", skill: "Pacte ours", item: "Totem ours" },
       spear: { name: "Balle lance", skill: "Estoc frontal", item: "Lance du vent" },
       blade: { name: "Balle lame", skill: "Coup lourd", item: "Grande lame" },
@@ -474,7 +495,7 @@ const translations = {
     app: { name: "Berufsball-Arena" },
     side: { a: "Ball A", b: "Ball B" },
     common: { enabled: "Aktiv", unavailable: "Nicht konfiguriert", iap: "IAP" },
-    status: { playing: "Auto-Kampf" },
+    status: { playing: "Auto-Kampf", paused: "Pausiert" },
     messages: {
       checkAgreement: "Bitte stimme zuerst den Bedingungen zu",
       consentWithdrawn: "Zustimmung widerrufen. Bitte erneut lesen und bestätigen",
@@ -503,6 +524,7 @@ const translations = {
       notice: "Analyse läuft nur nach Zustimmung. Dieser Build enthält keine echte Werbung oder IAP-SDKs. Für Stores bitte als leichte Cartoon-/Fantasy-Kämpfe einstufen.",
     },
     setup: { subtitle: "Kampf-Setup", sceneLabel: "Szene", professionHeader: "{side} Beruf", itemModeHeader: "Gegenstandsmodus", itemModeDescription: "Beide Bälle haben keinen Beruf und starten mit 100 LP. Gegenstände erscheinen zufällig in der Arena; Berührung rüstet sie sofort aus, bis die Haltbarkeit verbraucht ist.", saveBack: "Speichern", start: "Starten" },
+    pause: { title: "Pause", resume: "Fortsetzen", restart: "Neustart", settings: "Einstellungen", exit: "Beenden", backToPause: "Zurück zur Pause" },
     settings: {
       subtitle: "Einstellungen",
       languageTitle: "Sprache",
@@ -573,6 +595,7 @@ const translations = {
       reaper: { name: "Sensenball", skill: "Sensenrand", item: "Große Sense" },
       frost: { name: "Frostball", skill: "Eisorbit", item: "Eisräder" },
       yoyo: { name: "Jo-Jo-Ball", skill: "Pixelwirbel", item: "Pixel-Jo-Jo" },
+      static: { name: "Statikball", skill: "Statische Ladung", item: "Statikkern" },
       summoner: { name: "Beschwörerball", skill: "Bärenpakt", item: "Bärentotem" },
       spear: { name: "Speerball", skill: "Frontstoß", item: "Windspeer" },
       blade: { name: "Klingenball", skill: "Schwerer Hieb", item: "Breitklinge" },
@@ -595,7 +618,7 @@ const translations = {
     app: { name: "ساحة كرات المهن" },
     side: { a: "الكرة A", b: "الكرة B" },
     common: { enabled: "مفعل", unavailable: "غير مهيأ", iap: "الشراء داخل التطبيق" },
-    status: { playing: "قتال تلقائي" },
+    status: { playing: "قتال تلقائي", paused: "متوقف مؤقتا" },
     messages: {
       checkAgreement: "يرجى الموافقة على الشروط أولا",
       consentWithdrawn: "تم سحب الموافقة. يرجى القراءة والتأكيد مرة أخرى",
@@ -624,6 +647,7 @@ const translations = {
       notice: "تعمل الإحصاءات بعد الموافقة فقط. لا يحتوي هذا الإصدار على إعلانات أو شراء داخل التطبيق حقيقي. عند النشر، صنفه كقتال كرتوني/خيالي خفيف.",
     },
     setup: { subtitle: "إعداد القتال", sceneLabel: "المشهد", professionHeader: "مهنة {side}", itemModeHeader: "نمط الأدوات", itemModeDescription: "لا تملك الكرتان أي مهنة وتبدآن بصحة 100. تظهر الأدوات عشوائيا في الساحة، ولمسها يجهزها فورا حتى تنفد المتانة.", saveBack: "حفظ وعودة", start: "ابدأ" },
+    pause: { title: "إيقاف مؤقت", resume: "متابعة", restart: "إعادة البدء", settings: "الإعدادات", exit: "خروج", backToPause: "العودة للإيقاف" },
     settings: {
       subtitle: "الإعدادات",
       languageTitle: "اللغة",
@@ -694,6 +718,7 @@ const translations = {
       reaper: { name: "كرة الحاصد", skill: "حافة المنجل", item: "منجل كبير" },
       frost: { name: "كرة الجليد", skill: "مدار الجليد", item: "عجلات الجليد" },
       yoyo: { name: "كرة اليويو", skill: "دوران بكسلي", item: "يويو بكسلي" },
+      static: { name: "كرة الكهرباء الساكنة", skill: "شحنة ساكنة", item: "نواة ساكنة" },
       summoner: { name: "كرة المستدعي", skill: "عهد الدب", item: "طوطم الدب" },
       spear: { name: "كرة الرمح", skill: "طعنة أمامية", item: "رمح الريح" },
       blade: { name: "كرة النصل", skill: "ضربة ثقيلة", item: "نصل عريض" },
@@ -720,6 +745,8 @@ const TRADITIONAL_CHINESE_REPLACEMENTS = [
   ["用户", "用戶"],
   ["协议", "協議"],
   ["设置", "設定"],
+  ["暂停", "暫停"],
+  ["继续", "繼續"],
   ["声音", "聲音"],
   ["触感", "觸感"],
   ["音乐", "音樂"],
@@ -903,7 +930,7 @@ translations.ja = {
   app: { name: "職業ボール闘技場" },
   side: { a: "ボール A", b: "ボール B" },
   common: { enabled: "有効", unavailable: "未設定", iap: "IAP" },
-  status: { playing: "自動バトル中" },
+  status: { playing: "自動バトル中", paused: "一時停止中" },
   messages: {
     checkAgreement: "先に規約への同意を確認してください",
     consentWithdrawn: "同意を取り消しました。内容を再確認してください",
@@ -939,6 +966,14 @@ translations.ja = {
     itemModeDescription: "両方のボールは職業なしで、初期 HP は 100 です。アリーナにはアイテムがランダムに出現し、触れるとすぐに装備します。耐久が尽きると次のアイテムを待ちます。",
     saveBack: "保存して戻る",
     start: "ゲーム開始",
+  },
+  pause: {
+    title: "一時停止",
+    resume: "再開",
+    restart: "最初から",
+    settings: "設定",
+    exit: "終了",
+    backToPause: "一時停止へ戻る",
   },
   settings: {
     subtitle: "設定",
@@ -1010,6 +1045,7 @@ translations.ja = {
     reaper: { name: "死神ボール", skill: "鎌刃の収穫", item: "終末の大鎌" },
     frost: { name: "氷結ボール", skill: "氷輪凍結", item: "周回氷輪" },
     yoyo: { name: "ヨーヨーボール", skill: "ピクセル回転", item: "ピクセルヨーヨー" },
+    static: { name: "静電ボール", skill: "静電チャージ", item: "静電コア" },
     summoner: { name: "召喚師", skill: "熊霊契約", item: "熊呼びトーテム" },
     spear: { name: "長槍ボール", skill: "正面突き", item: "風切りの長槍" },
     blade: { name: "大刀ボール", skill: "重斬り", item: "厚刃の大刀" },

@@ -40,8 +40,11 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "settings.vibration"), "settings.vibration");
     assert.notEqual(translate(locale, "settings.music"), "settings.music");
     assert.notEqual(translate(locale, "settings.soundEffects"), "settings.soundEffects");
+    assert.notEqual(translate(locale, "status.paused"), "status.paused");
+    assert.notEqual(translate(locale, "pause.resume"), "pause.resume");
     assert.notEqual(translate(locale, "professions.archer.name"), "professions.archer.name");
     assert.notEqual(translate(locale, "professions.bat.name"), "professions.bat.name");
+    assert.notEqual(translate(locale, "professions.static.name"), "professions.static.name");
     assert.notEqual(translate(locale, "professions.summoner.name"), "professions.summoner.name");
     assert.notEqual(translate(locale, "professions.yoyo.name"), "professions.yoyo.name");
     assert.notEqual(translate(locale, "scenes.super.name"), "scenes.super.name");
