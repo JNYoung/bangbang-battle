@@ -74,6 +74,7 @@ const MUSIC_NOTE_OFFSETS = [0, 7, 12, 7, 3, 10, 15, 10, 5, 12, 17, 12, 7, 14, 19
 const MUSIC_BASS_OFFSETS = [0, 0, 3, 5];
 const FEEDBACK_VIBRATION_COOLDOWN = 0.14;
 const COLLISION_FEEDBACK_COOLDOWN = 0.09;
+const VIEWPORT_RESIZE_EPSILON = 1;
 
 let balls = [];
 let gameOver = false;
@@ -82,6 +83,7 @@ let lastFrameTime = 0;
 let elapsedTimeSeconds = 0;
 let matchElapsedTimeSeconds = 0;
 let viewport = { width: 0, height: 0, dpr: 1 };
+let pendingResizeFrame = 0;
 let layout = null;
 let screen = Screen.CONSENT;
 let previousScreen = Screen.MAIN_MENU;
@@ -1774,18 +1776,48 @@ function triggerVibration(pattern, currentTime = elapsedTimeSeconds) {
 }
 
 function resizeCanvas() {
-  const width = Math.max(320, Math.round(window.visualViewport?.width || window.innerWidth));
-  const height = Math.max(320, Math.round(window.visualViewport?.height || window.innerHeight));
-  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DEVICE_PIXEL_RATIO);
+  pendingResizeFrame = 0;
+  const nextViewport = getStableViewportSize();
+  if (!hasViewportSizeChanged(nextViewport)) {
+    return;
+  }
 
-  viewport = { width, height, dpr };
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
-  canvas.width = Math.round(width * dpr);
-  canvas.height = Math.round(height * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  viewport = nextViewport;
+  const backingWidth = Math.round(viewport.width * viewport.dpr);
+  const backingHeight = Math.round(viewport.height * viewport.dpr);
+  if (canvas.width !== backingWidth) {
+    canvas.width = backingWidth;
+  }
+  if (canvas.height !== backingHeight) {
+    canvas.height = backingHeight;
+  }
+  ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
-  layout = createLayout(width, height);
+  layout = createLayout(viewport.width, viewport.height);
+}
+
+function scheduleCanvasResize() {
+  if (pendingResizeFrame) {
+    return;
+  }
+
+  pendingResizeFrame = requestAnimationFrame(resizeCanvas);
+}
+
+function getStableViewportSize() {
+  const root = document.documentElement;
+  const width = Math.max(320, Math.round(root.clientWidth || window.innerWidth || window.visualViewport?.width || 0));
+  const height = Math.max(320, Math.round(root.clientHeight || window.innerHeight || window.visualViewport?.height || 0));
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DEVICE_PIXEL_RATIO);
+  return { width, height, dpr };
+}
+
+function hasViewportSizeChanged(nextViewport) {
+  return (
+    Math.abs(nextViewport.width - viewport.width) > VIEWPORT_RESIZE_EPSILON ||
+    Math.abs(nextViewport.height - viewport.height) > VIEWPORT_RESIZE_EPSILON ||
+    Math.abs(nextViewport.dpr - viewport.dpr) > 0.001
+  );
 }
 
 function createLayout(width, height) {
@@ -2023,21 +2055,19 @@ function useHeroManaBurn(hero, skill, currentTime) {
     return false;
   }
 
-  const targets = getHeroSkillTargetsInRange(hero, skill);
-  if (targets.length === 0) {
+  const enemy = getNearestHeroSkillTargetInRange(hero, skill);
+  if (!enemy) {
     return false;
   }
 
   spendHeroSkill(hero, skill, currentTime);
-  for (const enemy of targets) {
-    const manaBurned = drainMana(enemy, skill.manaDamage);
-    const variant = createHeroSkillVariant(hero, skill, {
-      damage: skill.damage + Math.floor(manaBurned * 0.25),
-      knockbackMultiplier: skill.knockbackMultiplier,
-    });
-    resolveAttackHit(hero, enemy, getDirectionBetween(hero, enemy), currentTime, variant);
-  }
-  pushHeroEffect("manaBurn", hero.position, skill.range, currentTime, hero.visual.accentColor);
+  const manaBurned = drainMana(enemy, skill.manaDamage);
+  const variant = createHeroSkillVariant(hero, skill, {
+    damage: skill.damage + Math.floor(manaBurned * 0.25),
+    knockbackMultiplier: skill.knockbackMultiplier,
+  });
+  resolveAttackHit(hero, enemy, getDirectionBetween(hero, enemy), currentTime, variant);
+  pushManaBurnPath(hero, enemy, skill, currentTime);
   return true;
 }
 
@@ -2185,6 +2215,10 @@ function getHeroSkillTargetsInRange(hero, skill) {
     });
 }
 
+function getNearestHeroSkillTargetInRange(hero, skill) {
+  return getHeroSkillTargetsInRange(hero, skill)[0] || null;
+}
+
 function getAliveOpponents(ball) {
   return balls.filter((candidate) => candidate !== ball && candidate.hp > 0 && !areAlliedCombatants(ball, candidate));
 }
@@ -2299,6 +2333,36 @@ function pushHeroEffect(type, position, radius, currentTime, color) {
     color,
     createdAt: currentTime,
     expiresAt: currentTime + 0.55,
+  });
+}
+
+function pushManaBurnPath(hero, enemy, skill, currentTime) {
+  const direction = getDirectionBetween(hero, enemy);
+  const start = add(hero.position, scale(direction, hero.radius * 0.86));
+  const end = add(enemy.position, scale(direction, -enemy.radius * 0.86));
+  const points = createLightningTrajectoryPoints(
+    start,
+    end,
+    direction,
+    {
+      segmentCount: skill.effectSegments || 7,
+      jitterMagnitude: 16,
+    },
+    currentTime,
+    hero.label,
+  );
+
+  spellTrajectories.push({
+    owner: hero,
+    kind: "lightning",
+    points,
+    collisionRadius: 0,
+    color: skill.effectColor || "#38bdf8",
+    darkColor: "rgba(8, 14, 38, 0.92)",
+    sparkColor: "#dbeafe",
+    createdAt: currentTime,
+    expiresAt: currentTime + (skill.effectDuration || 0.34),
+    variant: null,
   });
 }
 
@@ -4019,13 +4083,14 @@ function createLightningTrajectoryPoints(start, end, direction, variant, current
   const segmentCount = variant.segmentCount || 5;
   const side = { x: -direction.y, y: direction.x };
   const seed = currentTime * 97.13 + start.x * 0.19 + start.y * 0.11 + ownerLabel.charCodeAt(0) * 0.31;
+  const jitterMagnitude = variant.jitterMagnitude ?? 22;
   const points = [];
 
   for (let index = 0; index <= segmentCount; index += 1) {
     const progress = index / segmentCount;
     const base = add(start, scale(subtract(end, start), progress));
     const taper = Math.sin(Math.PI * progress);
-    const jitter = Math.sin(seed + index * 2.41) * 22 * taper;
+    const jitter = Math.sin(seed + index * 2.41) * jitterMagnitude * taper;
     points.push(add(base, scale(side, jitter)));
   }
 
@@ -6782,10 +6847,22 @@ function drawSpellTrajectory(ctx, trajectory, currentTime) {
     const start = trajectory.points[index - 1];
     const end = trajectory.points[index];
     const segment = subtract(end, start);
-    drawRotatedVoxelSprite(ctx, voxelAssets.items.lightning, add(start, scale(segment, 0.5)), Math.min(52, length(segment) * 0.72), angleOf(segment), {
-      alpha: lifeProgress * 0.72,
-      shadow: false,
-    });
+    const center = add(start, scale(segment, 0.5));
+    if (trajectory.sparkColor) {
+      const sparkSize = 5 + lifeProgress * 6;
+      const side = normalize({ x: -segment.y, y: segment.x });
+      const offset = Math.sin(currentTime * 42 + index * 1.9) * 7 * lifeProgress;
+      const sparkCenter = add(center, scale(side, offset));
+      ctx.fillStyle = trajectory.sparkColor;
+      ctx.fillRect(sparkCenter.x - sparkSize / 2, sparkCenter.y - sparkSize / 2, sparkSize, sparkSize);
+      ctx.fillStyle = trajectory.color;
+      ctx.fillRect(center.x - 3, center.y - 3, 6, 6);
+    } else {
+      drawRotatedVoxelSprite(ctx, voxelAssets.items.lightning, center, Math.min(52, length(segment) * 0.72), angleOf(segment), {
+        alpha: lifeProgress * 0.72,
+        shadow: false,
+      });
+    }
   }
   ctx.restore();
 }
@@ -7609,8 +7686,9 @@ async function bootGame() {
   requestAnimationFrame(gameLoop);
 }
 
-window.addEventListener("resize", resizeCanvas);
-window.visualViewport?.addEventListener("resize", resizeCanvas);
+window.addEventListener("resize", scheduleCanvasResize);
+window.addEventListener("orientationchange", scheduleCanvasResize);
+window.visualViewport?.addEventListener("resize", scheduleCanvasResize);
 canvas.addEventListener("pointerdown", handlePointerDown);
 canvas.addEventListener("pointermove", handlePointerMove, { passive: false });
 canvas.addEventListener("pointerup", handlePointerUp);
