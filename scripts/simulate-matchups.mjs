@@ -3,6 +3,7 @@ import {
   ATTACK_COOLDOWN_MULTIPLIER,
   BALL_RADIUS_MULTIPLIER,
   ITEM_SCENE_ID,
+  ItemBuildingConfig,
   ItemModeBallConfig,
   ItemSpawnConfig,
   ItemWeaponConfig,
@@ -190,7 +191,9 @@ class SimulatedBall {
 
 class SimulatedItemBall {
   constructor({ label, x, y, direction }) {
+    this.kind = "ball";
     this.label = label;
+    this.teamId = label;
     this.profession = null;
     this.config = ItemModeBallConfig;
     this.position = { x, y };
@@ -199,12 +202,20 @@ class SimulatedItemBall {
     this.hp = this.config.maxHp;
     this.equippedItem = null;
     this.lastAttackTime = -Infinity;
+    this.attackDisabledUntil = 0;
+    this.frozenUntil = 0;
+    this.paralyzedUntil = 0;
+    this.lastHazardHitTime = -Infinity;
+    this.lastWebHitTime = -Infinity;
+    this.lastFlameHitTime = -Infinity;
   }
 
   update(deltaTime, elapsedSeconds) {
     this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this, elapsedSeconds));
-    this.position.x += this.velocity.x * deltaTime;
-    this.position.y += this.velocity.y * deltaTime;
+    if (!isBallFrozen(this, elapsedSeconds) && !isBallParalyzed(this, elapsedSeconds)) {
+      this.position.x += this.velocity.x * deltaTime;
+      this.position.y += this.velocity.y * deltaTime;
+    }
     this.bounceOffWalls();
   }
 
@@ -507,17 +518,20 @@ function getResult(sceneId, aProfession, bProfession, seed, elapsedSeconds, ball
 function simulateItemMode(seed, ballCount = 2) {
   let elapsedSeconds = 0;
   let droppedItems = [];
+  let itemFlames = [];
+  let itemBuildings = [];
   const stats = createItemModeStats();
   const spawnState = {
     counter: 0,
     nextSpawnTime: 0,
     maxActive: getItemMaxActiveCount(ballCount),
     spawnInterval: getItemSpawnInterval(ballCount),
+    recentSpawnZones: [],
   };
   const balls = createSimulatedItemBalls(seed, ballCount);
 
   for (let index = 0; index < getItemInitialCount(ballCount); index += 1) {
-    droppedItems = spawnSimulatedItem(seed, elapsedSeconds, balls, droppedItems, spawnState);
+    droppedItems = spawnSimulatedItem(seed, elapsedSeconds, balls, droppedItems, spawnState, itemBuildings);
   }
   spawnState.nextSpawnTime = spawnState.spawnInterval;
 
@@ -531,9 +545,13 @@ function simulateItemMode(seed, ballCount = 2) {
     forEachBallPair(balls, (ballA, ballB) => {
       resolveBallCollision(ballA, ballB, elapsedSeconds);
     });
-    droppedItems = updateSimulatedItems(seed, elapsedSeconds, balls, droppedItems, spawnState, stats);
+    itemFlames = itemFlames.filter((flame) => flame.expiresAt > elapsedSeconds);
+    itemBuildings = itemBuildings.filter((building) => building.expiresAt > elapsedSeconds && building.attacksRemaining > 0 && building.hp > 0);
+    updateEnvironmentalHazards([], [], itemFlames, balls, elapsedSeconds);
+    updateSimulatedBuildings(itemBuildings, balls, elapsedSeconds, stats);
+    droppedItems = updateSimulatedItems(seed, elapsedSeconds, balls, droppedItems, spawnState, stats, itemBuildings);
     forEachOrderedBallPair(balls, (attacker, defender) => {
-      updateItemAttackForPair(attacker, defender, elapsedSeconds, seed, stats);
+      updateItemAttackForPair(attacker, defender, elapsedSeconds, seed, stats, itemFlames);
     });
 
     if (balls.filter((ball) => ball.hp > 0).length <= 1) {
@@ -618,71 +636,122 @@ function forEachOrderedBallPair(balls, callback) {
 }
 
 function createItemModeStats() {
+  const itemIds = [...Object.keys(ItemWeaponConfig), ...Object.keys(ItemBuildingConfig)];
   return {
     pickups: 0,
     uses: 0,
-    pickupByWeapon: Object.fromEntries(Object.keys(ItemWeaponConfig).map((id) => [id, 0])),
-    usesByWeapon: Object.fromEntries(Object.keys(ItemWeaponConfig).map((id) => [id, 0])),
+    pickupByWeapon: Object.fromEntries(itemIds.map((id) => [id, 0])),
+    usesByWeapon: Object.fromEntries(itemIds.map((id) => [id, 0])),
     spellsById: { fire: 0, ice: 0, lightning: 0 },
   };
 }
 
-function updateSimulatedItems(seed, currentTime, balls, droppedItems, spawnState, stats) {
+function updateSimulatedItems(seed, currentTime, balls, droppedItems, spawnState, stats, itemBuildings) {
   let nextDroppedItems = droppedItems;
   if (nextDroppedItems.length < spawnState.maxActive && currentTime >= spawnState.nextSpawnTime) {
-    nextDroppedItems = spawnSimulatedItem(seed, currentTime, balls, nextDroppedItems, spawnState);
+    nextDroppedItems = spawnSimulatedItem(seed, currentTime, balls, nextDroppedItems, spawnState, itemBuildings);
   }
 
-  return resolveSimulatedItemPickups(currentTime, balls, nextDroppedItems, stats);
+  return resolveSimulatedItemPickups(currentTime, balls, nextDroppedItems, stats, itemBuildings);
 }
 
-function spawnSimulatedItem(seed, currentTime, balls, droppedItems, spawnState) {
+function spawnSimulatedItem(seed, currentTime, balls, droppedItems, spawnState, itemBuildings = []) {
   if (droppedItems.length >= spawnState.maxActive) {
     return droppedItems;
   }
 
-  const weaponIds = Object.keys(ItemWeaponConfig);
+  const dropEntries = getSimulatedItemDropEntries();
   const spawnIndex = spawnState.counter;
   const weaponNoise = seededNoise(seed, spawnIndex + 17, droppedItems.length + 23, 733);
-  const weaponId = weaponIds[Math.floor(weaponNoise * weaponIds.length) % weaponIds.length];
-  const position = createSimulatedItemPosition(seed, spawnIndex, balls);
+  const dropEntry = dropEntries[Math.floor(weaponNoise * dropEntries.length) % dropEntries.length];
+  const position = createSimulatedItemPosition(seed, spawnIndex, balls, droppedItems, itemBuildings, spawnState, currentTime);
   spawnState.counter += 1;
+  if (!position) {
+    spawnState.nextSpawnTime = currentTime + ItemSpawnConfig.retryInterval;
+    return droppedItems;
+  }
+
   spawnState.nextSpawnTime = currentTime + spawnState.spawnInterval;
+  rememberSimulatedItemSpawnZone(spawnState, position, currentTime);
 
   return [
     ...droppedItems,
     {
       id: `item-${seed}-${spawnIndex}`,
-      weaponId,
+      itemId: dropEntry.id,
+      itemType: dropEntry.type,
+      weaponId: dropEntry.type === "weapon" ? dropEntry.id : null,
+      buildingId: dropEntry.type === "building" ? dropEntry.id : null,
       position,
     },
   ];
 }
 
-function createSimulatedItemPosition(seed, spawnIndex, balls) {
+function getSimulatedItemDropEntries() {
+  return [
+    ...Object.keys(ItemWeaponConfig).map((id) => ({ id, type: "weapon" })),
+    ...Object.keys(ItemBuildingConfig).map((id) => ({ id, type: "building" })),
+  ];
+}
+
+function createSimulatedItemPosition(seed, spawnIndex, balls, droppedItems, itemBuildings, spawnState, currentTime) {
+  pruneSimulatedItemSpawnZones(spawnState, currentTime);
   const padding = ItemSpawnConfig.edgePadding;
   const span = ARENA_SIZE - padding * 2;
 
-  for (let attempt = 0; attempt < 24; attempt += 1) {
+  for (let attempt = 0; attempt < ItemSpawnConfig.spawnAttempts; attempt += 1) {
     const position = {
       x: padding + seededNoise(seed, spawnIndex, attempt, 811) * span,
       y: padding + seededNoise(seed, spawnIndex, attempt, 823) * span,
     };
-    const tooCloseToBall = balls.some((ball) => {
-      return ball.hp > 0 && length(subtract(ball.position, position)) < ItemSpawnConfig.avoidBallRadius;
-    });
-    if (!tooCloseToBall) {
+    if (!isSimulatedItemSpawnPositionBlocked(position, balls, droppedItems, itemBuildings, spawnState.recentSpawnZones)) {
       return position;
     }
   }
 
-  return {
-    x: padding + seededNoise(seed, spawnIndex, 0, 839) * span,
-    y: padding + seededNoise(seed, spawnIndex, 0, 853) * span,
-  };
+  return null;
 }
 
-function resolveSimulatedItemPickups(currentTime, balls, droppedItems, stats) {
+function isSimulatedItemSpawnPositionBlocked(position, balls, droppedItems, itemBuildings, recentSpawnZones) {
+  const tooCloseToBall = balls.some((ball) => {
+    return ball.hp > 0 && length(subtract(ball.position, position)) < ItemSpawnConfig.avoidBallRadius;
+  });
+  if (tooCloseToBall) {
+    return true;
+  }
+
+  const tooCloseToDroppedItem = droppedItems.some((item) => {
+    return length(subtract(item.position, position)) < ItemSpawnConfig.avoidItemRadius;
+  });
+  if (tooCloseToDroppedItem) {
+    return true;
+  }
+
+  const tooCloseToBuilding = itemBuildings.some((building) => {
+    return length(subtract(building.position, position)) < ItemSpawnConfig.avoidItemRadius + building.radius;
+  });
+  if (tooCloseToBuilding) {
+    return true;
+  }
+
+  return recentSpawnZones.some((zone) => {
+    return length(subtract(zone.position, position)) < ItemSpawnConfig.recentSpawnAvoidRadius;
+  });
+}
+
+function rememberSimulatedItemSpawnZone(spawnState, position, currentTime) {
+  spawnState.recentSpawnZones.push({
+    position: { ...position },
+    expiresAt: currentTime + ItemSpawnConfig.recentSpawnAvoidDuration,
+  });
+  pruneSimulatedItemSpawnZones(spawnState, currentTime);
+}
+
+function pruneSimulatedItemSpawnZones(spawnState, currentTime) {
+  spawnState.recentSpawnZones = spawnState.recentSpawnZones.filter((zone) => zone.expiresAt > currentTime);
+}
+
+function resolveSimulatedItemPickups(currentTime, balls, droppedItems, stats, itemBuildings) {
   return droppedItems.filter((item) => {
     const picker = balls.find((ball) => {
       return ball.hp > 0 && length(subtract(ball.position, item.position)) <= ball.radius + ItemSpawnConfig.pickupRadius;
@@ -692,9 +761,15 @@ function resolveSimulatedItemPickups(currentTime, balls, droppedItems, stats) {
       return true;
     }
 
-    equipSimulatedItem(picker, item.weaponId, currentTime);
+    const itemType = item.itemType || (item.buildingId ? "building" : "weapon");
+    const itemId = item.itemId || item.weaponId || item.buildingId;
+    if (itemType === "building") {
+      deploySimulatedBuilding(picker, itemId, item.position, currentTime, itemBuildings);
+    } else {
+      equipSimulatedItem(picker, itemId, currentTime);
+    }
     stats.pickups += 1;
-    stats.pickupByWeapon[item.weaponId] += 1;
+    stats.pickupByWeapon[itemId] += 1;
     return false;
   });
 }
@@ -712,7 +787,122 @@ function equipSimulatedItem(ball, weaponId, currentTime) {
   ball.lastAttackTime = Math.min(ball.lastAttackTime, currentTime - weapon.cooldown * 0.5);
 }
 
-function updateItemAttackForPair(attacker, defender, currentTime, seed, stats) {
+function deploySimulatedBuilding(owner, buildingId, position, currentTime, itemBuildings) {
+  const config = ItemBuildingConfig[buildingId];
+  if (!config) {
+    return;
+  }
+
+  itemBuildings.push({
+    kind: "itemBuilding",
+    buildingId,
+    owner,
+    teamId: owner.teamId,
+    position: clampPointToArena(position, config.radius),
+    radius: config.radius,
+    hp: 1,
+    config,
+    lastAttackTime: currentTime - config.cooldown * 0.72,
+    attacksRemaining: config.maxAttacks || Infinity,
+    expiresAt: currentTime + config.duration,
+  });
+}
+
+function updateSimulatedBuildings(itemBuildings, balls, currentTime, stats) {
+  for (const building of itemBuildings) {
+    const config = building.config;
+    if (building.hp <= 0 || currentTime - building.lastAttackTime < config.cooldown || building.attacksRemaining <= 0) {
+      continue;
+    }
+
+    const targets =
+      building.buildingId === "cannon"
+        ? getSimulatedBuildingTargets(building, balls, itemBuildings, { includeBuildings: true })
+        : getSimulatedBuildingTargets(building, balls, itemBuildings);
+    if (targets.length === 0) {
+      continue;
+    }
+
+    if (building.buildingId === "prismTower") {
+      applySimulatedBuildingHit(building, targets[0], currentTime);
+      const chainedTargets = targets
+        .filter((target) => target !== targets[0] && length(subtract(target.position, targets[0].position)) <= config.refractionRadius + target.radius)
+        .slice(0, config.refractionCount);
+      for (const chainedTarget of chainedTargets) {
+        applySimulatedBuildingHit(building, chainedTarget, currentTime, targets[0].position);
+      }
+    } else if (building.buildingId === "bunker") {
+      const targetLimit = Math.max(1, Math.floor((config.bulletCount || 6) / 3));
+      for (const target of targets.slice(0, targetLimit)) {
+        applySimulatedBuildingHit(building, target, currentTime);
+      }
+    } else if (building.buildingId === "cannon") {
+      applySimulatedBuildingHit(building, targets.at(-1), currentTime, null, config.explosionDamage);
+    } else if (building.buildingId === "teslaCoil") {
+      const target = targets[0];
+      applySimulatedBuildingHit(building, target, currentTime);
+      target.paralyzedUntil = Math.max(target.paralyzedUntil, currentTime + config.paralyzeDuration);
+    }
+
+    building.lastAttackTime = currentTime;
+    stats.uses += 1;
+    stats.usesByWeapon[building.buildingId] += 1;
+    if (Number.isFinite(building.attacksRemaining)) {
+      building.attacksRemaining -= 1;
+      if (building.attacksRemaining <= 0) {
+        building.expiresAt = Math.min(building.expiresAt, currentTime + 0.22);
+      }
+    }
+  }
+}
+
+function getSimulatedBuildingTargets(building, balls, itemBuildings, options = {}) {
+  return [
+    ...balls.filter((ball) => {
+      return (
+        ball.hp > 0 &&
+        ball.teamId !== building.teamId &&
+        length(subtract(ball.position, building.position)) <= building.config.range + building.radius + ball.radius
+      );
+    }),
+    ...(options.includeBuildings
+      ? itemBuildings.filter((targetBuilding) => {
+          return (
+            targetBuilding !== building &&
+            targetBuilding.hp > 0 &&
+            targetBuilding.teamId !== building.teamId &&
+            length(subtract(targetBuilding.position, building.position)) <=
+              building.config.range + building.radius + targetBuilding.radius
+          );
+        })
+      : []),
+  ].sort((targetA, targetB) => {
+    return length(subtract(targetA.position, building.position)) - length(subtract(targetB.position, building.position));
+  });
+}
+
+function applySimulatedBuildingHit(building, target, currentTime, origin = null, bonusSplashDamage = 0) {
+  if (!target || target.hp <= 0) {
+    return;
+  }
+
+  if (target.kind === "itemBuilding") {
+    target.hp = 0;
+    target.attacksRemaining = 0;
+    target.expiresAt = Math.min(target.expiresAt, currentTime);
+    return;
+  }
+
+  const attackOrigin = origin || building.position;
+  const normal = normalize(subtract(target.position, attackOrigin));
+  const damage = damageBall(target, building.config.damage + (bonusSplashDamage || 0) * 0.45);
+  if (damage > 0) {
+    target.velocity = add(target.velocity, scale(normal, 56 * (building.config.knockbackMultiplier || 0.45)));
+    keepSpeed(target, currentTime);
+  }
+}
+
+function updateItemAttackForPair(attacker, defender, currentTime, seed, stats, itemFlames) {
   const weapon = attacker.equippedItem ? ItemWeaponConfig[attacker.equippedItem.weaponId] : null;
   if (!weapon || attacker.hp <= 0 || defender.hp <= 0 || currentTime - attacker.lastAttackTime < weapon.cooldown) {
     return;
@@ -724,12 +914,16 @@ function updateItemAttackForPair(attacker, defender, currentTime, seed, stats) {
 
   const attackVariant = getSimulatedItemAttackVariant(weapon, attacker, defender, currentTime, seed, stats);
   const normal = getDirectionBetween(attacker, defender);
-  const damage = damageBall(defender, attackVariant.damage);
-  applySimulatedItemKnockback(attacker, defender, normal, damage, attackVariant, currentTime);
+  if (weapon.projectileKind === "torch" && weapon.groundFire) {
+    spawnSimulatedTorchFire(attacker, defender, weapon, normal, currentTime, itemFlames);
+  } else {
+    const damage = damageBall(defender, attackVariant.damage);
+    applySimulatedItemKnockback(attacker, defender, normal, damage, attackVariant, currentTime);
 
-  if (weapon.kind === "rocket" && weapon.explosionDamage > 0) {
-    const explosionDamage = damageBall(defender, weapon.explosionDamage * 0.45);
-    applySimulatedItemKnockback(attacker, defender, normal, explosionDamage, weapon, currentTime);
+    if (weapon.kind === "rocket" && weapon.explosionDamage > 0) {
+      const explosionDamage = damageBall(defender, weapon.explosionDamage * 0.45);
+      applySimulatedItemKnockback(attacker, defender, normal, explosionDamage, weapon, currentTime);
+    }
   }
 
   attacker.lastAttackTime = currentTime;
@@ -739,6 +933,21 @@ function updateItemAttackForPair(attacker, defender, currentTime, seed, stats) {
   if (attacker.equippedItem.durability <= 0) {
     attacker.equippedItem = null;
   }
+}
+
+function spawnSimulatedTorchFire(attacker, defender, weapon, direction, currentTime, itemFlames) {
+  const fire = weapon.groundFire;
+  const distanceToDefender = length(subtract(defender.position, attacker.position));
+  const landingDistance = clamp(distanceToDefender, attacker.radius + 74, weapon.throwDistance || distanceToDefender);
+  const position = clampPointToArena(add(attacker.position, scale(direction, landingDistance)), fire.radius);
+  itemFlames.push({
+    owner: attacker,
+    position,
+    radius: fire.radius,
+    damage: fire.damage,
+    hitCooldown: fire.hitCooldown,
+    expiresAt: currentTime + fire.duration,
+  });
 }
 
 function isSimulatedItemInRange(attacker, defender, weapon) {

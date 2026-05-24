@@ -6,6 +6,7 @@ import {
   HERO_SCENE_ID,
   HeroConfig,
   ITEM_SCENE_ID,
+  ItemBuildingConfig,
   ItemModeBallConfig,
   ItemSpawnConfig,
   ItemWeaponConfig,
@@ -150,13 +151,18 @@ test("item mode config is data-driven and numerically valid", () => {
   assert.equal(ItemSpawnConfig.maxActive >= ItemSpawnConfig.initialCount, true);
   assert.equal(ItemSpawnConfig.spawnInterval > 0, true);
   assert.equal(ItemSpawnConfig.pickupRadius > 0, true);
+  assert.equal(ItemSpawnConfig.avoidItemRadius > ItemSpawnConfig.pickupRadius, true);
+  assert.equal(ItemSpawnConfig.recentSpawnAvoidRadius >= ItemSpawnConfig.avoidItemRadius, true);
+  assert.equal(ItemSpawnConfig.recentSpawnAvoidDuration > 0, true);
+  assert.equal(ItemSpawnConfig.spawnAttempts >= 24, true);
+  assert.equal(ItemSpawnConfig.retryInterval > 0 && ItemSpawnConfig.retryInterval < ItemSpawnConfig.spawnInterval, true);
   assert.equal(getItemInitialCount(2), ItemSpawnConfig.initialCount);
   assert.equal(getItemInitialCount(6) > getItemInitialCount(2), true);
   assert.equal(getItemMaxActiveCount(6) > getItemMaxActiveCount(2), true);
   assert.equal(getItemSpawnInterval(6) < getItemSpawnInterval(2), true);
 
   const weaponIds = Object.keys(ItemWeaponConfig).sort();
-  assert.deepEqual(weaponIds, ["bow", "pistol", "rocket", "spear", "staff", "sword"]);
+  assert.deepEqual(weaponIds, ["bow", "pistol", "rocket", "spear", "staff", "sword", "torch"]);
 
   for (const [id, weapon] of Object.entries(ItemWeaponConfig)) {
     assert.equal(weapon.id, id);
@@ -180,11 +186,37 @@ test("item mode config is data-driven and numerically valid", () => {
   assert.equal(ItemWeaponConfig.rocket.explosionDamage > 0, true);
   assert.equal(ItemWeaponConfig.rocket.explosionRadius > 0, true);
   assert.equal(ItemWeaponConfig.staff.spellBook.length, 3);
+  assert.equal(ItemWeaponConfig.torch.durability, 1);
+  assert.equal(ItemWeaponConfig.torch.projectileKind, "torch");
+  assert.equal(ItemWeaponConfig.torch.groundFire.radius > 0, true);
+  assert.equal(ItemWeaponConfig.torch.groundFire.duration > 0, true);
   for (const spell of ItemWeaponConfig.staff.spellBook) {
     assert.equal(typeof spell.id, "string");
     assert.equal(spell.damage > 0, true);
     assert.equal(spell.knockbackMultiplier > 0, true);
   }
+
+  const buildingIds = Object.keys(ItemBuildingConfig).sort();
+  assert.deepEqual(buildingIds, ["bunker", "cannon", "prismTower", "teslaCoil"]);
+  for (const [id, building] of Object.entries(ItemBuildingConfig)) {
+    assert.equal(building.id, id);
+    assert.equal(building.kind, "building");
+    assert.equal(building.nameKey.startsWith("items."), true);
+    assert.equal(building.damage > 0, true);
+    assert.equal(building.cooldown > 0, true);
+    assert.equal(building.range > 0, true);
+    assert.equal(building.radius > 0, true);
+    assert.equal(building.duration > 0, true);
+    assert.equal(building.knockbackMultiplier > 0, true);
+  }
+  assert.equal(ItemBuildingConfig.prismTower.refractionRadius > 0, true);
+  assert.equal(ItemBuildingConfig.bunker.bulletCount, 6);
+  assert.equal(ItemBuildingConfig.cannon.cooldown > ItemBuildingConfig.bunker.cooldown, true);
+  assert.equal(ItemBuildingConfig.cannon.damage > ItemBuildingConfig.bunker.damage, true);
+  assert.equal(ItemBuildingConfig.cannon.canTargetBuildings, true);
+  assert.equal(ItemBuildingConfig.cannon.destroyBuildingsOnHit, true);
+  assert.equal(ItemBuildingConfig.teslaCoil.maxAttacks, 3);
+  assert.equal(ItemBuildingConfig.teslaCoil.paralyzeDuration > 0, true);
 });
 
 test("spear front thrust upgrades damage only while facing the enemy", () => {

@@ -8,6 +8,7 @@ import {
   HERO_SCENE_ID,
   HeroConfig,
   ITEM_SCENE_ID,
+  ItemBuildingConfig,
   ItemModeBallConfig,
   ItemSpawnConfig,
   ItemWeaponConfig,
@@ -111,10 +112,13 @@ let webLinks = [];
 let flameTrails = [];
 let damageIndicators = [];
 let droppedItems = [];
+let itemBuildings = [];
 let itemExplosions = [];
+let recentItemSpawnZones = [];
 let heroEffectInstances = [];
 let nextItemSpawnTime = 0;
 let itemSpawnCounter = 0;
+let itemBuildingCounter = 0;
 let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
@@ -216,6 +220,27 @@ function createVoxelAssets() {
           O: "#f26b24",
           Y: "#ffd84a",
           W: "#fff6cf",
+        },
+      ),
+      torch: createVoxelSprite(
+        [
+          ".....RRR.....",
+          "...RROOOR...",
+          "..ROYYYYOR..",
+          "...OOYYO....",
+          ".....WW.....",
+          ".....WW.....",
+          ".....WW.....",
+          "....WwwW....",
+          "....WwwW....",
+          ".....WW.....",
+        ],
+        {
+          R: "#9f2d17",
+          O: "#ff6b24",
+          Y: "#ffd166",
+          W: "#8d5a2e",
+          w: "#b8793e",
         },
       ),
       iceShard: createVoxelSprite(
@@ -1299,9 +1324,12 @@ function restartGame() {
   flameTrails = [];
   damageIndicators = [];
   droppedItems = [];
+  itemBuildings = [];
   itemExplosions = [];
+  recentItemSpawnZones = [];
   heroEffectInstances = [];
   itemSpawnCounter = 0;
+  itemBuildingCounter = 0;
   nextItemSpawnTime = 0;
   gameOver = false;
   resultMessage = "";
@@ -1325,10 +1353,13 @@ function returnToMenu() {
   flameTrails = [];
   damageIndicators = [];
   droppedItems = [];
+  itemBuildings = [];
   itemExplosions = [];
+  recentItemSpawnZones = [];
   heroEffectInstances = [];
   nextItemSpawnTime = 0;
   itemSpawnCounter = 0;
+  itemBuildingCounter = 0;
   gameOver = false;
   resultMessage = "";
   setScreen(Screen.MAIN_MENU);
@@ -1498,6 +1529,9 @@ function getAttackTelemetrySource(attacker, attackVariant = null) {
   }
   if (attackVariant?.heroSkillId) {
     return `hero_${attackVariant.heroSkillId}`;
+  }
+  if (attackVariant?.itemBuildingId) {
+    return `item_building_${attackVariant.itemBuildingId}`;
   }
   if (attackVariant?.itemWeaponId) {
     return `item_${attackVariant.itemWeaponId}`;
@@ -1992,6 +2026,7 @@ function update(deltaTime, currentTime) {
   arenaHazards = arenaHazards.filter((hazard) => hazard.expiresAt > currentTime);
   webLinks = webLinks.filter((web) => web.expiresAt > currentTime);
   flameTrails = flameTrails.filter((flame) => flame.expiresAt > currentTime);
+  itemBuildings = itemBuildings.filter((building) => building.expiresAt > currentTime && building.hp > 0);
   itemExplosions = itemExplosions.filter((explosion) => explosion.expiresAt > currentTime);
   heroEffectInstances = updateHeroEffectInstances(heroEffectInstances, currentTime);
   for (const ball of balls) {
@@ -2004,6 +2039,7 @@ function update(deltaTime, currentTime) {
     resolveBallCollision(ballA, ballB, currentTime);
   });
   updateEnvironmentalHazards(currentTime);
+  updateItemBuildings(currentTime);
   updateProjectiles(deltaTime, currentTime);
   for (const ball of balls) {
     if (ball.hp > 0) {
@@ -2441,6 +2477,7 @@ function updateItemMode(deltaTime, currentTime) {
 
 function spawnInitialItems(currentTime) {
   droppedItems = [];
+  recentItemSpawnZones = [];
   const initialItemCount = getItemInitialCount(selectedProfessions.ballCount);
   for (let index = 0; index < initialItemCount; index += 1) {
     spawnDroppedItem(currentTime, index);
@@ -2449,46 +2486,116 @@ function spawnInitialItems(currentTime) {
 }
 
 function spawnDroppedItem(currentTime, forcedOffset = 0) {
-  const weaponIds = Object.keys(ItemWeaponConfig);
-  if (weaponIds.length === 0 || droppedItems.length >= getItemMaxActiveCount(selectedProfessions.ballCount)) {
+  const dropEntries = getItemDropEntries();
+  if (dropEntries.length === 0 || droppedItems.length >= getItemMaxActiveCount(selectedProfessions.ballCount)) {
     return;
   }
 
   const spawnIndex = itemSpawnCounter + forcedOffset;
   const weaponNoise = terrainNoise(terrainState.seed, spawnIndex + 17, droppedItems.length + 23, 733);
-  const weaponId = weaponIds[Math.floor(weaponNoise * weaponIds.length) % weaponIds.length];
-  const position = createItemSpawnPosition(spawnIndex);
+  const dropEntry = dropEntries[Math.floor(weaponNoise * dropEntries.length) % dropEntries.length];
+  const position = createItemSpawnPosition(spawnIndex, currentTime);
+  if (!position) {
+    itemSpawnCounter += 1;
+    nextItemSpawnTime = currentTime + ItemSpawnConfig.retryInterval;
+    return;
+  }
 
   droppedItems.push({
     id: `item-${itemSpawnCounter}`,
-    weaponId,
+    itemId: dropEntry.id,
+    itemType: dropEntry.type,
+    weaponId: dropEntry.type === "weapon" ? dropEntry.id : null,
+    buildingId: dropEntry.type === "building" ? dropEntry.id : null,
     position,
     spawnedAt: currentTime,
   });
+  rememberItemSpawnZone(position, currentTime);
   itemSpawnCounter += 1;
   nextItemSpawnTime = currentTime + getItemSpawnInterval(selectedProfessions.ballCount);
 }
 
-function createItemSpawnPosition(spawnIndex) {
+function getItemDropEntries() {
+  return [
+    ...Object.keys(ItemWeaponConfig).map((id) => ({ id, type: "weapon" })),
+    ...Object.keys(ItemBuildingConfig).map((id) => ({ id, type: "building" })),
+  ];
+}
+
+function getDroppedItemType(item) {
+  if (item.itemType) {
+    return item.itemType;
+  }
+
+  return item.buildingId ? "building" : "weapon";
+}
+
+function getDroppedItemId(item) {
+  return item.itemId || item.weaponId || item.buildingId || "";
+}
+
+function getDroppedItemConfig(item) {
+  return getItemConfig(getDroppedItemType(item), getDroppedItemId(item));
+}
+
+function getItemConfig(itemType, itemId) {
+  return itemType === "building" ? ItemBuildingConfig[itemId] || null : ItemWeaponConfig[itemId] || null;
+}
+
+function createItemSpawnPosition(spawnIndex, currentTime) {
+  pruneRecentItemSpawnZones(currentTime);
   const padding = ItemSpawnConfig.edgePadding;
   const span = ARENA_SIZE - padding * 2;
 
-  for (let attempt = 0; attempt < 24; attempt += 1) {
+  for (let attempt = 0; attempt < ItemSpawnConfig.spawnAttempts; attempt += 1) {
     const x = padding + terrainNoise(terrainState.seed, spawnIndex, attempt, 811) * span;
     const y = padding + terrainNoise(terrainState.seed, spawnIndex, attempt, 823) * span;
     const position = { x, y };
-    const tooCloseToBall = balls.some((ball) => {
-      return ball.hp > 0 && length(subtract(ball.position, position)) < ItemSpawnConfig.avoidBallRadius;
-    });
-    if (!tooCloseToBall) {
+    if (!isItemSpawnPositionBlocked(position)) {
       return position;
     }
   }
 
-  return {
-    x: padding + terrainNoise(terrainState.seed, spawnIndex, 0, 839) * span,
-    y: padding + terrainNoise(terrainState.seed, spawnIndex, 0, 853) * span,
-  };
+  return null;
+}
+
+function isItemSpawnPositionBlocked(position) {
+  const tooCloseToBall = balls.some((ball) => {
+    return ball.hp > 0 && length(subtract(ball.position, position)) < ItemSpawnConfig.avoidBallRadius;
+  });
+  if (tooCloseToBall) {
+    return true;
+  }
+
+  const tooCloseToDroppedItem = droppedItems.some((item) => {
+    return length(subtract(item.position, position)) < ItemSpawnConfig.avoidItemRadius;
+  });
+  if (tooCloseToDroppedItem) {
+    return true;
+  }
+
+  const tooCloseToBuilding = itemBuildings.some((building) => {
+    return building.hp > 0 && length(subtract(building.position, position)) < ItemSpawnConfig.avoidItemRadius + building.radius;
+  });
+  if (tooCloseToBuilding) {
+    return true;
+  }
+
+  return recentItemSpawnZones.some((zone) => {
+    return length(subtract(zone.position, position)) < ItemSpawnConfig.recentSpawnAvoidRadius;
+  });
+}
+
+function rememberItemSpawnZone(position, currentTime) {
+  recentItemSpawnZones.push({
+    position: { ...position },
+    expiresAt: currentTime + ItemSpawnConfig.recentSpawnAvoidDuration,
+  });
+  pruneRecentItemSpawnZones(currentTime);
+}
+
+function pruneRecentItemSpawnZones(currentTime) {
+  recentItemSpawnZones = recentItemSpawnZones.filter((zone) => zone.expiresAt > currentTime);
 }
 
 function resolveItemPickups(currentTime) {
@@ -2501,7 +2608,11 @@ function resolveItemPickups(currentTime) {
       return true;
     }
 
-    equipItemWeapon(picker, item.weaponId, currentTime);
+    if (getDroppedItemType(item) === "building") {
+      deployItemBuilding(picker, getDroppedItemId(item), item.position, currentTime);
+    } else {
+      equipItemWeapon(picker, getDroppedItemId(item), currentTime);
+    }
     return false;
   });
 }
@@ -2519,6 +2630,302 @@ function equipItemWeapon(ball, weaponId, currentTime) {
     pickedAt: currentTime,
   };
   ball.lastAttackTime = Math.min(ball.lastAttackTime, currentTime - weapon.cooldown * 0.5);
+}
+
+function deployItemBuilding(owner, buildingId, position, currentTime) {
+  const buildingConfig = ItemBuildingConfig[buildingId];
+  if (!buildingConfig || owner.hp <= 0) {
+    return;
+  }
+
+  const safePosition = clampPointToArena(position, buildingConfig.radius);
+  itemBuildings.push(createItemBuilding(owner, buildingConfig, safePosition, currentTime));
+  itemExplosions.push({
+    position: safePosition,
+    radius: buildingConfig.radius * 1.35,
+    color: buildingConfig.accentColor,
+    createdAt: currentTime,
+    expiresAt: currentTime + 0.24,
+  });
+}
+
+function createItemBuilding(owner, buildingConfig, position, currentTime) {
+  const id = `building-${itemBuildingCounter}`;
+  itemBuildingCounter += 1;
+
+  return {
+    kind: "itemBuilding",
+    id,
+    buildingId: buildingConfig.id,
+    owner,
+    teamId: owner.teamId,
+    profession: null,
+    isHero: false,
+    isPrimaryCombatant: false,
+    position: { ...position },
+    velocity: { x: 0, y: 0 },
+    radius: buildingConfig.radius,
+    hp: buildingConfig.maxHp || 1,
+    maxHp: buildingConfig.maxHp || 1,
+    visual: {
+      color: buildingConfig.color,
+      accentColor: buildingConfig.accentColor,
+    },
+    config: {
+      ...buildingConfig,
+      moveSpeed: 0,
+      getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+        return attackVariant?.knockbackMultiplier || buildingConfig.knockbackMultiplier || 0.45;
+      },
+    },
+    attackState: null,
+    lastAttackTime: currentTime - buildingConfig.cooldown * 0.72,
+    lastDirection: { x: 1, y: 0 },
+    attacksRemaining: buildingConfig.maxAttacks || Infinity,
+    createdAt: currentTime,
+    expiresAt: currentTime + buildingConfig.duration,
+    dealAttackDamageTo(defender, normalFromAttackerToDefender, attackVariant = null) {
+      return damageBall(defender, attackVariant?.damage || buildingConfig.damage);
+    },
+    isSkillHit() {
+      return true;
+    },
+  };
+}
+
+function updateItemBuildings(currentTime) {
+  for (const building of itemBuildings) {
+    const buildingConfig = ItemBuildingConfig[building.buildingId];
+    if (!buildingConfig || building.hp <= 0 || building.attacksRemaining <= 0) {
+      building.expiresAt = Math.min(building.expiresAt, currentTime);
+      continue;
+    }
+
+    if (currentTime - building.lastAttackTime < buildingConfig.cooldown) {
+      continue;
+    }
+
+    const targets =
+      building.buildingId === "cannon" ? getCannonTargetsInRange(building) : getItemBuildingTargetsInRange(building);
+    if (targets.length === 0) {
+      continue;
+    }
+
+    if (building.buildingId === "prismTower") {
+      firePrismTower(building, targets[0], currentTime);
+    } else if (building.buildingId === "bunker") {
+      fireBunkerVolley(building, currentTime);
+    } else if (building.buildingId === "cannon") {
+      fireCannon(building, targets.at(-1), currentTime);
+    } else if (building.buildingId === "teslaCoil") {
+      fireTeslaCoil(building, targets[0], currentTime);
+    }
+  }
+}
+
+function getItemBuildingTargetsInRange(building) {
+  const range = building.config.range || 0;
+  return balls
+    .filter((ball) => {
+      return (
+        ball.hp > 0 &&
+        !areAlliedCombatants(building, ball) &&
+        length(subtract(ball.position, building.position)) <= range + building.radius + ball.radius
+      );
+    })
+    .sort((targetA, targetB) => {
+      return length(subtract(targetA.position, building.position)) - length(subtract(targetB.position, building.position));
+    });
+}
+
+function getCannonTargetsInRange(building) {
+  const range = building.config.range || 0;
+  return [
+    ...balls.filter((ball) => {
+      return (
+        ball.hp > 0 &&
+        !areAlliedCombatants(building, ball) &&
+        length(subtract(ball.position, building.position)) <= range + building.radius + ball.radius
+      );
+    }),
+    ...itemBuildings.filter((targetBuilding) => {
+      return (
+        targetBuilding !== building &&
+        targetBuilding.hp > 0 &&
+        !areAlliedCombatants(building, targetBuilding) &&
+        length(subtract(targetBuilding.position, building.position)) <= range + building.radius + targetBuilding.radius
+      );
+    }),
+  ].sort((targetA, targetB) => {
+    return length(subtract(targetA.position, building.position)) - length(subtract(targetB.position, building.position));
+  });
+}
+
+function createItemBuildingAttackVariant(building, extra = {}) {
+  return {
+    itemBuildingId: building.buildingId,
+    damage: building.config.damage,
+    knockbackMultiplier: building.config.knockbackMultiplier,
+    isSkillHit: true,
+    ...extra,
+  };
+}
+
+function resolveItemBuildingHit(building, target, currentTime, origin = building.position, extraVariant = {}) {
+  if (!target || target.hp <= 0) {
+    return 0;
+  }
+
+  const normal = normalize(subtract(target.position, origin));
+  building.lastDirection = normal;
+  return resolveAttackHit(building, target, normal, currentTime, createItemBuildingAttackVariant(building, extraVariant));
+}
+
+function markItemBuildingAttack(building, currentTime) {
+  building.lastAttackTime = currentTime;
+  if (Number.isFinite(building.attacksRemaining)) {
+    building.attacksRemaining -= 1;
+    if (building.attacksRemaining <= 0) {
+      building.expiresAt = Math.min(building.expiresAt, currentTime + 0.22);
+    }
+  }
+}
+
+function firePrismTower(building, primaryTarget, currentTime) {
+  const config = building.config;
+  const towerTip = add(building.position, { x: 0, y: -building.radius * 0.78 });
+  const primaryStart = { ...towerTip };
+  const primaryEnd = { ...primaryTarget.position };
+  resolveItemBuildingHit(building, primaryTarget, currentTime, primaryStart);
+  pushBuildingBeam(building, primaryStart, primaryEnd, currentTime, {
+    color: config.color,
+    darkColor: "#082f49",
+    sparkColor: config.accentColor,
+    beamStyle: "prism",
+  });
+
+  const refractionTargets = balls
+    .filter((candidate) => {
+      return (
+        candidate !== primaryTarget &&
+        candidate.hp > 0 &&
+        !areAlliedCombatants(building, candidate) &&
+        length(subtract(candidate.position, primaryEnd)) <= config.refractionRadius + candidate.radius
+      );
+    })
+    .sort((targetA, targetB) => {
+      return length(subtract(targetA.position, primaryEnd)) - length(subtract(targetB.position, primaryEnd));
+    })
+    .slice(0, config.refractionCount);
+
+  for (const refractedTarget of refractionTargets) {
+    const refractionStart = { ...primaryEnd };
+    const refractionEnd = { ...refractedTarget.position };
+    resolveItemBuildingHit(building, refractedTarget, currentTime, refractionStart);
+    pushBuildingBeam(building, refractionStart, refractionEnd, currentTime, {
+      color: config.color,
+      darkColor: "#082f49",
+      sparkColor: config.accentColor,
+      beamStyle: "prism",
+      duration: 0.2,
+    });
+  }
+
+  markItemBuildingAttack(building, currentTime);
+}
+
+function fireBunkerVolley(building, currentTime) {
+  const config = building.config;
+  const bulletCount = config.bulletCount || 6;
+  const angleOffset = currentTime * 0.38 + building.position.x * 0.003;
+  for (let index = 0; index < bulletCount; index += 1) {
+    const direction = vectorFromAngle(angleOffset + (index * Math.PI * 2) / bulletCount);
+    fireItemBuildingProjectile(building, direction, config, currentTime);
+  }
+  building.lastDirection = vectorFromAngle(angleOffset);
+  markItemBuildingAttack(building, currentTime);
+}
+
+function fireCannon(building, target, currentTime) {
+  const config = building.config;
+  const direction = getProjectileAimDirection(building, target, config.speed, building.position);
+  fireItemBuildingProjectile(building, direction, config, currentTime);
+  building.lastDirection = direction;
+  markItemBuildingAttack(building, currentTime);
+}
+
+function fireTeslaCoil(building, target, currentTime) {
+  const config = building.config;
+  const coilTip = add(building.position, { x: 0, y: -building.radius * 0.74 });
+  resolveItemBuildingHit(building, target, currentTime, coilTip);
+  target.paralyzedUntil = Math.max(target.paralyzedUntil, currentTime + config.paralyzeDuration);
+  target.attackState = null;
+  target.shockFlashTime = Math.max(target.shockFlashTime, 0.28);
+  pushBuildingBeam(building, coilTip, target.position, currentTime, {
+    color: "#60a5fa",
+    darkColor: "#0f172a",
+    sparkColor: "#fde047",
+    jitterMagnitude: 15,
+    duration: 0.28,
+  });
+  markItemBuildingAttack(building, currentTime);
+}
+
+function fireItemBuildingProjectile(building, direction, config, currentTime) {
+  const position = add(building.position, scale(direction, building.radius + (config.spawnOffset || 12)));
+  projectiles.push({
+    owner: building,
+    kind: config.projectileKind || "bullet",
+    position,
+    previousPosition: { ...position },
+    direction,
+    speed: config.speed,
+    headRadius: config.headRadius,
+    collisionRadius: config.headRadius,
+    shaftLength: config.shaftLength,
+    shaftRadius: config.shaftRadius || 4,
+    color: config.accentColor,
+    darkColor: "#050711",
+    featherColor: config.color,
+    variant: createItemBuildingAttackVariant(building),
+    explosionRadius: config.explosionRadius || 0,
+    explosionDamage: config.explosionDamage || 0,
+    canHitBuildings: Boolean(config.canTargetBuildings),
+    destroysBuildingsOnHit: Boolean(config.destroyBuildingsOnHit),
+    createdAt: currentTime,
+  });
+}
+
+function pushBuildingBeam(building, start, end, currentTime, options = {}) {
+  const direction = normalize(subtract(end, start));
+  const points =
+    options.beamStyle === "prism"
+      ? [start, end]
+      : createLightningTrajectoryPoints(
+          start,
+          end,
+          direction,
+          {
+            segmentCount: 6,
+            jitterMagnitude: options.jitterMagnitude || 10,
+          },
+          currentTime,
+          building.id,
+        );
+
+  spellTrajectories.push({
+    owner: building,
+    kind: options.beamStyle === "prism" ? "beam" : "lightning",
+    points,
+    collisionRadius: 0,
+    color: options.color || building.config.color,
+    darkColor: options.darkColor || "#050711",
+    sparkColor: options.sparkColor || building.config.accentColor,
+    createdAt: currentTime,
+    expiresAt: currentTime + (options.duration || 0.22),
+    variant: createItemBuildingAttackVariant(building),
+    beamStyle: options.beamStyle || "lightning",
+  });
 }
 
 function consumeEquippedItemDurability(ball) {
@@ -2813,6 +3220,9 @@ function fireItemProjectile(attacker, defender, weapon, currentTime, variant = n
 
   const direction = getProjectileAimDirection(attacker, defender, weapon.speed);
   const position = add(attacker.position, scale(direction, attacker.radius + (weapon.spawnOffset || 28)));
+  const distanceToDefender = length(subtract(defender.position, position));
+  const maxTravelDistance =
+    weapon.projectileKind === "torch" ? clamp(distanceToDefender, attacker.radius + 74, weapon.throwDistance || distanceToDefender) : Infinity;
   attacker.attackState.direction = direction;
   projectiles.push({
     owner: attacker,
@@ -2831,6 +3241,9 @@ function fireItemProjectile(attacker, defender, weapon, currentTime, variant = n
     variant: variant || weapon,
     explosionRadius: weapon.explosionRadius || 0,
     explosionDamage: weapon.explosionDamage || 0,
+    maxTravelDistance,
+    traveledDistance: 0,
+    groundFire: weapon.groundFire || null,
   });
 }
 
@@ -2914,15 +3327,36 @@ function updateProjectiles(deltaTime, currentTime) {
   projectiles = projectiles.filter((projectile) => {
     projectile.previousPosition = { ...projectile.position };
     updateHomingProjectileDirection(projectile);
-    projectile.position = add(projectile.position, scale(projectile.direction, projectile.speed * deltaTime));
+    const travelDistance = projectile.speed * deltaTime;
+    projectile.position = add(projectile.position, scale(projectile.direction, travelDistance));
+    projectile.traveledDistance = (projectile.traveledDistance || 0) + travelDistance;
 
     if (!isProjectileInArena(projectile)) {
+      if (projectile.kind === "torch") {
+        spawnTorchFire(projectile, currentTime);
+      }
       return false;
     }
 
-    const defender = balls.find((ball) => ball !== projectile.owner && ball.hp > 0 && getProjectileTrajectoryHit(projectile, ball));
+    if (projectile.kind === "torch") {
+      if (projectile.traveledDistance >= projectile.maxTravelDistance) {
+        spawnTorchFire(projectile, currentTime);
+        return false;
+      }
+      return true;
+    }
+
+    const defender = getProjectileHitTarget(projectile);
     if (!defender) {
       return true;
+    }
+
+    if (isItemBuilding(defender) && projectile.destroysBuildingsOnHit) {
+      destroyItemBuilding(defender, projectile, currentTime);
+      if (projectile.explosionRadius > 0) {
+        resolveProjectileExplosion(projectile, currentTime);
+      }
+      return false;
     }
 
     resolveAttackHit(projectile.owner, defender, projectile.direction, currentTime, projectile.variant);
@@ -2930,6 +3364,72 @@ function updateProjectiles(deltaTime, currentTime) {
       resolveProjectileExplosion(projectile, currentTime, defender);
     }
     return false;
+  });
+}
+
+function getProjectileHitTarget(projectile) {
+  const ballTarget = balls.find((ball) => {
+    return ball.hp > 0 && !areAlliedCombatants(projectile.owner, ball) && getProjectileTrajectoryHit(projectile, ball);
+  });
+  if (ballTarget || !projectile.canHitBuildings) {
+    return ballTarget || null;
+  }
+
+  return (
+    itemBuildings.find((building) => {
+      return (
+        building !== projectile.owner &&
+        building.hp > 0 &&
+        !areAlliedCombatants(projectile.owner, building) &&
+        getProjectileTrajectoryHit(projectile, building)
+      );
+    }) || null
+  );
+}
+
+function isItemBuilding(combatant) {
+  return combatant?.kind === "itemBuilding";
+}
+
+function destroyItemBuilding(building, projectile, currentTime) {
+  const remainingHp = building.hp;
+  building.hp = 0;
+  building.attacksRemaining = 0;
+  building.expiresAt = Math.min(building.expiresAt, currentTime);
+  building.hitFlashTime = 0.16;
+  recordCombatHit(projectile.owner, building, remainingHp || 1, getAttackTelemetrySource(projectile.owner, projectile.variant));
+  itemExplosions.push({
+    position: { ...building.position },
+    radius: building.radius * 1.75,
+    color: projectile.color || building.config.accentColor,
+    createdAt: currentTime,
+    expiresAt: currentTime + 0.28,
+  });
+}
+
+function spawnTorchFire(projectile, currentTime) {
+  const groundFire = projectile.groundFire;
+  if (!groundFire) {
+    return;
+  }
+
+  const position = clampPointToArena(projectile.position, groundFire.radius);
+  flameTrails.push({
+    type: "torchFire",
+    owner: projectile.owner,
+    position,
+    radius: groundFire.radius,
+    damage: groundFire.damage,
+    hitCooldown: groundFire.hitCooldown,
+    source: "torch_fire",
+    createdAt: currentTime,
+    expiresAt: currentTime + groundFire.duration,
+  });
+  itemExplosions.push({
+    position,
+    radius: groundFire.radius * 0.72,
+    createdAt: currentTime,
+    expiresAt: currentTime + 0.26,
   });
 }
 
@@ -2942,7 +3442,7 @@ function resolveProjectileExplosion(projectile, currentTime, directHitDefender =
   });
 
   for (const ball of balls) {
-    if (ball === projectile.owner || ball.hp <= 0) {
+    if (ball.hp <= 0 || areAlliedCombatants(projectile.owner, ball)) {
       continue;
     }
 
@@ -3516,7 +4016,7 @@ function updateEnvironmentalHazards(currentTime) {
         if (currentTime - ball.lastFlameHitTime >= flame.hitCooldown) {
           ball.lastFlameHitTime = currentTime;
           const damage = damageBall(ball, flame.damage);
-          recordCombatHit(flame.owner, ball, damage, "flame_trail");
+          recordCombatHit(flame.owner, ball, damage, flame.source || "flame_trail");
         }
       }
     }
@@ -5189,40 +5689,139 @@ function drawProfessionGridItem(x, y, width, height, professionId, options = {})
 }
 
 function drawItemWeaponPreviewGrid(area) {
-  const weaponIds = Object.keys(ItemWeaponConfig);
-  const gap = 10;
-  const columns = area.width >= 520 ? 3 : 2;
-  const cellWidth = (area.width - gap * (columns - 1)) / columns;
-  const rows = Math.ceil(weaponIds.length / columns);
-  const cellHeight = Math.min(88, (area.height - gap * Math.max(0, rows - 1)) / rows);
+  const itemEntries = getItemDropEntries();
+  const sections = [
+    {
+      label: t("items.category.building"),
+      accent: "#7dd3fc",
+      entries: itemEntries.filter((itemEntry) => itemEntry.type === "building"),
+    },
+    {
+      label: t("items.category.weapon"),
+      accent: "#d9aa55",
+      entries: itemEntries.filter((itemEntry) => itemEntry.type !== "building"),
+    },
+  ].filter((section) => section.entries.length > 0);
 
-  weaponIds.forEach((weaponId, index) => {
-    const weapon = ItemWeaponConfig[weaponId];
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-    const x = area.x + column * (cellWidth + gap);
-    const y = area.y + row * (cellHeight + gap);
+  if (sections.length === 0) {
+    return;
+  }
 
-    drawPixelFrame(x, y, cellWidth, cellHeight, {
-      fill: "#202834",
-      border: "#5c6462",
-      shadow: "#050711",
-      texture: voxelAssets.blocks.deepslate,
-    });
-    drawItemWeaponIcon(weapon, x + 18, y + 14, Math.min(42, cellHeight - 32));
-    ctx.save();
-    ctx.fillStyle = COLORS.text;
-    ctx.font = canvasFont(getFittedFontSize(t(weapon.nameKey), cellWidth - 70, 15, 10, 900), 900);
-    setCanvasDirection(ctx);
-    ctx.textAlign = getTextAlignStart();
-    ctx.textBaseline = "middle";
-    ctx.fillText(t(weapon.nameKey), getTextStartX(x + 66, cellWidth - 78), y + cellHeight / 2 - 8);
-    ctx.fillStyle = COLORS.muted;
-    ctx.font = canvasFont(11, 700);
-    const statText = `x${weapon.durability} / ${weapon.damage}`;
-    ctx.fillText(statText, getTextStartX(x + 66, cellWidth - 78), y + cellHeight / 2 + 13);
-    ctx.restore();
+  const layout = getItemPreviewLayout(area, sections);
+  const maxScroll = Math.max(0, layout.contentHeight - area.height);
+  professionScrollOffset = clamp(professionScrollOffset, 0, maxScroll);
+  professionScrollArea = { ...area, maxScroll };
+  professionScrollInputArea = { ...area, maxScroll };
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(area.x, area.y, area.width, area.height);
+  ctx.clip();
+
+  let cursorY = area.y - professionScrollOffset;
+  sections.forEach((section, sectionIndex) => {
+    drawItemPreviewSectionHeader(section.label, area.x, cursorY, area.width, layout.headerHeight, section.accent);
+    cursorY += layout.headerHeight;
+    cursorY = drawItemPreviewSection(section, area.x, cursorY, layout);
+    if (sectionIndex < sections.length - 1) {
+      cursorY += layout.sectionGap;
+    }
   });
+
+  ctx.restore();
+  drawProfessionScrollFrame(area, maxScroll);
+}
+
+function getItemPreviewLayout(area, sections) {
+  const columns = area.width >= 520 ? 3 : 2;
+  const gap = area.width >= 520 ? 10 : 7;
+  const cellHeight = area.width >= 520 ? 66 : 56;
+  const headerHeight = area.width >= 520 ? 22 : 18;
+  const sectionGap = area.width >= 520 ? 14 : 10;
+  const cellWidth = (area.width - gap * (columns - 1)) / columns;
+  const rowCounts = sections.map((section) => Math.ceil(section.entries.length / columns));
+  const rowContentHeight = rowCounts.reduce((total, rows) => {
+    return total + rows * cellHeight + Math.max(0, rows - 1) * gap;
+  }, 0);
+
+  return {
+    columns,
+    gap,
+    cellWidth,
+    cellHeight,
+    headerHeight,
+    sectionGap,
+    rowCounts,
+    contentHeight: rowContentHeight + sections.length * headerHeight + Math.max(0, sections.length - 1) * sectionGap,
+  };
+}
+
+function drawItemPreviewSectionHeader(label, x, y, width, height, accent) {
+  ctx.save();
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "top";
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(label, width, height >= 22 ? 15 : 13, 10, 900), 900);
+  ctx.fillText(label, getTextStartX(x, width), y);
+  ctx.fillStyle = accent;
+  ctx.globalAlpha = 0.78;
+  ctx.fillRect(x, y + height - 5, width, 2);
+  ctx.restore();
+}
+
+function drawItemPreviewSection(section, x, y, layout) {
+  const rowCount = Math.ceil(section.entries.length / layout.columns);
+  section.entries.forEach((itemEntry, index) => {
+    const itemConfig = getItemConfig(itemEntry.type, itemEntry.id);
+    if (!itemConfig) {
+      return;
+    }
+
+    const column = index % layout.columns;
+    const row = Math.floor(index / layout.columns);
+    drawItemPreviewCard(
+      itemEntry,
+      itemConfig,
+      x + column * (layout.cellWidth + layout.gap),
+      y + row * (layout.cellHeight + layout.gap),
+      layout.cellWidth,
+      layout.cellHeight,
+    );
+  });
+
+  return y + rowCount * layout.cellHeight + Math.max(0, rowCount - 1) * layout.gap;
+}
+
+function drawItemPreviewCard(itemEntry, itemConfig, x, y, width, height) {
+  const isBuilding = itemEntry.type === "building";
+  const iconSize = clamp(height - 22, 22, 42);
+  const iconX = isRtlLocale(currentLocale) ? x + width - iconSize - 12 : x + 12;
+  const textX = isRtlLocale(currentLocale) ? x + 12 : x + iconSize + 24;
+  const textWidth = width - iconSize - 36;
+  const titleY = y + height / 2 - (height < 58 ? 7 : 9);
+  const statY = y + height / 2 + (height < 58 ? 11 : 14);
+
+  drawPixelFrame(x, y, width, height, {
+    fill: isBuilding ? "#172638" : "#202834",
+    border: isBuilding ? "#7dd3fc" : "#5c6462",
+    shadow: "#050711",
+    texture: isBuilding ? voxelAssets.blocks.stone : voxelAssets.blocks.deepslate,
+  });
+  drawItemDropIcon(itemConfig, itemEntry.type, iconX, y + (height - iconSize) / 2, iconSize);
+
+  ctx.save();
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(t(itemConfig.nameKey), textWidth, height < 58 ? 13 : 15, 9, 900), 900);
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "middle";
+  ctx.fillText(t(itemConfig.nameKey), getTextStartX(textX, textWidth), titleY);
+  ctx.fillStyle = COLORS.muted;
+  const statText = isBuilding ? `${t("items.category.building")} / ${itemConfig.damage}` : `x${itemConfig.durability} / ${itemConfig.damage}`;
+  ctx.font = canvasFont(getFittedFontSize(statText, textWidth, height < 58 ? 10 : 11, 8, 700), 700);
+  ctx.fillText(statText, getTextStartX(textX, textWidth), statY);
+  ctx.restore();
 }
 
 function drawDroppedItems(context, currentTime) {
@@ -5231,8 +5830,9 @@ function drawDroppedItems(context, currentTime) {
   }
 
   for (const item of droppedItems) {
-    const weapon = ItemWeaponConfig[item.weaponId];
-    if (!weapon) {
+    const itemType = getDroppedItemType(item);
+    const itemConfig = getDroppedItemConfig(item);
+    if (!itemConfig) {
       continue;
     }
 
@@ -5243,14 +5843,23 @@ function drawDroppedItems(context, currentTime) {
     context.save();
     context.globalAlpha = 0.92;
     drawPixelFrame(x, y, size, size, {
-      fill: "#111a2f",
-      border: "#d9aa55",
+      fill: itemType === "building" ? "#102236" : "#111a2f",
+      border: itemType === "building" ? "#7dd3fc" : "#d9aa55",
       shadow: "#050711",
-      texture: voxelAssets.blocks.glowstone,
+      texture: itemType === "building" ? voxelAssets.blocks.stone : voxelAssets.blocks.glowstone,
     });
-    drawItemWeaponIcon(weapon, x + 8, y + 8, size - 16);
+    drawItemDropIcon(itemConfig, itemType, x + 8, y + 8, size - 16);
     context.restore();
   }
+}
+
+function drawItemDropIcon(itemConfig, itemType, x, y, size) {
+  if (itemType === "building") {
+    drawItemBuildingIcon(itemConfig, x, y, size);
+    return;
+  }
+
+  drawItemWeaponIcon(itemConfig, x, y, size);
 }
 
 function drawItemWeaponIcon(weapon, x, y, size) {
@@ -5258,6 +5867,183 @@ function drawItemWeaponIcon(weapon, x, y, size) {
   drawRotatedVoxelSprite(ctx, sprite, { x: x + size / 2, y: y + size / 2 }, size, -0.42, {
     shadowOffset: 2,
   });
+}
+
+function drawItemBuildingIcon(buildingConfig, x, y, size) {
+  const center = { x: x + size / 2, y: y + size / 2 };
+  const scaleFactor = size / 58;
+  ctx.save();
+  ctx.translate(center.x, center.y);
+  ctx.scale(scaleFactor, scaleFactor);
+  drawItemBuildingShape(ctx, buildingConfig.id, { x: 0, y: 0 }, 24, 0, 1);
+  ctx.restore();
+}
+
+function drawItemBuildings(context, currentTime) {
+  if (!isCurrentItemMode()) {
+    return;
+  }
+
+  for (const building of itemBuildings) {
+    if (building.hp <= 0 || building.expiresAt <= currentTime) {
+      continue;
+    }
+    drawItemBuilding(context, building, currentTime);
+  }
+}
+
+function drawItemBuilding(context, building, currentTime) {
+  const life = clamp((building.expiresAt - currentTime) / Math.max(0.001, building.expiresAt - building.createdAt), 0, 1);
+  const attackPulse = clamp(1 - (currentTime - building.lastAttackTime) / 0.28, 0, 1);
+  const center = snapVector(building.position, 4);
+  context.save();
+  context.globalAlpha = 0.58 + life * 0.38;
+  context.strokeStyle = building.config.color;
+  context.lineWidth = 2;
+  context.setLineDash([8, 10]);
+  context.beginPath();
+  context.arc(center.x, center.y, building.config.range, 0, Math.PI * 2);
+  context.stroke();
+  context.setLineDash([]);
+  drawItemBuildingShape(context, building.buildingId, center, building.radius, attackPulse, life);
+  if (Number.isFinite(building.attacksRemaining)) {
+    drawBuildingAmmoPips(context, center, building.radius, building.attacksRemaining, building.config.maxAttacks || 0);
+  }
+  context.restore();
+}
+
+function drawBuildingAmmoPips(context, center, radius, remaining, maxAttacks) {
+  const pipSize = 5;
+  const totalWidth = maxAttacks * pipSize + Math.max(0, maxAttacks - 1) * 3;
+  const startX = center.x - totalWidth / 2;
+  const y = center.y + radius + 9;
+  for (let index = 0; index < maxAttacks; index += 1) {
+    context.fillStyle = index < remaining ? "#fde047" : "rgba(5, 7, 17, 0.78)";
+    context.fillRect(startX + index * (pipSize + 3), y, pipSize, pipSize);
+  }
+}
+
+function drawItemBuildingShape(context, buildingId, center, radius, attackPulse = 0, life = 1) {
+  if (buildingId === "prismTower") {
+    drawPrismTower(context, center, radius, attackPulse, life);
+    return;
+  }
+
+  if (buildingId === "bunker") {
+    drawBunker(context, center, radius, attackPulse, life);
+    return;
+  }
+
+  if (buildingId === "cannon") {
+    drawCannonBuilding(context, center, radius, attackPulse, life);
+    return;
+  }
+
+  drawTeslaCoil(context, center, radius, attackPulse, life);
+}
+
+function drawPrismTower(context, center, radius, attackPulse) {
+  const pulse = 1 + attackPulse * 0.18;
+  context.save();
+  context.fillStyle = "#050711";
+  context.fillRect(center.x - radius * 0.62, center.y - radius * 0.42, radius * 1.24, radius * 1.08);
+  context.fillStyle = "#164e63";
+  context.fillRect(center.x - radius * 0.46, center.y - radius * 0.28, radius * 0.92, radius * 0.82);
+  context.fillStyle = "#7dd3fc";
+  context.fillRect(center.x - radius * 0.28, center.y - radius * 0.72, radius * 0.56, radius * 0.72);
+  context.strokeStyle = "#f8fbff";
+  context.lineWidth = 4;
+  context.beginPath();
+  context.moveTo(center.x, center.y - radius * 1.2 * pulse);
+  context.lineTo(center.x + radius * 0.52 * pulse, center.y - radius * 0.78 * pulse);
+  context.lineTo(center.x, center.y - radius * 0.35 * pulse);
+  context.lineTo(center.x - radius * 0.52 * pulse, center.y - radius * 0.78 * pulse);
+  context.closePath();
+  context.stroke();
+  context.fillStyle = "#e0f2fe";
+  context.fill();
+  context.restore();
+}
+
+function drawBunker(context, center, radius, attackPulse) {
+  const sides = 6;
+  context.save();
+  context.fillStyle = "#050711";
+  drawRegularPolygon(context, center, radius * 1.12, sides, Math.PI / 6, true);
+  context.fillStyle = "#475569";
+  drawRegularPolygon(context, center, radius * 0.92, sides, Math.PI / 6, true);
+  context.fillStyle = "#a8b0a8";
+  drawRegularPolygon(context, center, radius * 0.58, sides, Math.PI / 6, true);
+  for (let index = 0; index < sides; index += 1) {
+    const direction = vectorFromAngle(Math.PI / 6 + (index * Math.PI * 2) / sides);
+    const start = add(center, scale(direction, radius * 0.42));
+    const end = add(center, scale(direction, radius * (0.96 + attackPulse * 0.18)));
+    drawPixelLine(context, start, end, 7, "#050711");
+    drawPixelLine(context, start, end, 3, "#ffe66d");
+  }
+  context.restore();
+}
+
+function drawCannonBuilding(context, center, radius, attackPulse) {
+  const building = itemBuildings.find((candidate) => candidate.buildingId === "cannon" && length(subtract(candidate.position, center)) < 4);
+  const direction = building?.lastDirection || { x: 1, y: 0 };
+  const barrelStart = add(center, scale(direction, radius * 0.18));
+  const barrelEnd = add(center, scale(direction, radius * (1.1 + attackPulse * 0.22)));
+  context.save();
+  context.fillStyle = "#050711";
+  context.fillRect(center.x - radius * 0.72, center.y - radius * 0.54, radius * 1.44, radius * 1.08);
+  context.fillStyle = "#475569";
+  context.fillRect(center.x - radius * 0.55, center.y - radius * 0.38, radius * 1.1, radius * 0.76);
+  drawPixelLine(context, barrelStart, barrelEnd, radius * 0.42, "#050711");
+  drawPixelLine(context, barrelStart, barrelEnd, radius * 0.26, "#94a3b8");
+  context.fillStyle = "#ffb02e";
+  context.fillRect(barrelEnd.x - 5, barrelEnd.y - 5, 10, 10);
+  context.restore();
+}
+
+function drawTeslaCoil(context, center, radius, attackPulse) {
+  context.save();
+  context.fillStyle = "#050711";
+  context.fillRect(center.x - radius * 0.58, center.y + radius * 0.1, radius * 1.16, radius * 0.62);
+  context.fillStyle = "#1d4ed8";
+  context.fillRect(center.x - radius * 0.42, center.y + radius * 0.22, radius * 0.84, radius * 0.36);
+  const coilTop = { x: center.x, y: center.y - radius * 0.36 };
+  for (let index = 0; index < 4; index += 1) {
+    const y = coilTop.y + index * radius * 0.2;
+    context.strokeStyle = index % 2 === 0 ? "#fde047" : "#60a5fa";
+    context.lineWidth = 4 + attackPulse * 2;
+    context.beginPath();
+    context.ellipse(center.x, y, radius * 0.42, radius * 0.13, 0, 0, Math.PI * 2);
+    context.stroke();
+  }
+  context.fillStyle = "#e0f2fe";
+  context.fillRect(center.x - 5, coilTop.y - radius * 0.48, 10, radius * 0.5);
+  if (attackPulse > 0) {
+    context.strokeStyle = "#fde047";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.arc(center.x, center.y - radius * 0.18, radius * (0.74 + attackPulse * 0.42), 0, Math.PI * 2);
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawRegularPolygon(context, center, radius, sides, rotation, fill = false) {
+  context.beginPath();
+  for (let index = 0; index < sides; index += 1) {
+    const point = add(center, scale(vectorFromAngle(rotation + (index * Math.PI * 2) / sides), radius));
+    if (index === 0) {
+      moveToVector(context, point);
+    } else {
+      lineToVector(context, point);
+    }
+  }
+  context.closePath();
+  if (fill) {
+    context.fill();
+  } else {
+    context.stroke();
+  }
 }
 
 function drawEquippedItemDurability(context, ball) {
@@ -6674,6 +7460,11 @@ function drawItemWeapon(ctx, ball, weapon, direction, progress) {
     return;
   }
 
+  if (weapon.id === "torch") {
+    drawItemTorchWeapon(ctx, ball, weapon, direction, progress);
+    return;
+  }
+
   drawItemGunWeapon(ctx, ball, weapon, direction, progress);
 }
 
@@ -6730,6 +7521,31 @@ function drawItemGunWeapon(ctx, ball, weapon, direction, progress) {
     const muzzle = add(center, scale(direction, width * 0.7));
     ctx.fillStyle = "#ffe66d";
     ctx.fillRect(muzzle.x - 5, muzzle.y - 5, 10, 10);
+  }
+  ctx.restore();
+}
+
+function drawItemTorchWeapon(ctx, ball, weapon, direction, progress) {
+  const throwLift = progress === null ? 0 : Math.sin(progress * Math.PI) * ball.radius * 0.38;
+  const center = add(ball.position, add(scale(direction, ball.radius * 0.86), { x: 0, y: -throwLift }));
+  const angle = angleOf(direction) - 0.18 + (progress || 0) * 1.5;
+
+  ctx.save();
+  drawRotatedVoxelSprite(ctx, voxelAssets.items.torch, center, ball.radius * 1.5, angle, {
+    anchorX: 0.32,
+    anchorY: 0.58,
+    shadowOffset: 3,
+  });
+  if (progress !== null && progress > weapon.hitFrame * 0.56 && progress < weapon.hitFrame + 0.22) {
+    const flame = add(center, scale(direction, ball.radius * 0.58));
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = "#ffd166";
+    ctx.fillRect(flame.x - 6, flame.y - 6, 12, 12);
+    ctx.globalAlpha = 0.42;
+    ctx.fillStyle = "#ff6b24";
+    ctx.beginPath();
+    ctx.arc(flame.x, flame.y, 16, 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -6946,8 +7762,18 @@ function drawProjectile(ctx, projectile) {
     return;
   }
 
+  if (projectile.kind === "cannon") {
+    drawCannonProjectile(ctx, projectile);
+    return;
+  }
+
   if (projectile.kind === "fire") {
     drawFireballProjectile(ctx, projectile);
+    return;
+  }
+
+  if (projectile.kind === "torch") {
+    drawTorchProjectile(ctx, projectile);
     return;
   }
 
@@ -6982,6 +7808,25 @@ function drawRocketProjectile(ctx, projectile) {
     anchorY: 0.5,
     shadowOffset: 4,
   });
+  ctx.restore();
+}
+
+function drawCannonProjectile(ctx, projectile) {
+  const center = snapVector(projectile.position, 4);
+  const wake = snapVector(projectile.previousPosition, 4);
+  ctx.save();
+  drawPixelLine(ctx, wake, center, 16, "#050711");
+  drawPixelLine(ctx, wake, center, 8, "#ffb02e");
+  ctx.fillStyle = "#050711";
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, projectile.headRadius + 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#64748b";
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, projectile.headRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffd166";
+  ctx.fillRect(center.x - 5, center.y - 5, 10, 10);
   ctx.restore();
 }
 
@@ -7023,6 +7868,21 @@ function drawFireballProjectile(ctx, projectile) {
   ctx.restore();
 }
 
+function drawTorchProjectile(ctx, projectile) {
+  const center = snapVector(projectile.position, 4);
+  const trailEnd = snapVector(add(projectile.position, scale(projectile.direction, -projectile.shaftLength * 1.25)), 4);
+  const spin = (projectile.traveledDistance || 0) * 0.055;
+
+  ctx.save();
+  ctx.globalAlpha = 0.42;
+  drawPixelLine(ctx, snapVector(projectile.previousPosition, 4), trailEnd, 11, "#9f2d17");
+  ctx.globalAlpha = 1;
+  drawRotatedVoxelSprite(ctx, voxelAssets.items.torch, center, 34, angleOf(projectile.direction) + spin, {
+    shadowOffset: 3,
+  });
+  ctx.restore();
+}
+
 function drawIceShardProjectile(ctx, projectile) {
   const head = snapVector(projectile.position, 4);
   const tail = snapVector(add(projectile.position, scale(projectile.direction, -projectile.shaftLength)), 4);
@@ -7046,7 +7906,7 @@ function drawSpellTrajectories(ctx, currentTime) {
 }
 
 function drawSpellTrajectory(ctx, trajectory, currentTime) {
-  if (trajectory.kind !== "lightning" || trajectory.points.length < 2) {
+  if (!["lightning", "beam"].includes(trajectory.kind) || trajectory.points.length < 2) {
     return;
   }
 
@@ -7174,6 +8034,11 @@ function drawWebLinks(ctx, currentTime) {
 function drawFlameTrails(ctx, currentTime) {
   for (const flame of flameTrails) {
     const life = clamp((flame.expiresAt - currentTime) / Math.max(0.001, flame.expiresAt - flame.createdAt), 0, 1);
+    if (flame.type === "torchFire") {
+      drawTorchGroundFire(ctx, flame, currentTime, life);
+      continue;
+    }
+
     const size = flame.radius * (0.8 + life * 0.4);
     ctx.save();
     ctx.globalAlpha = 0.18 + life * 0.52;
@@ -7187,17 +8052,64 @@ function drawFlameTrails(ctx, currentTime) {
   }
 }
 
+function drawTorchGroundFire(ctx, flame, currentTime, life) {
+  const center = snapVector(flame.position, 4);
+  const pulse = 0.92 + Math.sin(currentTime * 9 + flame.createdAt * 3) * 0.08;
+  const radius = flame.radius * (0.82 + life * 0.18) * pulse;
+
+  ctx.save();
+  ctx.globalAlpha = 0.24 + life * 0.46;
+  ctx.fillStyle = "#7c1d12";
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalAlpha = 0.26 + life * 0.44;
+  ctx.fillStyle = "#ff6b24";
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius * 0.68, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalAlpha = 0.5 + life * 0.32;
+  ctx.fillStyle = "#ffd166";
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius * 0.32, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalAlpha = 0.36 + life * 0.36;
+  ctx.strokeStyle = "#050711";
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = "#ffb02e";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius * 0.9, 0, Math.PI * 2);
+  ctx.stroke();
+
+  for (let index = 0; index < 8; index += 1) {
+    const angle = (index * Math.PI * 2) / 8 + currentTime * 1.8;
+    const ember = add(center, scale(vectorFromAngle(angle), radius * (0.38 + (index % 3) * 0.12)));
+    const emberSize = 5 + (index % 2) * 3;
+    ctx.fillStyle = index % 2 === 0 ? "#ffd166" : "#ff6b24";
+    ctx.fillRect(ember.x - emberSize / 2, ember.y - emberSize / 2, emberSize, emberSize);
+  }
+  ctx.restore();
+}
+
 function drawItemExplosions(ctx, currentTime) {
   for (const explosion of itemExplosions) {
     const progress = clamp((currentTime - explosion.createdAt) / Math.max(0.001, explosion.expiresAt - explosion.createdAt), 0, 1);
     const radius = explosion.radius * easeOutCubic(progress);
+    const innerColor = explosion.color || "#ffd166";
     ctx.save();
     ctx.globalAlpha = 1 - progress;
     ctx.fillStyle = "#9f2d17";
     ctx.fillRect(explosion.position.x - radius, explosion.position.y - radius, radius * 2, radius * 2);
     ctx.fillStyle = "#ff6b24";
     ctx.fillRect(explosion.position.x - radius * 0.62, explosion.position.y - radius * 0.62, radius * 1.24, radius * 1.24);
-    ctx.fillStyle = "#ffd166";
+    ctx.fillStyle = innerColor;
     ctx.fillRect(explosion.position.x - radius * 0.25, explosion.position.y - radius * 0.25, radius * 0.5, radius * 0.5);
     ctx.restore();
   }
@@ -7465,6 +8377,7 @@ function drawArenaScene() {
   drawFlameTrails(ctx, elapsedTimeSeconds);
   drawWebLinks(ctx, elapsedTimeSeconds);
   drawArenaHazards(ctx, elapsedTimeSeconds);
+  drawItemBuildings(ctx, elapsedTimeSeconds);
   drawSummonedBears(ctx, elapsedTimeSeconds);
   balls.forEach((ball) => {
     if (ball.hp > 0 || !isCurrentItemMode()) {
