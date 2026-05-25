@@ -71,9 +71,30 @@ const DAMAGE_TEXT_DURATION = 0.86;
 const DAMAGE_TEXT_MERGE_WINDOW = 0.22;
 const SCENE_DROPDOWN_BREAKPOINT = 560;
 const MUSIC_RAMP_SECONDS = 70;
-const MUSIC_LOOKAHEAD_SECONDS = 0.16;
-const MUSIC_NOTE_OFFSETS = [0, 7, 12, 7, 3, 10, 15, 10, 5, 12, 17, 12, 7, 14, 19, 14];
-const MUSIC_BASS_OFFSETS = [0, 0, 3, 5];
+const MUSIC_LOOKAHEAD_SECONDS = 0.18;
+const MUSIC_STEPS_PER_BEAT = 4;
+const MUSIC_PATTERN_STEPS = 64;
+const MUSIC_MELODY_OFFSETS = [
+  12, null, 15, 17, null, 15, 12, 10,
+  12, null, 19, 17, 15, null, 12, null,
+  10, null, 12, 15, null, 17, 15, 12,
+  10, null, 7, 10, 12, null, 10, null,
+  12, null, 15, 19, null, 22, 19, 17,
+  15, null, 12, 15, 17, null, 15, null,
+  10, null, 12, 15, null, 17, 19, 22,
+  19, null, 17, 15, 12, null, 10, null,
+];
+const MUSIC_BASS_OFFSETS = [
+  0, null, null, null, 0, null, 7, null,
+  3, null, null, null, 3, null, 10, null,
+  5, null, null, null, 5, null, 12, null,
+  7, null, null, null, 7, null, 14, null,
+  0, null, null, null, 0, null, 7, null,
+  3, null, null, null, 3, null, 10, null,
+  5, null, null, null, 5, null, 12, null,
+  7, null, 14, null, 10, null, 7, null,
+];
+const MUSIC_CHORD_OFFSETS = [0, 7, 12, 15, 3, 10, 15, 19, 5, 12, 17, 21, 7, 14, 19, 22];
 const FEEDBACK_VIBRATION_COOLDOWN = 0.14;
 const COLLISION_FEEDBACK_COOLDOWN = 0.09;
 const VIEWPORT_RESIZE_EPSILON = 1;
@@ -1715,8 +1736,8 @@ function updateMusicLoop() {
 
   startMusic();
   const intensity = getMusicIntensity();
-  const bpm = lerp(92, 184, intensity);
-  const stepDuration = 60 / bpm / 2;
+  const bpm = lerp(126, 154, intensity);
+  const stepDuration = 60 / bpm / MUSIC_STEPS_PER_BEAT;
 
   while (nextMusicNoteTime < context.currentTime + MUSIC_LOOKAHEAD_SECONDS) {
     scheduleMusicStep(musicStepIndex, nextMusicNoteTime, stepDuration, intensity);
@@ -1726,29 +1747,63 @@ function updateMusicLoop() {
 }
 
 function scheduleMusicStep(stepIndex, startTime, stepDuration, intensity) {
-  const melodyOffset = MUSIC_NOTE_OFFSETS[stepIndex % MUSIC_NOTE_OFFSETS.length];
-  const octaveBoost = intensity > 0.72 && stepIndex % 4 === 3 ? 12 : 0;
-  const noteDuration = stepDuration * lerp(0.46, 0.28, intensity);
-  scheduleChipNote(getSemitoneFrequency(220, melodyOffset + octaveBoost), startTime, noteDuration, {
-    destination: audioMusicGain,
-    volume: lerp(0.045, 0.07, intensity),
-    wave: stepIndex % 2 === 0 ? "square" : "triangle",
-  });
+  const patternIndex = stepIndex % MUSIC_PATTERN_STEPS;
+  const phraseIndex = Math.floor(stepIndex / MUSIC_PATTERN_STEPS);
+  const beatStep = patternIndex % MUSIC_STEPS_PER_BEAT;
+  const barStep = patternIndex % 16;
+  const melodyOffset = MUSIC_MELODY_OFFSETS[patternIndex];
+  const bassOffset = MUSIC_BASS_OFFSETS[patternIndex];
+  const chordOffset = MUSIC_CHORD_OFFSETS[Math.floor(patternIndex / 4) % MUSIC_CHORD_OFFSETS.length];
+  const phraseLift = intensity > 0.68 && phraseIndex % 2 === 1 && patternIndex >= 48 ? 12 : 0;
 
-  if (stepIndex % 4 === 0) {
-    const bassOffset = MUSIC_BASS_OFFSETS[Math.floor(stepIndex / 4) % MUSIC_BASS_OFFSETS.length] - 12;
-    scheduleChipNote(getSemitoneFrequency(220, bassOffset), startTime, stepDuration * 0.82, {
+  if (melodyOffset !== null) {
+    const noteDuration = stepDuration * (barStep === 14 ? 2.15 : lerp(1.15, 0.82, intensity));
+    scheduleChipNote(getSemitoneFrequency(220, melodyOffset + phraseLift), startTime, noteDuration, {
       destination: audioMusicGain,
-      volume: 0.065,
+      volume: lerp(0.035, 0.052, intensity),
+      wave: beatStep === 0 ? "square" : "triangle",
+    });
+  }
+
+  if (bassOffset !== null) {
+    scheduleChipNote(getSemitoneFrequency(110, bassOffset), startTime, stepDuration * (beatStep === 0 ? 2.6 : 1.4), {
+      destination: audioMusicGain,
+      volume: lerp(0.052, 0.066, intensity),
       wave: "square",
     });
   }
 
-  if (intensity > 0.42 && stepIndex % 2 === 1) {
-    scheduleChipNoise(startTime, 0.018, {
+  if (patternIndex % 2 === 1 || (intensity > 0.55 && patternIndex % 4 === 2)) {
+    scheduleChipNote(getSemitoneFrequency(440, chordOffset + (patternIndex % 8 === 7 ? 12 : 0)), startTime, stepDuration * 0.42, {
       destination: audioMusicGain,
-      volume: lerp(0.018, 0.038, intensity),
-      frequency: lerp(1800, 3200, intensity),
+      volume: lerp(0.012, 0.026, intensity),
+      wave: "square",
+    });
+  }
+
+  if (beatStep === 0) {
+    scheduleChipNote(72, startTime, stepDuration * 0.7, {
+      destination: audioMusicGain,
+      volume: lerp(0.036, 0.052, intensity),
+      wave: "square",
+    });
+  }
+
+  if (beatStep === 2 || (intensity > 0.5 && patternIndex % 8 === 7)) {
+    scheduleChipNoise(startTime, stepDuration * 0.28, {
+      destination: audioMusicGain,
+      volume: lerp(0.016, 0.032, intensity),
+      frequency: patternIndex % 8 === 7 ? 3600 : 2200,
+    });
+  }
+
+  if (intensity > 0.78 && patternIndex % 16 === 15) {
+    [17, 19, 22].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(440, offset), startTime + index * stepDuration * 0.45, stepDuration * 0.5, {
+        destination: audioMusicGain,
+        volume: 0.032,
+        wave: "triangle",
+      });
     });
   }
 }
