@@ -101,7 +101,7 @@ export const ItemModeBallConfig = {
 export const ItemSpawnConfig = {
   initialCount: 2,
   maxActive: 3,
-  spawnInterval: 3,
+  spawnInterval: 3.15,
   pickupRadius: 28,
   edgePadding: 74,
   avoidBallRadius: 96,
@@ -687,6 +687,73 @@ export const HeroConfig = {
       return Boolean(attackVariant?.heroSkillId);
     },
   },
+  cryptLord: {
+    id: "cryptLord",
+    nameKey: "heroes.cryptLord.name",
+    maxHp: 128,
+    maxMp: 96,
+    manaRegen: 4,
+    radius: 27,
+    moveSpeed: 184,
+    attackDamage: 14,
+    attackCooldown: 0.68,
+    weaponRange: 48,
+    attackMode: "claw",
+    bodyPattern: "cryptLord",
+    color: "#3b2a1d",
+    accentColor: "#a7f3d0",
+    item: {
+      nameKey: "heroes.cryptLord.weapon",
+      type: "claws",
+      animation: "虫王利爪",
+    },
+    skills: [
+      {
+        id: "impale",
+        nameKey: "heroes.cryptLord.skills.impale",
+        type: "impale",
+        manaCost: 32,
+        cooldown: 6.4,
+        autoPriority: 1,
+        range: 390,
+        activeLength: 120,
+        speed: 620,
+        damage: 12,
+        stunDuration: 0.72,
+        collisionRadius: 24,
+        spikeSpacing: 24,
+        knockbackMultiplier: 0.9,
+        color: "#d6a35f",
+      },
+      {
+        id: "summonBeetle",
+        nameKey: "heroes.cryptLord.skills.summonBeetle",
+        type: "summonBeetle",
+        manaCost: 24,
+        cooldown: 4.8,
+        autoPriority: 2,
+        maxCount: 3,
+        duration: 10,
+        maxHp: 1,
+        damage: 1,
+        radius: 12,
+        moveSpeed: 190,
+        attackCooldown: 0.72,
+        weaponRange: 18,
+        knockbackMultiplier: 0.28,
+        color: "#84cc16",
+      },
+    ],
+    getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant) {
+      return attackVariant?.damage || this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || 0.86;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return Boolean(attackVariant?.heroSkillId);
+    },
+  },
 };
 
 export const SceneConfig = {
@@ -729,7 +796,7 @@ export const SceneConfig = {
     type: "heroes",
     nameKey: "scenes.heroes.name",
     descriptionKey: "scenes.heroes.description",
-    professionIds: ["demon", "dwarfKing", "minotaur", "elfKing", "wukong"],
+    professionIds: ["demon", "dwarfKing", "minotaur", "elfKing", "wukong", "cryptLord"],
     defaultProfessions: {
       a: "demon",
       b: "dwarfKing",
@@ -799,7 +866,7 @@ export const ProfessionConfig = {
   bat: {
     id: "bat",
     name: "蝙蝠球",
-    maxHp: 88,
+    maxHp: 86,
     radius: 23,
     moveSpeed: 220,
     attackDamage: 13,
@@ -814,8 +881,8 @@ export const ProfessionConfig = {
       animation: "碰撞吸血",
     },
     collisionDrain: {
-      damage: 13,
-      heal: 0.5,
+      damage: 12,
+      heal: 0.46,
       disableDuration: 0.56,
       cooldown: 0.82,
     },
@@ -832,9 +899,9 @@ export const ProfessionConfig = {
   venom: {
     id: "venom",
     name: "毒液球",
-    maxHp: 118,
+    maxHp: 120,
     radius: 25,
-    moveSpeed: 190,
+    moveSpeed: 194,
     attackDamage: 10,
     attackCooldown: 0.78,
     weaponRange: 32,
@@ -850,7 +917,7 @@ export const ProfessionConfig = {
       radius: 22,
       duration: 7.5,
       damage: 4,
-      poisonDamagePerSecond: 3,
+      poisonDamagePerSecond: 3.2,
       poisonDuration: 2.4,
       hitCooldown: 0.85,
     },
@@ -1082,7 +1149,7 @@ export const ProfessionConfig = {
   summoner: {
     id: "summoner",
     name: "召唤师",
-    maxHp: 104,
+    maxHp: 108,
     radius: 23,
     moveSpeed: 188,
     attackDamage: 0,
@@ -1099,7 +1166,7 @@ export const ProfessionConfig = {
     attackMode: "summonBear",
     summonBear: {
       moveSpeed: 236,
-      baseDamage: 22,
+      baseDamage: 23,
       damageGainPerOwnerHit: 3,
       radiusGainPerCollision: 2.4,
       maxRadiusMultiplier: 1.75,
@@ -1176,11 +1243,11 @@ export const ProfessionConfig = {
   shield: {
     id: "shield",
     name: "盾牌球",
-    maxHp: 136,
+    maxHp: 130,
     radius: 28,
     moveSpeed: 170,
-    attackDamage: 14,
-    attackCooldown: 0.7,
+    attackDamage: 13,
+    attackCooldown: 0.72,
     weaponRange: 56,
     color: "#78f0a4",
     accentColor: "#c6fff0",
@@ -1204,12 +1271,12 @@ export const ProfessionConfig = {
   assassin: {
     id: "assassin",
     name: "刺客球",
-    maxHp: 104,
+    maxHp: 108,
     radius: 22,
     moveSpeed: 248,
     attackDamage: 11,
     attackCooldown: 0.42,
-    weaponRange: 42,
+    weaponRange: 44,
     color: "#c77dff",
     accentColor: "#ffe5ff",
     skillName: "双刀连斩",
@@ -1224,7 +1291,7 @@ export const ProfessionConfig = {
       }
       const distanceToTarget = length(subtract(defender.position, attacker.position));
       const closeEnough = distanceToTarget <= attacker.radius + defender.radius + 24;
-      return closeEnough ? 16 : this.attackDamage;
+      return closeEnough ? 17 : this.attackDamage;
     },
     getKnockbackMultiplier() {
       return 0.72;
@@ -1236,11 +1303,11 @@ export const ProfessionConfig = {
   archer: {
     id: "archer",
     name: "弓箭球",
-    maxHp: 96,
+    maxHp: 100,
     radius: 23,
     moveSpeed: 188,
-    attackDamage: 6,
-    attackCooldown: 1.05,
+    attackDamage: 7,
+    attackCooldown: 1,
     weaponRange: Infinity,
     color: "#7bd88f",
     accentColor: "#ecffd8",

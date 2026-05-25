@@ -119,6 +119,7 @@ let heroEffectInstances = [];
 let nextItemSpawnTime = 0;
 let itemSpawnCounter = 0;
 let itemBuildingCounter = 0;
+let cryptBeetleCounter = 0;
 let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
@@ -1005,14 +1006,28 @@ function isSummonedBear(combatant) {
   return combatant?.kind === "summonedBear";
 }
 
+function isCryptBeetle(combatant) {
+  return combatant?.kind === "cryptBeetle";
+}
+
 function isSummonedBearActive(bear) {
   return isSummonedBear(bear) && bear.owner?.hp > 0 && bear.hp > 0;
+}
+
+function isCryptBeetleActive(beetle, currentTime = elapsedTimeSeconds) {
+  return isCryptBeetle(beetle) && beetle.owner?.hp > 0 && beetle.hp > 0 && beetle.expiresAt > currentTime;
 }
 
 function getActiveSummonedBears() {
   return balls
     .map((ball) => ball.summonedBearState)
     .filter((bear) => isSummonedBearActive(bear));
+}
+
+function getActiveCryptBeetles(owner = null, currentTime = elapsedTimeSeconds) {
+  return balls.filter((ball) => {
+    return isCryptBeetleActive(ball, currentTime) && (!owner || ball.owner === owner);
+  });
 }
 
 function getAliveCollisionCombatants() {
@@ -1331,6 +1346,7 @@ function restartGame() {
   heroEffectInstances = [];
   itemSpawnCounter = 0;
   itemBuildingCounter = 0;
+  cryptBeetleCounter = 0;
   nextItemSpawnTime = 0;
   gameOver = false;
   resultMessage = "";
@@ -1361,6 +1377,7 @@ function returnToMenu() {
   nextItemSpawnTime = 0;
   itemSpawnCounter = 0;
   itemBuildingCounter = 0;
+  cryptBeetleCounter = 0;
   gameOver = false;
   resultMessage = "";
   setScreen(Screen.MAIN_MENU);
@@ -2030,6 +2047,7 @@ function update(deltaTime, currentTime) {
   itemBuildings = itemBuildings.filter((building) => building.expiresAt > currentTime && building.hp > 0);
   itemExplosions = itemExplosions.filter((explosion) => explosion.expiresAt > currentTime);
   heroEffectInstances = updateHeroEffectInstances(heroEffectInstances, currentTime);
+  pruneCryptBeetles(currentTime);
   for (const ball of balls) {
     if (ball.hp > 0) {
       updateSummonedBear(ball, deltaTime, currentTime);
@@ -2056,6 +2074,12 @@ function update(deltaTime, currentTime) {
     updateAttackForPair(attacker, defender, currentTime);
   });
   checkGameOver();
+}
+
+function pruneCryptBeetles(currentTime) {
+  balls = balls.filter((ball) => {
+    return !isCryptBeetle(ball) || isCryptBeetleActive(ball, currentTime);
+  });
 }
 
 function forEachAliveCollisionCombatantPair(callback) {
@@ -2126,6 +2150,14 @@ function getHeroAutoSkillHandler(skill) {
 
   if (skill.type === "groundSlam" || skill.type === "warStomp") {
     return useHeroAreaControlSkill;
+  }
+
+  if (skill.type === "impale") {
+    return useCryptLordImpale;
+  }
+
+  if (skill.type === "summonBeetle") {
+    return useCryptLordSummonBeetle;
   }
 
   if (skill.type === "heal") {
@@ -2231,6 +2263,130 @@ function useHeroAreaControlSkill(hero, skill, currentTime) {
   }
   pushHeroEffect(skill.type, hero.position, skill.range, currentTime, getHeroSkillEffectColor(hero, skill));
   return true;
+}
+
+function useCryptLordImpale(hero, skill, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestHeroSkillTargetInRange(hero, skill);
+  if (!enemy) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  const direction = getDirectionBetween(hero, enemy);
+  const start = add(hero.position, scale(direction, hero.radius * 0.92));
+  const maxDistance = Math.min(skill.range, getArenaRayDistance(start, direction));
+  spellTrajectories.push({
+    owner: hero,
+    kind: "impale",
+    start,
+    direction,
+    maxDistance,
+    activeLength: skill.activeLength || ARENA_TERRAIN_TILE_SIZE * 3,
+    speed: skill.speed,
+    collisionRadius: skill.collisionRadius,
+    spikeSpacing: skill.spikeSpacing || 24,
+    color: skill.color || hero.visual.accentColor,
+    darkColor: "#3b2a1d",
+    createdAt: currentTime,
+    expiresAt: currentTime + maxDistance / Math.max(1, skill.speed) + 0.28,
+    hitLabels: {},
+    variant: createHeroSkillVariant(hero, skill, {
+      damage: skill.damage,
+      stunDuration: skill.stunDuration,
+      knockbackMultiplier: skill.knockbackMultiplier,
+    }),
+  });
+  hero.lastAttackTime = Math.min(hero.lastAttackTime, currentTime - getBallAttackCooldown(hero) * 0.42);
+  pushHeroEffect("impale", hero.position, 76, currentTime, skill.color || hero.visual.accentColor);
+  return true;
+}
+
+function useCryptLordSummonBeetle(hero, skill, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestAliveOpponent(hero);
+  if (!enemy || getActiveCryptBeetles(hero, currentTime).length >= skill.maxCount) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  const beetle = createCryptBeetle(hero, skill, enemy, currentTime);
+  balls.push(beetle);
+  pushHeroEffect("summonBeetle", beetle.position, 54, currentTime, skill.color || hero.visual.accentColor);
+  return true;
+}
+
+function createCryptBeetle(owner, skill, enemy, currentTime) {
+  cryptBeetleCounter += 1;
+  const enemyDirection = normalize(subtract(enemy.position, owner.position));
+  const side = vectorFromAngle(angleOf(enemyDirection) + Math.PI / 2);
+  const sideSign = cryptBeetleCounter % 2 === 0 ? 1 : -1;
+  const spawnDirection = normalize(add(enemyDirection, scale(side, 0.42 * sideSign)));
+  const radius = skill.radius * BALL_RADIUS_MULTIPLIER;
+  const spawnDistance = owner.radius + radius + 18;
+  const position = clampPointToArena(add(owner.position, scale(spawnDirection, spawnDistance)), radius);
+  const config = createCryptBeetleConfig(skill);
+  const beetle = new Ball({
+    label: `${owner.label}-beetle-${cryptBeetleCounter}`,
+    profession: "cryptBeetle",
+    x: position.x,
+    y: position.y,
+    direction: spawnDirection,
+    config,
+  });
+
+  beetle.kind = "cryptBeetle";
+  beetle.owner = owner;
+  beetle.teamId = owner.teamId;
+  beetle.isPrimaryCombatant = false;
+  beetle.isHero = false;
+  beetle.position = position;
+  beetle.velocity = scale(spawnDirection, config.moveSpeed);
+  beetle.radius = radius;
+  beetle.hp = skill.maxHp;
+  beetle.maxHp = skill.maxHp;
+  beetle.visual = {
+    color: owner.label === "A" ? "#365314" : "#422006",
+    accentColor: skill.color || "#84cc16",
+  };
+  beetle.createdAt = currentTime;
+  beetle.expiresAt = currentTime + skill.duration;
+  beetle.hitFlashTime = 0;
+  return beetle;
+}
+
+function createCryptBeetleConfig(skill) {
+  return {
+    id: "cryptBeetle",
+    name: "小甲虫",
+    maxHp: skill.maxHp,
+    radius: skill.radius,
+    moveSpeed: skill.moveSpeed,
+    attackDamage: skill.damage,
+    attackCooldown: skill.attackCooldown,
+    weaponRange: skill.weaponRange,
+    attackMode: "beetle",
+    item: {
+      name: "小甲虫利齿",
+      type: "mandibles",
+      animation: "啃咬",
+    },
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || skill.knockbackMultiplier || 0.28;
+    },
+    isSkillHit() {
+      return false;
+    },
+  };
 }
 
 function getHeroSkillEffectColor(hero, skill) {
@@ -3509,7 +3665,73 @@ function updateHomingProjectileDirection(projectile) {
 }
 
 function updateSpellTrajectories(currentTime) {
-  return spellTrajectories.filter((trajectory) => trajectory.expiresAt > currentTime);
+  return spellTrajectories.filter((trajectory) => {
+    if (trajectory.expiresAt <= currentTime) {
+      return false;
+    }
+
+    if (trajectory.kind === "impale") {
+      resolveImpaleTrajectoryCollisions(trajectory, currentTime);
+    }
+
+    return true;
+  });
+}
+
+function resolveImpaleTrajectoryCollisions(trajectory, currentTime) {
+  const segment = getImpaleActiveSegment(trajectory, currentTime);
+  if (!segment) {
+    return;
+  }
+
+  for (const defender of balls) {
+    const hitKey = defender.label || defender.id;
+    if (
+      !hitKey ||
+      defender.hp <= 0 ||
+      trajectory.hitLabels[hitKey] ||
+      areAlliedCombatants(trajectory.owner, defender)
+    ) {
+      continue;
+    }
+
+    const hit = getSegmentCircleHit(
+      defender.position,
+      defender.radius + trajectory.collisionRadius,
+      segment.start,
+      segment.end,
+    );
+    if (!hit) {
+      continue;
+    }
+
+    trajectory.hitLabels[hitKey] = true;
+    resolveAttackHit(trajectory.owner, defender, trajectory.direction, currentTime, trajectory.variant);
+  }
+}
+
+function getImpaleActiveSegment(trajectory, currentTime) {
+  const travel = getImpaleTravelDistance(trajectory, currentTime);
+  if (travel <= 0) {
+    return null;
+  }
+
+  const activeStart = Math.max(0, travel - trajectory.activeLength);
+  const activeEnd = Math.min(trajectory.maxDistance, travel);
+  if (activeEnd <= activeStart) {
+    return null;
+  }
+
+  return {
+    start: add(trajectory.start, scale(trajectory.direction, activeStart)),
+    end: add(trajectory.start, scale(trajectory.direction, activeEnd)),
+    activeStart,
+    activeEnd,
+  };
+}
+
+function getImpaleTravelDistance(trajectory, currentTime) {
+  return Math.min(trajectory.maxDistance, Math.max(0, (currentTime - trajectory.createdAt) * trajectory.speed));
 }
 
 function isProjectileInArena(projectile) {
@@ -6691,6 +6913,25 @@ function drawHeroProfessionIconDetails(professionId, left, top, cell) {
       M: "#92400e",
       Y: "#fde68a",
     });
+    return;
+  }
+
+  if (professionId === "cryptLord") {
+    drawPixelCells(left, top, cell, [
+      "..HH........HH..",
+      ".HHH........HHH.",
+      "....CCCCCCCC....",
+      "...CEEEEEEC.....",
+      "..CCMMMMMMCC....",
+      "....SSSSSS......",
+      "...S..SS..S.....",
+    ], {
+      H: "#050711",
+      C: "#064e3b",
+      E: "#a7f3d0",
+      M: "#d6a35f",
+      S: "#84cc16",
+    });
   }
 }
 
@@ -6702,6 +6943,7 @@ function getProfessionItemSprite(professionId) {
     minotaur: { sprite: items.totem, angle: -0.42, scale: 0.68 },
     elfKing: { sprite: items.bow, angle: 0, scale: 0.7 },
     wukong: { sprite: items.goldStaff, angle: -0.48, scale: 0.86 },
+    cryptLord: null,
     bat: null,
     venom: null,
     spider: null,
@@ -7215,6 +7457,16 @@ function drawProfessionBodyDetails(ctx, ball, x, y, cell) {
     ctx.fillStyle = "#5b3a24";
     ctx.fillRect(x + cell * 4, y + cell * 7, cell, cell);
     ctx.fillRect(x + cell * 7, y + cell * 7, cell, cell);
+  } else if (ball.profession === "cryptBeetle") {
+    ctx.fillStyle = "#84cc16";
+    ctx.fillRect(x + cell * 3, y + cell * 4, cell * 6, cell);
+    ctx.fillRect(x + cell * 2, y + cell * 6, cell * 8, cell * 2);
+    ctx.fillStyle = "#050711";
+    ctx.fillRect(x + cell * 4, y + cell * 5, cell, cell);
+    ctx.fillRect(x + cell * 7, y + cell * 5, cell, cell);
+    ctx.fillStyle = "#d6a35f";
+    ctx.fillRect(x + cell * 2, y + cell * 8, cell * 2, cell);
+    ctx.fillRect(x + cell * 8, y + cell * 8, cell * 2, cell);
   }
 }
 
@@ -7306,6 +7558,25 @@ function drawHeroBodyDetails(ctx, ball, x, y, cell) {
       M: "#92400e",
       Y: "#fde68a",
     });
+    return;
+  }
+
+  if (pattern === "cryptLord") {
+    drawPixelCells(x, y, cell, [
+      "HH........HH",
+      ".HH......HH.",
+      "...CCCCCC...",
+      "..CEEEEEC...",
+      ".CCMMMMCC...",
+      "...SSSSSS...",
+      "..S..SS..S..",
+    ], {
+      H: "#050711",
+      C: "#064e3b",
+      E: "#a7f3d0",
+      M: "#d6a35f",
+      S: "#84cc16",
+    });
   }
 }
 
@@ -7369,6 +7640,11 @@ function drawWeapon(ctx, ball, currentTime, target) {
     return;
   }
 
+  if (ball.profession === "cryptBeetle") {
+    drawCryptBeetleMandibles(ctx, ball, direction, progress);
+    return;
+  }
+
   if (ball.profession === "assassin") {
     drawDualBladeWeapon(ctx, ball, direction, progress);
     return;
@@ -7425,6 +7701,11 @@ function drawHeroWeapon(ctx, ball, direction, progress) {
 
   if (ball.config.attackMode === "staff") {
     drawWukongStaffWeapon(ctx, ball, direction, progress);
+    return;
+  }
+
+  if (ball.config.attackMode === "claw") {
+    drawCryptLordClawWeapon(ctx, ball, direction, progress);
     return;
   }
 
@@ -7612,6 +7893,63 @@ function drawSummonerTotemWeapon(ctx, ball, direction) {
   ctx.fillRect(center.x - 8, center.y - 8, 16, 16);
   ctx.fillStyle = ball.visual.accentColor;
   ctx.fillRect(center.x - 5, center.y - 5, 10, 10);
+  ctx.restore();
+}
+
+function drawCryptLordClawWeapon(ctx, ball, direction, progress) {
+  const baseAngle = angleOf(direction);
+  const swing = progress === null ? Math.sin(elapsedTimeSeconds * 6.2) * 0.12 : lerp(-0.52, 0.66, easeOutCubic(progress));
+  const reach = ball.radius + ball.weaponRange * (progress === null ? 0.72 : lerp(0.72, 1.04, Math.sin(progress * Math.PI)));
+
+  ctx.save();
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
+  for (const sideSign of [-1, 1]) {
+    const sideAngle = baseAngle + sideSign * 0.44 + swing * sideSign * 0.42;
+    const clawDirection = vectorFromAngle(sideAngle);
+    const side = vectorFromAngle(baseAngle + sideSign * Math.PI * 0.5);
+    const root = snapVector(add(add(ball.position, scale(direction, ball.radius * 0.44)), scale(side, ball.radius * 0.34)), 4);
+    const knuckle = snapVector(add(root, scale(clawDirection, reach * 0.48)), 4);
+
+    drawPixelLine(ctx, root, knuckle, 13, "#050711");
+    drawPixelLine(ctx, root, knuckle, 7, "#064e3b");
+
+    for (const tipOffset of [-0.22, 0.18]) {
+      const tipDirection = vectorFromAngle(sideAngle + sideSign * tipOffset);
+      const tip = snapVector(add(knuckle, scale(tipDirection, reach * 0.38)), 4);
+      drawPixelLine(ctx, knuckle, tip, 10, "#050711");
+      drawPixelLine(ctx, knuckle, tip, 5, "#d6a35f");
+      ctx.fillStyle = "#f8fbff";
+      ctx.fillRect(tip.x - 4, tip.y - 4, 8, 8);
+    }
+  }
+
+  if (progress !== null) {
+    ctx.globalAlpha = 0.26 * (1 - progress);
+    ctx.strokeStyle = ball.visual.accentColor;
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.arc(ball.position.x, ball.position.y, ball.radius + ball.weaponRange, baseAngle - 0.72, baseAngle + 0.72);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawCryptBeetleMandibles(ctx, ball, direction, progress) {
+  const open = progress === null ? 0.28 + Math.sin(elapsedTimeSeconds * 8) * 0.08 : lerp(0.58, 0.18, easeOutCubic(progress));
+  const baseAngle = angleOf(direction);
+  const mouth = add(ball.position, scale(direction, ball.radius * 0.7));
+
+  ctx.save();
+  ctx.lineCap = "butt";
+  for (const sideSign of [-1, 1]) {
+    const side = vectorFromAngle(baseAngle + sideSign * Math.PI * 0.5);
+    const root = snapVector(add(mouth, scale(side, ball.radius * 0.26)), 4);
+    const tipDirection = vectorFromAngle(baseAngle + sideSign * open);
+    const tip = snapVector(add(root, scale(tipDirection, ball.radius + ball.weaponRange * 0.48)), 4);
+    drawPixelLine(ctx, root, tip, 8, "#050711");
+    drawPixelLine(ctx, root, tip, 4, "#d6a35f");
+  }
   ctx.restore();
 }
 
@@ -8082,6 +8420,11 @@ function drawSpellTrajectories(ctx, currentTime) {
 }
 
 function drawSpellTrajectory(ctx, trajectory, currentTime) {
+  if (trajectory.kind === "impale") {
+    drawImpaleTrajectory(ctx, trajectory, currentTime);
+    return;
+  }
+
   if (!["lightning", "beam"].includes(trajectory.kind) || trajectory.points.length < 2) {
     return;
   }
@@ -8139,6 +8482,72 @@ function drawSpellTrajectory(ctx, trajectory, currentTime) {
         shadow: false,
       });
     }
+  }
+  ctx.restore();
+}
+
+function drawImpaleTrajectory(ctx, trajectory, currentTime) {
+  const segment = getImpaleActiveSegment(trajectory, currentTime);
+  if (!segment) {
+    return;
+  }
+
+  const travel = getImpaleTravelDistance(trajectory, currentTime);
+  const lifeProgress = clamp((trajectory.expiresAt - currentTime) / Math.max(0.001, trajectory.expiresAt - trajectory.createdAt), 0, 1);
+  const direction = trajectory.direction;
+  const side = { x: -direction.y, y: direction.x };
+  const visibleLength = Math.max(1, segment.activeEnd - segment.activeStart);
+  const spacing = trajectory.spikeSpacing || 24;
+
+  ctx.save();
+  ctx.globalAlpha = 0.28 + lifeProgress * 0.58;
+  ctx.strokeStyle = trajectory.darkColor || "#3b2a1d";
+  ctx.lineWidth = 28;
+  ctx.lineCap = "butt";
+  ctx.beginPath();
+  moveToVector(ctx, snapVector(segment.start, 4));
+  lineToVector(ctx, snapVector(segment.end, 4));
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.45 + lifeProgress * 0.42;
+  ctx.strokeStyle = trajectory.color;
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  moveToVector(ctx, snapVector(segment.start, 4));
+  lineToVector(ctx, snapVector(segment.end, 4));
+  ctx.stroke();
+
+  for (let distance = segment.activeStart; distance <= segment.activeEnd; distance += spacing) {
+    const spikeProgress = clamp((distance - segment.activeStart) / visibleLength, 0, 1);
+    const wave = Math.sin(currentTime * 18 + distance * 0.07) * 0.18;
+    const height = (18 + spikeProgress * 20) * (0.72 + wave);
+    const halfWidth = 9 + spikeProgress * 7;
+    const center = add(trajectory.start, scale(direction, distance));
+    const baseLeft = add(center, scale(side, -halfWidth));
+    const baseRight = add(center, scale(side, halfWidth));
+    const tip = add(center, scale(direction, height));
+    const alpha = clamp(1 - (travel - distance) / Math.max(1, trajectory.activeLength), 0.18, 1);
+
+    ctx.globalAlpha = alpha * (0.55 + lifeProgress * 0.45);
+    ctx.fillStyle = "#050711";
+    ctx.beginPath();
+    moveToVector(ctx, snapVector(add(baseLeft, scale(side, -3)), 4));
+    lineToVector(ctx, snapVector(add(baseRight, scale(side, 3)), 4));
+    lineToVector(ctx, snapVector(add(tip, scale(direction, 6)), 4));
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = trajectory.color;
+    ctx.beginPath();
+    moveToVector(ctx, snapVector(baseLeft, 4));
+    lineToVector(ctx, snapVector(baseRight, 4));
+    lineToVector(ctx, snapVector(tip, 4));
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#f8fbff";
+    const glint = add(center, scale(direction, height * 0.42));
+    ctx.fillRect(glint.x - 2, glint.y - 2, 4, 4);
   }
   ctx.restore();
 }
@@ -8556,7 +8965,7 @@ function drawArenaScene() {
   drawItemBuildings(ctx, elapsedTimeSeconds);
   drawSummonedBears(ctx, elapsedTimeSeconds);
   balls.forEach((ball) => {
-    if (ball.hp > 0 || !isCurrentItemMode()) {
+    if (ball.hp > 0 || (!isCurrentItemMode() && isPrimaryCombatant(ball))) {
       ball.draw(ctx, elapsedTimeSeconds, getNearestAliveOpponent(ball));
     }
   });
