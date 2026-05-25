@@ -313,6 +313,19 @@ function createVoxelAssets() {
           T: "#d9e3e5",
         },
       ),
+      goldenSpear: createVoxelSprite(
+        [
+          "............................TTT.",
+          "==========================TTTTTT",
+          "========================TTTTTTTT",
+          "==========================TTTTTT",
+          "............................TTT.",
+        ],
+        {
+          "=": "#facc15",
+          T: "#fff3a3",
+        },
+      ),
       sword: createVoxelSprite(
         [
           "....................SSS.",
@@ -7122,6 +7135,26 @@ function drawHeroProfessionIconDetails(professionId, left, top, cell) {
       M: "#d6a35f",
       S: "#84cc16",
     });
+    return;
+  }
+
+  if (professionId === "zeus") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "....CCCCCCCC....",
+      "...CYYYYYYYYC...",
+      "....WWWWWWWW....",
+      "......EEEE......",
+      "...GGGGGGGGGG...",
+      "....GWWWWWWG....",
+      ".......YY.......",
+    ], {
+      C: "#050711",
+      Y: "#facc15",
+      W: "#f8fbff",
+      E: "#050711",
+      G: "#b45309",
+    });
   }
 }
 
@@ -7134,6 +7167,7 @@ function getProfessionItemSprite(professionId) {
     elfKing: { sprite: items.bow, angle: 0, scale: 0.7 },
     wukong: { sprite: items.goldStaff, angle: -0.48, scale: 0.86 },
     cryptLord: null,
+    zeus: { sprite: items.goldenSpear, angle: -0.78, scale: 0.9 },
     bat: null,
     venom: null,
     spider: null,
@@ -8229,7 +8263,8 @@ function drawItemSpearWeapon(ctx, ball, weapon, direction, progress) {
   const spearTip = snapVector(add(weaponEnd, scale(direction, 10)), 4);
 
   ctx.save();
-  drawRotatedVoxelSprite(ctx, voxelAssets.items.spear, weaponStart, length(subtract(spearTip, weaponStart)), angleOf(direction), {
+  const spearSprite = weapon.id === "goldenSpear" ? voxelAssets.items.goldenSpear : voxelAssets.items.spear;
+  drawRotatedVoxelSprite(ctx, spearSprite, weaponStart, length(subtract(spearTip, weaponStart)), angleOf(direction), {
     anchorX: 0,
     anchorY: 0.5,
     shadowOffset: 4,
@@ -8331,7 +8366,8 @@ function drawSpearWeapon(ctx, ball, direction, progress) {
   const spearLength = length(subtract(spearTip, weaponStart));
 
   ctx.save();
-  drawRotatedVoxelSprite(ctx, voxelAssets.items.spear, weaponStart, spearLength, angleOf(direction), {
+  const spearSprite = ball.config.weapon?.type === "goldenSpear" ? voxelAssets.items.goldenSpear : voxelAssets.items.spear;
+  drawRotatedVoxelSprite(ctx, spearSprite, weaponStart, spearLength, angleOf(direction), {
     anchorX: 0,
     anchorY: 0.5,
     alpha: progress === null ? 0.9 : 1,
