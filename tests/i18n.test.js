@@ -70,6 +70,8 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "heroes.minotaur.skills.rebirth"), "heroes.minotaur.skills.rebirth");
     assert.notEqual(translate(locale, "heroes.elfKing.skills.fireArrow"), "heroes.elfKing.skills.fireArrow");
     assert.notEqual(translate(locale, "heroes.wukong.skills.giantStaff"), "heroes.wukong.skills.giantStaff");
+    assert.notEqual(translate(locale, "heroes.cryptLord.skills.impale"), "heroes.cryptLord.skills.impale");
+    assert.notEqual(translate(locale, "heroes.cryptLord.skills.summonBeetle"), "heroes.cryptLord.skills.summonBeetle");
     assert.match(translate(locale, "result.winner", { side: "A", profession: "Archer" }), /A|Archer|الكرة/);
     assert.match(translate(locale, "result.winnerNoProfession", { side: "A" }), /A|الكرة/);
   }

@@ -204,6 +204,7 @@ const translations = {
       minotaur: { name: "牛头人", weapon: "战争图腾", skills: { warStomp: "战争践踏", rebirth: "复生" } },
       elfKing: { name: "精灵王", weapon: "森林长弓", skills: { fireArrow: "火箭", forestBlessing: "森林祝福" } },
       wukong: { name: "孙悟空", weapon: "金箍棒", skills: { tripleStaff: "三头六臂", giantStaff: "法天象地" } },
+      cryptLord: { name: "洞穴领主", weapon: "巨虫利爪", skills: { impale: "地刺", summonBeetle: "召唤小甲虫" } },
     },
   },
   en: {
@@ -379,6 +380,7 @@ const translations = {
       minotaur: { name: "Minotaur", weapon: "War Totem", skills: { warStomp: "War Stomp", rebirth: "Rebirth" } },
       elfKing: { name: "Elf King", weapon: "Forest Longbow", skills: { fireArrow: "Fire Arrow", forestBlessing: "Forest Blessing" } },
       wukong: { name: "Sun Wukong", weapon: "Golden Cudgel", skills: { tripleStaff: "Three Heads Six Arms", giantStaff: "Cosmic Form" } },
+      cryptLord: { name: "Crypt Lord", weapon: "Claws", skills: { impale: "Impale", summonBeetle: "Summon Beetle" } },
     },
   },
   fr: {
@@ -509,6 +511,7 @@ const translations = {
       minotaur: { name: "Minotaure", weapon: "Totem de guerre", skills: { warStomp: "Piétinement", rebirth: "Renaissance" } },
       elfKing: { name: "Roi elfe", weapon: "Grand arc forestier", skills: { fireArrow: "Flèche de feu", forestBlessing: "Bénédiction de la forêt" } },
       wukong: { name: "Sun Wukong", weapon: "Bâton d'or", skills: { tripleStaff: "Trois têtes six bras", giantStaff: "Forme cosmique" } },
+      cryptLord: { name: "Seigneur des cryptes", weapon: "Griffes", skills: { impale: "Empalement", summonBeetle: "Invoquer scarabée" } },
     },
   },
   de: {
@@ -639,6 +642,7 @@ const translations = {
       minotaur: { name: "Minotaurus", weapon: "Kriegstotem", skills: { warStomp: "Kriegsstampfer", rebirth: "Wiedergeburt" } },
       elfKing: { name: "Elfenkönig", weapon: "Wald-Langbogen", skills: { fireArrow: "Feuerpfeil", forestBlessing: "Waldsegen" } },
       wukong: { name: "Sun Wukong", weapon: "Goldener Stab", skills: { tripleStaff: "Drei Köpfe sechs Arme", giantStaff: "Kosmische Gestalt" } },
+      cryptLord: { name: "Gruftenlord", weapon: "Klauen", skills: { impale: "Aufspießen", summonBeetle: "Käfer beschwören" } },
     },
   },
   ar: {
@@ -769,6 +773,7 @@ const translations = {
       minotaur: { name: "المينوتور", weapon: "طوطم الحرب", skills: { warStomp: "دوس الحرب", rebirth: "الانبعاث" } },
       elfKing: { name: "ملك الجان", weapon: "قوس الغابة", skills: { fireArrow: "سهم ناري", forestBlessing: "بركة الغابة" } },
       wukong: { name: "سون ووكونغ", weapon: "العصا الذهبية", skills: { tripleStaff: "ثلاثة رؤوس وستة أذرع", giantStaff: "هيئة كونية" } },
+      cryptLord: { name: "سيد السراديب", weapon: "مخالب", skills: { impale: "طعن أرضي", summonBeetle: "استدعاء خنفساء" } },
     },
   },
 };
@@ -914,6 +919,9 @@ const TRADITIONAL_CHINESE_REPLACEMENTS = [
   ["星", "星"],
   ["师", "師"],
   ["术", "術"],
+  ["领", "領"],
+  ["唤", "喚"],
+  ["虫", "蟲"],
   ["岁", "歲"],
   ["稳", "穩"],
   ["变", "變"],
@@ -1103,6 +1111,7 @@ translations.ja = {
     minotaur: { name: "ミノタウロス", weapon: "戦争トーテム", skills: { warStomp: "戦争の踏みつけ", rebirth: "復生" } },
     elfKing: { name: "エルフ王", weapon: "森の長弓", skills: { fireArrow: "火矢", forestBlessing: "森の祝福" } },
     wukong: { name: "孫悟空", weapon: "如意棒", skills: { tripleStaff: "三面六臂", giantStaff: "法天象地" } },
+    cryptLord: { name: "クリプトロード", weapon: "爪", skills: { impale: "インペイル", summonBeetle: "小甲虫召喚" } },
   },
 };
 
