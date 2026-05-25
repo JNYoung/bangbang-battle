@@ -208,6 +208,7 @@ const translations = {
       elfKing: { name: "精灵王", weapon: "森林长弓", skills: { fireArrow: "火箭", forestBlessing: "森林祝福" } },
       wukong: { name: "孙悟空", weapon: "金箍棒", skills: { tripleStaff: "三头六臂", giantStaff: "法天象地" } },
       cryptLord: { name: "洞穴领主", weapon: "巨虫利爪", skills: { impale: "地刺", summonBeetle: "召唤小甲虫" } },
+      zeus: { name: "宙斯", weapon: "金色长枪", skills: { lightningStrike: "落雷", divineDescent: "天神下凡" } },
     },
   },
   en: {
@@ -385,6 +386,7 @@ const translations = {
       elfKing: { name: "Elf King", weapon: "Forest Longbow", skills: { fireArrow: "Fire Arrow", forestBlessing: "Forest Blessing" } },
       wukong: { name: "Sun Wukong", weapon: "Golden Cudgel", skills: { tripleStaff: "Three Heads Six Arms", giantStaff: "Cosmic Form" } },
       cryptLord: { name: "Crypt Lord", weapon: "Claws", skills: { impale: "Impale", summonBeetle: "Summon Beetle" } },
+      zeus: { name: "Zeus", weapon: "Golden Spear", skills: { lightningStrike: "Lightning Strike", divineDescent: "Divine Descent" } },
     },
   },
   fr: {
@@ -517,6 +519,7 @@ const translations = {
       elfKing: { name: "Roi elfe", weapon: "Grand arc forestier", skills: { fireArrow: "Flèche de feu", forestBlessing: "Bénédiction de la forêt" } },
       wukong: { name: "Sun Wukong", weapon: "Bâton d'or", skills: { tripleStaff: "Trois têtes six bras", giantStaff: "Forme cosmique" } },
       cryptLord: { name: "Seigneur des cryptes", weapon: "Griffes", skills: { impale: "Empalement", summonBeetle: "Invoquer scarabée" } },
+      zeus: { name: "Zeus", weapon: "Lance dorée", skills: { lightningStrike: "Foudre", divineDescent: "Descente divine" } },
     },
   },
   de: {
@@ -649,6 +652,7 @@ const translations = {
       elfKing: { name: "Elfenkönig", weapon: "Wald-Langbogen", skills: { fireArrow: "Feuerpfeil", forestBlessing: "Waldsegen" } },
       wukong: { name: "Sun Wukong", weapon: "Goldener Stab", skills: { tripleStaff: "Drei Köpfe sechs Arme", giantStaff: "Kosmische Gestalt" } },
       cryptLord: { name: "Gruftenlord", weapon: "Klauen", skills: { impale: "Aufspießen", summonBeetle: "Käfer beschwören" } },
+      zeus: { name: "Zeus", weapon: "Goldener Speer", skills: { lightningStrike: "Blitzschlag", divineDescent: "Göttlicher Abstieg" } },
     },
   },
   ar: {
@@ -781,6 +785,7 @@ const translations = {
       elfKing: { name: "ملك الجان", weapon: "قوس الغابة", skills: { fireArrow: "سهم ناري", forestBlessing: "بركة الغابة" } },
       wukong: { name: "سون ووكونغ", weapon: "العصا الذهبية", skills: { tripleStaff: "ثلاثة رؤوس وستة أذرع", giantStaff: "هيئة كونية" } },
       cryptLord: { name: "سيد السراديب", weapon: "مخالب", skills: { impale: "طعن أرضي", summonBeetle: "استدعاء خنفساء" } },
+      zeus: { name: "زيوس", weapon: "رمح ذهبي", skills: { lightningStrike: "صاعقة", divineDescent: "هبوط إلهي" } },
     },
   },
 };
@@ -1120,6 +1125,7 @@ translations.ja = {
     elfKing: { name: "エルフ王", weapon: "森の長弓", skills: { fireArrow: "火矢", forestBlessing: "森の祝福" } },
     wukong: { name: "孫悟空", weapon: "如意棒", skills: { tripleStaff: "三面六臂", giantStaff: "法天象地" } },
     cryptLord: { name: "クリプトロード", weapon: "爪", skills: { impale: "インペイル", summonBeetle: "小甲虫召喚" } },
+    zeus: { name: "ゼウス", weapon: "黄金の長槍", skills: { lightningStrike: "落雷", divineDescent: "神降ろし" } },
   },
 };
 
