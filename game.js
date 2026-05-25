@@ -77,6 +77,11 @@ const MUSIC_BASS_OFFSETS = [0, 0, 3, 5];
 const FEEDBACK_VIBRATION_COOLDOWN = 0.14;
 const COLLISION_FEEDBACK_COOLDOWN = 0.09;
 const VIEWPORT_RESIZE_EPSILON = 1;
+const ARENA_SHAKE_COOLDOWN_SECONDS = 10;
+const ARENA_SHAKE_DURATION_SECONDS = 0.48;
+const ARENA_SHAKE_MAX_OFFSET = 10;
+const PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE = 2;
+const PLAYING_VIEWPORT_HEIGHT_JITTER_TOLERANCE = 16;
 
 let balls = [];
 let gameOver = false;
@@ -124,6 +129,9 @@ let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
 let matchTelemetry = createMatchTelemetryState();
+let lastArenaShakeTime = -Infinity;
+let arenaShakeStartedAt = -Infinity;
+let arenaShakeSeed = 0;
 let audioContext = null;
 let audioMasterGain = null;
 let audioMusicGain = null;
@@ -1352,11 +1360,63 @@ function restartGame() {
   resultMessage = "";
   matchElapsedTimeSeconds = 0;
   matchTelemetry = createMatchTelemetryState();
+  lastArenaShakeTime = -Infinity;
+  arenaShakeStartedAt = -Infinity;
+  arenaShakeSeed = 0;
   lastFrameTime = performance.now();
   if (isCurrentItemMode()) {
     spawnInitialItems(lastFrameTime / 1000);
   }
   GamePlatform.setLoadingProgress(100);
+}
+
+function triggerArenaShake() {
+  if (screen !== Screen.PLAYING || gameOver) {
+    return;
+  }
+
+  const currentTime = elapsedTimeSeconds;
+  if (getArenaShakeCooldownRemaining(currentTime) > 0) {
+    return;
+  }
+
+  lastArenaShakeTime = currentTime;
+  arenaShakeStartedAt = currentTime;
+  arenaShakeSeed = Math.random() * 1000;
+  redirectPrimaryCombatantsAfterShake();
+  playGameSound("shake", getMusicIntensity());
+  triggerVibration([10, 22, 10], currentTime);
+}
+
+function redirectPrimaryCombatantsAfterShake() {
+  const activeCombatants = balls.filter((ball) => ball.hp > 0 && isPrimaryCombatant(ball));
+
+  activeCombatants.forEach((ball) => {
+    const opponent = getNearestAliveOpponent(ball);
+    const baseDirection = opponent
+      ? normalize(subtract(opponent.position, ball.position))
+      : vectorFromAngle(Math.random() * Math.PI * 2);
+    const jitter = (Math.random() - 0.5) * Math.PI * 0.58;
+    const direction = vectorFromAngle(angleOf(baseDirection) + jitter);
+    ball.velocity = scale(direction, getCurrentMoveSpeed(ball));
+  });
+}
+
+function getArenaShakeCooldownRemaining(currentTime = elapsedTimeSeconds) {
+  return clamp(ARENA_SHAKE_COOLDOWN_SECONDS - (currentTime - lastArenaShakeTime), 0, ARENA_SHAKE_COOLDOWN_SECONDS);
+}
+
+function getArenaShakeOffset(currentTime = elapsedTimeSeconds) {
+  const progress = clamp((currentTime - arenaShakeStartedAt) / ARENA_SHAKE_DURATION_SECONDS, 0, 1);
+  if (progress >= 1) {
+    return { x: 0, y: 0 };
+  }
+
+  const strength = ARENA_SHAKE_MAX_OFFSET * (1 - progress) ** 2;
+  return {
+    x: Math.round(Math.sin((currentTime + arenaShakeSeed) * 88) * strength + Math.sin((currentTime + arenaShakeSeed) * 141) * strength * 0.35),
+    y: Math.round(Math.cos((currentTime + arenaShakeSeed) * 103) * strength + Math.sin((currentTime + arenaShakeSeed) * 73) * strength * 0.35),
+  };
 }
 
 function returnToMenu() {
@@ -1801,6 +1861,14 @@ function playGameSound(type, intensity = getMusicIntensity()) {
     return;
   }
 
+  if (type === "shake") {
+    scheduleChipNoise(now, 0.12, { volume: 0.075, frequency: 1500 });
+    [0, 5, 10].forEach((offset, index) => {
+      scheduleChipNote(getSemitoneFrequency(180, offset + pitchBoost), now + index * 0.035, 0.055, { volume: 0.07 });
+    });
+    return;
+  }
+
   if (type === "bearBoost") {
     [0, 7, 12, 19].forEach((offset, index) => {
       scheduleChipNote(getSemitoneFrequency(247, offset), now + index * 0.03, 0.055, { volume: 0.07 });
@@ -1888,12 +1956,15 @@ function triggerVibration(pattern, currentTime = elapsedTimeSeconds) {
 
 function resizeCanvas() {
   pendingResizeFrame = 0;
-  const nextViewport = getStableViewportSize();
+  const measuredViewport = getStableViewportSize();
+  const nextViewport = getResizeStableViewportSize(measuredViewport);
   if (!hasViewportSizeChanged(nextViewport)) {
+    syncCanvasCssSize(nextViewport);
     return;
   }
 
   viewport = nextViewport;
+  syncCanvasCssSize(viewport);
   const backingWidth = Math.round(viewport.width * viewport.dpr);
   const backingHeight = Math.round(viewport.height * viewport.dpr);
   if (canvas.width !== backingWidth) {
@@ -1905,6 +1976,31 @@ function resizeCanvas() {
   ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
   layout = createLayout(viewport.width, viewport.height);
+}
+
+function syncCanvasCssSize(size) {
+  canvas.style.width = `${size.width}px`;
+  canvas.style.height = `${size.height}px`;
+}
+
+function getResizeStableViewportSize(measuredViewport) {
+  if (!viewport.width || screen !== Screen.PLAYING) {
+    return measuredViewport;
+  }
+
+  const widthDelta = Math.abs(measuredViewport.width - viewport.width);
+  const heightDelta = Math.abs(measuredViewport.height - viewport.height);
+  const sameDpr = Math.abs(measuredViewport.dpr - viewport.dpr) <= 0.001;
+  if (
+    sameDpr &&
+    widthDelta <= PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE &&
+    heightDelta > VIEWPORT_RESIZE_EPSILON &&
+    heightDelta <= PLAYING_VIEWPORT_HEIGHT_JITTER_TOLERANCE
+  ) {
+    return viewport;
+  }
+
+  return measuredViewport;
 }
 
 function scheduleCanvasResize() {
@@ -1954,11 +2050,15 @@ function createTopHudLayout(metrics) {
   const { left, top, contentWidth, contentHeight, gap } = metrics;
   const titleHeight = contentWidth < 430 ? 50 : 58;
   const hudHeight = titleHeight;
-  const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap);
-  const arenaSize = Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight);
+  const arenaControlsHeight = contentWidth < 430 ? 36 : 40;
+  const arenaControlsGap = clamp(gap * 0.75, 6, 12);
+  const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap - arenaControlsGap - arenaControlsHeight);
+  const arenaSize = Math.floor(Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight));
   const spareHeight = Math.max(0, arenaMaxHeight - arenaSize);
-  const arenaX = left + (contentWidth - arenaSize) / 2;
-  const arenaY = top + hudHeight + gap + spareHeight * 0.5;
+  const arenaX = Math.round(left + (contentWidth - arenaSize) / 2);
+  const arenaY = Math.round(top + hudHeight + gap + spareHeight * 0.5);
+  const arenaControlsWidth = Math.round(Math.min(Math.max(128, arenaSize * 0.54), Math.min(260, arenaSize)));
+  const arenaControlsHeightRounded = Math.round(arenaControlsHeight);
 
   return {
     mode: "top",
@@ -1979,14 +2079,25 @@ function createTopHudLayout(metrics) {
       size: arenaSize,
       scale: arenaSize / ARENA_SIZE,
     },
+    arenaControls: {
+      x: Math.round(arenaX + (arenaSize - arenaControlsWidth) / 2),
+      y: Math.round(arenaY + arenaSize + arenaControlsGap),
+      width: arenaControlsWidth,
+      height: arenaControlsHeightRounded,
+    },
   };
 }
 
 function createLandscapeLayout(metrics) {
-  const { left, top, contentWidth, contentHeight } = metrics;
-  const arenaSize = Math.min(ARENA_SIZE, contentWidth, contentHeight);
-  const arenaX = left + (contentWidth - arenaSize) / 2;
-  const arenaY = top + (contentHeight - arenaSize) / 2;
+  const { left, top, contentWidth, contentHeight, gap } = metrics;
+  const arenaControlsHeight = contentHeight < 430 ? 34 : 38;
+  const arenaControlsGap = clamp(gap * 0.55, 6, 10);
+  const arenaMaxHeight = Math.max(120, contentHeight - arenaControlsHeight - arenaControlsGap);
+  const arenaSize = Math.floor(Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight));
+  const arenaX = Math.round(left + (contentWidth - arenaSize) / 2);
+  const arenaY = Math.round(top + (contentHeight - arenaSize - arenaControlsHeight - arenaControlsGap) / 2);
+  const arenaControlsWidth = Math.round(Math.min(Math.max(126, arenaSize * 0.48), Math.min(240, arenaSize)));
+  const arenaControlsHeightRounded = Math.round(arenaControlsHeight);
 
   return {
     mode: "landscape",
@@ -2006,6 +2117,12 @@ function createLandscapeLayout(metrics) {
       y: arenaY,
       size: arenaSize,
       scale: arenaSize / ARENA_SIZE,
+    },
+    arenaControls: {
+      x: Math.round(arenaX + (arenaSize - arenaControlsWidth) / 2),
+      y: Math.round(arenaY + arenaSize + arenaControlsGap),
+      width: arenaControlsWidth,
+      height: arenaControlsHeightRounded,
     },
   };
 }
@@ -5203,6 +5320,7 @@ function draw() {
     case Screen.PLAYING:
       drawHud(t("status.playing"));
       drawArenaScene();
+      drawShakeArenaButton();
       break;
     case Screen.PAUSED:
       drawHud(t("status.paused"));
@@ -5286,6 +5404,81 @@ function drawPauseHudButton() {
     rect: { x, y, width: size, height: size },
     action: pauseGame,
   });
+}
+
+function drawShakeArenaButton() {
+  const controls = layout?.arenaControls;
+  if (!controls) {
+    return;
+  }
+
+  const cooldownRemaining = getArenaShakeCooldownRemaining(elapsedTimeSeconds);
+  const isReady = cooldownRemaining <= 0.001;
+  const label = isReady ? t("hud.shake") : `${t("hud.shake")} ${Math.ceil(cooldownRemaining)}s`;
+  const cooldownProgress = isReady ? 1 : 1 - cooldownRemaining / ARENA_SHAKE_COOLDOWN_SECONDS;
+  const isPressed = pointerDownElementId === "arena-shake";
+
+  ctx.save();
+  drawPixelFrame(controls.x, controls.y, controls.width, controls.height, {
+    fill: isReady ? (isPressed ? "#fff6d6" : COLORS.button) : "#28314a",
+    border: isReady ? "#37d7ff" : "#4d5575",
+    shadow: "#050711",
+    inset: isReady ? "#fff6d6" : "#8aa0c8",
+    texture: isReady ? voxelAssets.blocks.plank : voxelAssets.blocks.stone,
+  });
+
+  if (!isReady) {
+    ctx.fillStyle = "rgba(5, 7, 17, 0.38)";
+    ctx.fillRect(controls.x + 6, controls.y + 6, controls.width - 12, controls.height - 12);
+  }
+
+  const meterX = controls.x + 9;
+  const meterY = controls.y + controls.height - 10;
+  const meterWidth = controls.width - 18;
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(meterX, meterY, meterWidth, 4);
+  ctx.fillStyle = isReady ? "#37d7ff" : "#f0d7ff";
+  ctx.fillRect(meterX, meterY, meterWidth * cooldownProgress, 4);
+
+  drawShakeGlyph(controls.x + 18, controls.y + controls.height / 2, isReady);
+  ctx.fillStyle = isReady ? COLORS.buttonText : COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(label, controls.width - 54, 15, 10, 900), 900);
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, controls.x + controls.width / 2 + 10, controls.y + controls.height / 2 - 1);
+  ctx.restore();
+
+  if (isReady) {
+    addInteractiveElement({
+      id: "arena-shake",
+      rect: { ...controls },
+      action: triggerArenaShake,
+    });
+  }
+}
+
+function drawShakeGlyph(x, y, isReady) {
+  ctx.save();
+  ctx.strokeStyle = "#050711";
+  ctx.lineWidth = 3;
+  drawShakeGlyphLines(x + 1, y + 1);
+  ctx.strokeStyle = isReady ? "#f8fbff" : "#9fb2d8";
+  ctx.lineWidth = 2;
+  drawShakeGlyphLines(x, y);
+  ctx.restore();
+}
+
+function drawShakeGlyphLines(x, y) {
+  for (let index = -1; index <= 1; index += 1) {
+    const lineY = y + index * 6;
+    ctx.beginPath();
+    ctx.moveTo(x - 8, lineY);
+    ctx.lineTo(x - 3, lineY - 3);
+    ctx.lineTo(x + 3, lineY + 3);
+    ctx.lineTo(x + 8, lineY);
+    ctx.stroke();
+  }
 }
 
 function drawConsentScreen() {
@@ -8954,8 +9147,9 @@ function drawMageWeapon(ctx, ball, direction, progress) {
 }
 
 function drawArenaScene() {
+  const shakeOffset = getArenaShakeOffset(elapsedTimeSeconds);
   ctx.save();
-  ctx.translate(layout.arena.x, layout.arena.y);
+  ctx.translate(layout.arena.x + shakeOffset.x, layout.arena.y + shakeOffset.y);
   ctx.scale(layout.arena.scale, layout.arena.scale);
   drawArena();
   drawDroppedItems(ctx, elapsedTimeSeconds);

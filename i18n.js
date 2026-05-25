@@ -18,6 +18,9 @@ const translations = {
       playing: "自动开战中",
       paused: "已暂停",
     },
+    hud: {
+      shake: "Shake",
+    },
     messages: {
       checkAgreement: "请先勾选同意协议",
       consentWithdrawn: "已撤回同意，请重新阅读并确认",
@@ -213,6 +216,7 @@ const translations = {
     side: { a: "Ball A", b: "Ball B" },
     common: { enabled: "Enabled", unavailable: "Not configured", iap: "IAP" },
     status: { playing: "Auto battle", paused: "Paused" },
+    hud: { shake: "Shake" },
     messages: {
       checkAgreement: "Please agree to the terms first",
       consentWithdrawn: "Consent withdrawn. Please review and confirm again",
@@ -389,6 +393,7 @@ const translations = {
     side: { a: "Balle A", b: "Balle B" },
     common: { enabled: "Activé", unavailable: "Non configuré", iap: "IAP" },
     status: { playing: "Combat auto", paused: "Pause" },
+    hud: { shake: "Secouer" },
     messages: {
       checkAgreement: "Veuillez accepter les conditions",
       consentWithdrawn: "Consentement retiré. Veuillez relire et confirmer",
@@ -520,6 +525,7 @@ const translations = {
     side: { a: "Ball A", b: "Ball B" },
     common: { enabled: "Aktiv", unavailable: "Nicht konfiguriert", iap: "IAP" },
     status: { playing: "Auto-Kampf", paused: "Pausiert" },
+    hud: { shake: "Rütteln" },
     messages: {
       checkAgreement: "Bitte stimme zuerst den Bedingungen zu",
       consentWithdrawn: "Zustimmung widerrufen. Bitte erneut lesen und bestätigen",
@@ -651,6 +657,7 @@ const translations = {
     side: { a: "الكرة A", b: "الكرة B" },
     common: { enabled: "مفعل", unavailable: "غير مهيأ", iap: "الشراء داخل التطبيق" },
     status: { playing: "قتال تلقائي", paused: "متوقف مؤقتا" },
+    hud: { shake: "هز" },
     messages: {
       checkAgreement: "يرجى الموافقة على الشروط أولا",
       consentWithdrawn: "تم سحب الموافقة. يرجى القراءة والتأكيد مرة أخرى",
@@ -974,6 +981,7 @@ translations.ja = {
   side: { a: "ボール A", b: "ボール B" },
   common: { enabled: "有効", unavailable: "未設定", iap: "IAP" },
   status: { playing: "自動バトル中", paused: "一時停止中" },
+  hud: { shake: "シェイク" },
   messages: {
     checkAgreement: "先に規約への同意を確認してください",
     consentWithdrawn: "同意を取り消しました。内容を再確認してください",
