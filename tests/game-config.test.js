@@ -84,7 +84,7 @@ test("scene config keeps classic and super profession pools separate", () => {
   assert.deepEqual(getSceneProfessionIds(ITEM_SCENE_ID), []);
   assert.equal(SceneConfig[ITEM_SCENE_ID].ballHp, 100);
   assert.equal(SceneConfig[HERO_SCENE_ID].type, "heroes");
-  assert.deepEqual(SceneConfig[HERO_SCENE_ID].professionIds, ["demon", "dwarfKing", "minotaur", "elfKing", "wukong", "cryptLord"]);
+  assert.deepEqual(SceneConfig[HERO_SCENE_ID].professionIds, ["demon", "dwarfKing", "minotaur", "elfKing", "wukong", "cryptLord", "zeus"]);
   assert.equal(isHeroScene(HERO_SCENE_ID), true);
   assert.equal(isHeroScene("classic"), false);
   assert.equal(isItemScene(ITEM_SCENE_ID), true);
@@ -94,7 +94,7 @@ test("scene config keeps classic and super profession pools separate", () => {
 });
 
 test("hero mode config exposes health, mana, weapons, and skill contracts", () => {
-  assert.deepEqual(Object.keys(HeroConfig).sort(), ["cryptLord", "demon", "dwarfKing", "elfKing", "minotaur", "wukong"]);
+  assert.deepEqual(Object.keys(HeroConfig).sort(), ["cryptLord", "demon", "dwarfKing", "elfKing", "minotaur", "wukong", "zeus"]);
 
   for (const [id, hero] of Object.entries(HeroConfig)) {
     assert.equal(hero.id, id);
@@ -143,6 +143,9 @@ test("hero mode config exposes health, mana, weapons, and skill contracts", () =
   assert.equal(HeroConfig.cryptLord.attackMode, "claw");
   assert.equal(HeroConfig.cryptLord.skills.some((skill) => skill.type === "impale" && skill.activeLength === 120 && skill.collisionRadius > 0), true);
   assert.equal(HeroConfig.cryptLord.skills.some((skill) => skill.type === "summonBeetle" && skill.maxCount === 3 && skill.maxHp === 1 && skill.damage === 1), true);
+  assert.equal(HeroConfig.zeus.attackMode, "spear");
+  assert.equal(HeroConfig.zeus.skills.some((skill) => skill.type === "delayedLightning" && skill.warningDuration > 0 && skill.damage > 0), true);
+  assert.equal(HeroConfig.zeus.skills.some((skill) => skill.type === "divineDescent" && skill.radiusMultiplier > 1 && skill.healthMultiplier > 0), true);
 });
 
 test("item mode config is data-driven and numerically valid", () => {

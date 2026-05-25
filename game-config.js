@@ -754,6 +754,69 @@ export const HeroConfig = {
       return Boolean(attackVariant?.heroSkillId);
     },
   },
+  zeus: {
+    id: "zeus",
+    nameKey: "heroes.zeus.name",
+    maxHp: 116,
+    maxMp: 108,
+    manaRegen: 4.7,
+    radius: 25,
+    moveSpeed: 206,
+    attackDamage: 13,
+    attackCooldown: 0.7,
+    weaponRange: 96,
+    attackMode: "spear",
+    bodyPattern: "zeus",
+    color: "#6d5a24",
+    accentColor: "#facc15",
+    item: {
+      nameKey: "heroes.zeus.weapon",
+      type: "goldenSpear",
+      animation: "金色长枪突刺",
+    },
+    skills: [
+      {
+        id: "lightningStrike",
+        nameKey: "heroes.zeus.skills.lightningStrike",
+        type: "delayedLightning",
+        manaCost: 30,
+        cooldown: 5.8,
+        autoPriority: 1,
+        range: 430,
+        predictionTime: 0.48,
+        warningDuration: 0.62,
+        radius: 52,
+        damage: 15,
+        velocityChangeTolerance: 78,
+        positionChangeTolerance: 44,
+        knockbackMultiplier: 0.96,
+        color: "#facc15",
+      },
+      {
+        id: "divineDescent",
+        nameKey: "heroes.zeus.skills.divineDescent",
+        type: "divineDescent",
+        manaCost: 38,
+        cooldown: 8.2,
+        autoPriority: 2,
+        duration: 3.6,
+        triggerRange: 240,
+        triggerHpRatio: 0.86,
+        healthMultiplier: 0.1,
+        radiusMultiplier: 1.28,
+        color: "#fde68a",
+      },
+    ],
+    getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant) {
+      return attackVariant?.damage || this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || 0.94;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return Boolean(attackVariant?.heroSkillId);
+    },
+  },
 };
 
 export const SceneConfig = {
@@ -796,7 +859,7 @@ export const SceneConfig = {
     type: "heroes",
     nameKey: "scenes.heroes.name",
     descriptionKey: "scenes.heroes.description",
-    professionIds: ["demon", "dwarfKing", "minotaur", "elfKing", "wukong", "cryptLord"],
+    professionIds: ["demon", "dwarfKing", "minotaur", "elfKing", "wukong", "cryptLord", "zeus"],
     defaultProfessions: {
       a: "demon",
       b: "dwarfKing",
