@@ -103,6 +103,7 @@ const ARENA_SHAKE_COOLDOWN_SECONDS = 10;
 const ARENA_SHAKE_DURATION_SECONDS = 0.48;
 const ARENA_SHAKE_MAX_OFFSET = 10;
 const PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE = 2;
+const GAME_SPEED_OPTIONS = [1, 1.5, 2];
 const NEUTRAL_SCENE_SPAWN_CONFIG = Object.freeze({
   initialCount: 2,
   maxActive: 4,
@@ -224,6 +225,7 @@ let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
 let matchTelemetry = createMatchTelemetryState();
+let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
 let lastArenaShakeTime = -Infinity;
 let arenaShakeStartedAt = -Infinity;
 let arenaShakeSeed = 0;
@@ -1490,18 +1492,43 @@ function restartGame() {
   nextItemSpawnTime = 0;
   gameOver = false;
   resultMessage = "";
+  elapsedTimeSeconds = 0;
   matchElapsedTimeSeconds = 0;
   matchTelemetry = createMatchTelemetryState();
   lastArenaShakeTime = -Infinity;
   arenaShakeStartedAt = -Infinity;
   arenaShakeSeed = 0;
+  lastVibrationTime = -Infinity;
+  lastCollisionFeedbackTime = -Infinity;
   lastFrameTime = performance.now();
   if (isCurrentItemMode()) {
-    spawnInitialItems(lastFrameTime / 1000);
+    spawnInitialItems(elapsedTimeSeconds);
   } else if (isCurrentClassicMode()) {
-    spawnInitialNeutralSceneObjects(lastFrameTime / 1000);
+    spawnInitialNeutralSceneObjects(elapsedTimeSeconds);
   }
   GamePlatform.setLoadingProgress(100);
+}
+
+function setGameSpeedMultiplier(multiplier) {
+  if (!GAME_SPEED_OPTIONS.includes(multiplier) || gameSpeedMultiplier === multiplier) {
+    return;
+  }
+
+  const previousMultiplier = gameSpeedMultiplier;
+  gameSpeedMultiplier = multiplier;
+  trackSettingSelect("game_speed", formatGameSpeedLabel(gameSpeedMultiplier), {
+    previous_value: formatGameSpeedLabel(previousMultiplier),
+  });
+}
+
+function cycleGameSpeedMultiplier() {
+  const currentIndex = GAME_SPEED_OPTIONS.indexOf(gameSpeedMultiplier);
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % GAME_SPEED_OPTIONS.length : 0;
+  setGameSpeedMultiplier(GAME_SPEED_OPTIONS[nextIndex]);
+}
+
+function formatGameSpeedLabel(multiplier) {
+  return `x${Number.isInteger(multiplier) ? multiplier : multiplier.toFixed(1)}`;
 }
 
 function triggerArenaShake() {
@@ -2317,11 +2344,12 @@ function createLandscapeLayout(metrics) {
 function gameLoop(timestamp) {
   const deltaTime = Math.min((timestamp - lastFrameTime) / 1000, MAX_DELTA_TIME);
   lastFrameTime = timestamp;
-  elapsedTimeSeconds = timestamp / 1000;
 
   if (screen === Screen.PLAYING && !gameOver) {
-    matchElapsedTimeSeconds += deltaTime;
-    update(deltaTime, elapsedTimeSeconds);
+    const scaledDeltaTime = deltaTime * gameSpeedMultiplier;
+    elapsedTimeSeconds += scaledDeltaTime;
+    matchElapsedTimeSeconds += scaledDeltaTime;
+    update(scaledDeltaTime, elapsedTimeSeconds);
   }
 
   updateAudioEngine();
@@ -5918,17 +5946,87 @@ function drawHud(statusText) {
   ctx.restore();
 
   if (screen === Screen.PLAYING) {
-    drawPauseHudButton();
+    drawHudControls();
   }
 }
 
-function drawPauseHudButton() {
-  const size = 42;
-  const x = layout.content.x + layout.content.width - size - 10;
-  const y = layout.content.y + 10;
+function drawHudControls() {
+  const speedRect = getGameSpeedHudControlRect();
+  drawGameSpeedHudControl(speedRect);
+  drawPauseHudButton(getPauseHudButtonRect(speedRect));
+}
+
+function getGameSpeedHudControlRect() {
+  const compact = layout.content.width < 430;
+  const width = compact ? 50 : 56;
+  const height = compact ? 36 : 38;
+  return {
+    x: Math.round(layout.content.x + layout.content.width - width - 8),
+    y: Math.round(layout.content.y + 10),
+    width,
+    height,
+  };
+}
+
+function getPauseHudButtonRect(speedRect) {
+  const compact = layout.content.width < 430;
+  const size = compact ? 36 : 38;
+  const gap = 6;
+  if (compact) {
+    return {
+      x: Math.round(speedRect.x + speedRect.width - size),
+      y: Math.round(speedRect.y + speedRect.height + gap),
+      width: size,
+      height: size,
+    };
+  }
+
+  return {
+    x: Math.round(speedRect.x - size - gap),
+    y: speedRect.y,
+    width: size,
+    height: size,
+  };
+}
+
+function drawGameSpeedHudControl(rect) {
+  const isPressed = pointerDownElementId === "hud-speed";
+  const label = formatGameSpeedLabel(gameSpeedMultiplier);
 
   ctx.save();
-  drawPixelFrame(x, y, size, size, {
+  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
+    fill: isPressed ? "#fff6d6" : "#12364b",
+    border: "#d9aa55",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.glowstone,
+  });
+
+  ctx.fillStyle = isPressed ? COLORS.buttonText : COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(label, rect.width - 12, 14, 10, 900), 900);
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2);
+  ctx.restore();
+
+  addInteractiveElement({
+    id: "hud-speed",
+    rect,
+    action: cycleGameSpeedMultiplier,
+  });
+}
+
+function drawPauseHudButton(rect) {
+  const { x, y, width: size, height } = rect;
+  const barWidth = Math.max(4, Math.round(size * 0.13));
+  const barHeight = Math.max(16, Math.round(height * 0.44));
+  const barTop = y + Math.round((height - barHeight) / 2);
+  const leftBarX = x + Math.round(size * 0.35);
+  const rightBarX = x + Math.round(size * 0.58);
+
+  ctx.save();
+  drawPixelFrame(x, y, size, height, {
     fill: "#162642",
     border: "#8be8ff",
     shadow: "#050711",
@@ -5936,16 +6034,16 @@ function drawPauseHudButton() {
     texture: voxelAssets.blocks.deepslate,
   });
   ctx.fillStyle = "#050711";
-  ctx.fillRect(x + 14, y + 12, 6, 18);
-  ctx.fillRect(x + 24, y + 12, 6, 18);
+  ctx.fillRect(leftBarX + 1, barTop + 1, barWidth + 1, barHeight);
+  ctx.fillRect(rightBarX + 1, barTop + 1, barWidth + 1, barHeight);
   ctx.fillStyle = "#f8fbff";
-  ctx.fillRect(x + 13, y + 11, 5, 18);
-  ctx.fillRect(x + 23, y + 11, 5, 18);
+  ctx.fillRect(leftBarX, barTop, barWidth, barHeight);
+  ctx.fillRect(rightBarX, barTop, barWidth, barHeight);
   ctx.restore();
 
   addInteractiveElement({
     id: "hud-pause",
-    rect: { x, y, width: size, height: size },
+    rect,
     action: pauseGame,
   });
 }
