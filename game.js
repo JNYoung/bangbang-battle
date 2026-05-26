@@ -5,6 +5,7 @@ import {
   ATTACK_COOLDOWN_MULTIPLIER,
   BALL_RADIUS_MULTIPLIER,
   COLORS,
+  DEFAULT_SCENE_ID,
   HERO_SCENE_ID,
   HeroConfig,
   ITEM_SCENE_ID,
@@ -102,7 +103,74 @@ const ARENA_SHAKE_COOLDOWN_SECONDS = 10;
 const ARENA_SHAKE_DURATION_SECONDS = 0.48;
 const ARENA_SHAKE_MAX_OFFSET = 10;
 const PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE = 2;
-const PLAYING_VIEWPORT_HEIGHT_JITTER_TOLERANCE = 16;
+const NEUTRAL_SCENE_SPAWN_CONFIG = Object.freeze({
+  initialCount: 2,
+  maxActive: 4,
+  spawnInterval: 4.2,
+  spawnChance: 0.76,
+  retryInterval: 0.8,
+  edgePadding: 82,
+  avoidBallRadius: 124,
+  avoidObjectRadius: 108,
+  recentSpawnAvoidRadius: 142,
+  recentSpawnAvoidDuration: 13,
+  spawnAttempts: 52,
+});
+const NEUTRAL_SCENE_TYPE_CONFIG = Object.freeze({
+  smallHealth: {
+    kind: "health",
+    healAmount: 12,
+    radius: 20,
+    pickupRadius: 26,
+    lifetime: 18,
+    color: "#ef4444",
+  },
+  largeHealth: {
+    kind: "health",
+    healAmount: 26,
+    radius: 36,
+    pickupRadius: 44,
+    lifetime: 20,
+    color: "#fecaca",
+  },
+  thorns: {
+    kind: "solidDamage",
+    damage: 9,
+    radius: 30,
+    hitCooldown: 0.86,
+    lifetime: 17,
+    color: "#84cc16",
+  },
+  groundFire: {
+    kind: "damageZone",
+    damage: 5,
+    radius: 34,
+    hitCooldown: 0.62,
+    lifetime: 9.5,
+    color: "#ff6b24",
+  },
+  iceTile: {
+    kind: "freezeZone",
+    freezeDuration: 1.08,
+    radius: 32,
+    lifetime: 15,
+    color: "#7dd3fc",
+  },
+  earthWall: {
+    kind: "solid",
+    radius: 34,
+    lifetime: 26,
+    color: "#a16207",
+  },
+});
+const NEUTRAL_SCENE_DROP_TABLE = Object.freeze([
+  { type: "smallHealth", weight: 16 },
+  { type: "largeHealth", weight: 7 },
+  { type: "thorns", weight: 24 },
+  { type: "groundFire", weight: 20 },
+  { type: "iceTile", weight: 18 },
+  { type: "earthWall", weight: 15 },
+]);
 
 let balls = [];
 let gameOver = false;
@@ -111,6 +179,7 @@ let lastFrameTime = 0;
 let elapsedTimeSeconds = 0;
 let matchElapsedTimeSeconds = 0;
 let viewport = { width: 0, height: 0, dpr: 1 };
+let gameplayViewportLock = null;
 let pendingResizeFrame = 0;
 let layout = null;
 let screen = Screen.CONSENT;
@@ -138,6 +207,8 @@ let arenaHazards = [];
 let webLinks = [];
 let flameTrails = [];
 let damageIndicators = [];
+let neutralSceneObjects = [];
+let recentNeutralSceneSpawnZones = [];
 let droppedItems = [];
 let itemBuildings = [];
 let itemExplosions = [];
@@ -145,6 +216,8 @@ let recentItemSpawnZones = [];
 let heroEffectInstances = [];
 let nextItemSpawnTime = 0;
 let itemSpawnCounter = 0;
+let neutralSceneCounter = 0;
+let nextNeutralSceneSpawnTime = 0;
 let itemBuildingCounter = 0;
 let cryptBeetleCounter = 0;
 let terrainState = createTerrainState();
@@ -1020,6 +1093,10 @@ function getActiveProfessionIds() {
   return getSceneProfessionIds(selectedProfessions.scene);
 }
 
+function isCurrentClassicMode() {
+  return (selectedProfessions.scene || DEFAULT_SCENE_ID) === DEFAULT_SCENE_ID;
+}
+
 function isCurrentItemMode() {
   return isItemScene(selectedProfessions.scene);
 }
@@ -1289,6 +1366,7 @@ function createSummonedBearState(ball) {
 
 function setScreen(nextScreen) {
   screen = nextScreen;
+  updateGameplayViewportLockForScreen();
   pointerDownElementId = null;
   legalScrollOffset = 0;
   sceneDropdownOpen = false;
@@ -1296,6 +1374,15 @@ function setScreen(nextScreen) {
   if (nextScreen !== Screen.PROFESSION_SELECT) {
     resetProfessionScroll();
   }
+}
+
+function updateGameplayViewportLockForScreen() {
+  if (isViewportJitterSensitiveScreen()) {
+    gameplayViewportLock ||= { ...viewport };
+    return;
+  }
+
+  gameplayViewportLock = null;
 }
 
 function openLegalDocument(type, returnScreen = screen) {
@@ -1388,12 +1475,16 @@ function restartGame() {
   webLinks = [];
   flameTrails = [];
   damageIndicators = [];
+  neutralSceneObjects = [];
+  recentNeutralSceneSpawnZones = [];
   droppedItems = [];
   itemBuildings = [];
   itemExplosions = [];
   recentItemSpawnZones = [];
   heroEffectInstances = [];
   itemSpawnCounter = 0;
+  neutralSceneCounter = 0;
+  nextNeutralSceneSpawnTime = 0;
   itemBuildingCounter = 0;
   cryptBeetleCounter = 0;
   nextItemSpawnTime = 0;
@@ -1407,6 +1498,8 @@ function restartGame() {
   lastFrameTime = performance.now();
   if (isCurrentItemMode()) {
     spawnInitialItems(lastFrameTime / 1000);
+  } else if (isCurrentClassicMode()) {
+    spawnInitialNeutralSceneObjects(lastFrameTime / 1000);
   }
   GamePlatform.setLoadingProgress(100);
 }
@@ -1471,6 +1564,8 @@ function returnToMenu() {
   webLinks = [];
   flameTrails = [];
   damageIndicators = [];
+  neutralSceneObjects = [];
+  recentNeutralSceneSpawnZones = [];
   droppedItems = [];
   itemBuildings = [];
   itemExplosions = [];
@@ -1478,6 +1573,8 @@ function returnToMenu() {
   heroEffectInstances = [];
   nextItemSpawnTime = 0;
   itemSpawnCounter = 0;
+  neutralSceneCounter = 0;
+  nextNeutralSceneSpawnTime = 0;
   itemBuildingCounter = 0;
   cryptBeetleCounter = 0;
   gameOver = false;
@@ -2043,15 +2140,21 @@ function resizeCanvas() {
   syncCanvasCssSize(viewport);
   const backingWidth = Math.round(viewport.width * viewport.dpr);
   const backingHeight = Math.round(viewport.height * viewport.dpr);
+  let didResizeBackingStore = false;
   if (canvas.width !== backingWidth) {
     canvas.width = backingWidth;
+    didResizeBackingStore = true;
   }
   if (canvas.height !== backingHeight) {
     canvas.height = backingHeight;
+    didResizeBackingStore = true;
   }
   ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
   layout = createLayout(viewport.width, viewport.height);
+  if (didResizeBackingStore) {
+    draw();
+  }
 }
 
 function syncCanvasCssSize(size) {
@@ -2060,23 +2163,31 @@ function syncCanvasCssSize(size) {
 }
 
 function getResizeStableViewportSize(measuredViewport) {
-  if (!viewport.width || screen !== Screen.PLAYING) {
+  if (!viewport.width || !isViewportJitterSensitiveScreen()) {
     return measuredViewport;
   }
 
-  const widthDelta = Math.abs(measuredViewport.width - viewport.width);
-  const heightDelta = Math.abs(measuredViewport.height - viewport.height);
-  const sameDpr = Math.abs(measuredViewport.dpr - viewport.dpr) <= 0.001;
-  if (
-    sameDpr &&
-    widthDelta <= PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE &&
-    heightDelta > VIEWPORT_RESIZE_EPSILON &&
-    heightDelta <= PLAYING_VIEWPORT_HEIGHT_JITTER_TOLERANCE
-  ) {
-    return viewport;
+  if (!gameplayViewportLock?.width) {
+    gameplayViewportLock = { ...viewport };
   }
 
+  if (isHeightOnlyGameplayViewportChange(measuredViewport, gameplayViewportLock)) {
+    return gameplayViewportLock;
+  }
+
+  gameplayViewportLock = { ...measuredViewport };
   return measuredViewport;
+}
+
+function isViewportJitterSensitiveScreen() {
+  return screen === Screen.PLAYING || screen === Screen.PAUSED || screen === Screen.RESULT;
+}
+
+function isHeightOnlyGameplayViewportChange(measuredViewport, lockedViewport) {
+  const widthDelta = Math.abs(measuredViewport.width - lockedViewport.width);
+  const heightDelta = Math.abs(measuredViewport.height - lockedViewport.height);
+  const sameDpr = Math.abs(measuredViewport.dpr - lockedViewport.dpr) <= 0.001;
+  return sameDpr && widthDelta <= PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE && heightDelta > VIEWPORT_RESIZE_EPSILON;
 }
 
 function scheduleCanvasResize() {
@@ -2251,6 +2362,11 @@ function update(deltaTime, currentTime) {
   forEachAliveCollisionCombatantPair((ballA, ballB) => {
     resolveBallCollision(ballA, ballB, currentTime);
   });
+  if (isCurrentClassicMode()) {
+    updateNeutralSceneObjects(currentTime);
+  } else {
+    neutralSceneObjects = [];
+  }
   updateEnvironmentalHazards(currentTime);
   updateItemBuildings(currentTime);
   updateProjectiles(deltaTime, currentTime);
@@ -3047,6 +3163,231 @@ function resolveItemPickups(currentTime) {
     }
     return false;
   });
+}
+
+function spawnInitialNeutralSceneObjects(currentTime) {
+  neutralSceneObjects = [];
+  recentNeutralSceneSpawnZones = [];
+  for (let index = 0; index < NEUTRAL_SCENE_SPAWN_CONFIG.initialCount; index += 1) {
+    spawnNeutralSceneObject(currentTime);
+  }
+  nextNeutralSceneSpawnTime = currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.spawnInterval;
+}
+
+function updateNeutralSceneObjects(currentTime) {
+  neutralSceneObjects = neutralSceneObjects.filter((object) => object.expiresAt > currentTime && !object.consumed);
+  pruneRecentNeutralSceneSpawnZones(currentTime);
+
+  if (neutralSceneObjects.length < NEUTRAL_SCENE_SPAWN_CONFIG.maxActive && currentTime >= nextNeutralSceneSpawnTime) {
+    const roll = terrainNoise(terrainState.seed, neutralSceneCounter, Math.floor(currentTime * 3), 947);
+    if (roll <= NEUTRAL_SCENE_SPAWN_CONFIG.spawnChance) {
+      spawnNeutralSceneObject(currentTime);
+    } else {
+      neutralSceneCounter += 1;
+      nextNeutralSceneSpawnTime = currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.spawnInterval * 0.65;
+    }
+  }
+
+  resolveNeutralSceneInteractions(currentTime);
+  neutralSceneObjects = neutralSceneObjects.filter((object) => !object.consumed);
+}
+
+function spawnNeutralSceneObject(currentTime) {
+  if (neutralSceneObjects.length >= NEUTRAL_SCENE_SPAWN_CONFIG.maxActive) {
+    return false;
+  }
+
+  const spawnIndex = neutralSceneCounter;
+  const type = getNeutralSceneType(spawnIndex, currentTime);
+  const config = NEUTRAL_SCENE_TYPE_CONFIG[type];
+  const position = config ? createNeutralSceneSpawnPosition(spawnIndex, currentTime, config) : null;
+  neutralSceneCounter += 1;
+
+  if (!config || !position) {
+    nextNeutralSceneSpawnTime = currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.retryInterval;
+    return false;
+  }
+
+  neutralSceneObjects.push({
+    id: `neutral-${spawnIndex}`,
+    type,
+    kind: config.kind,
+    position,
+    radius: config.radius,
+    createdAt: currentTime,
+    expiresAt: currentTime + config.lifetime,
+    lastHitByLabel: {},
+    consumed: false,
+  });
+  rememberNeutralSceneSpawnZone(position, currentTime);
+  nextNeutralSceneSpawnTime = currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.spawnInterval;
+  return true;
+}
+
+function getNeutralSceneType(spawnIndex, currentTime) {
+  const totalWeight = NEUTRAL_SCENE_DROP_TABLE.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = terrainNoise(terrainState.seed, spawnIndex + 19, Math.floor(currentTime * 2), 953) * totalWeight;
+
+  for (const entry of NEUTRAL_SCENE_DROP_TABLE) {
+    roll -= entry.weight;
+    if (roll <= 0) {
+      return entry.type;
+    }
+  }
+
+  return NEUTRAL_SCENE_DROP_TABLE[NEUTRAL_SCENE_DROP_TABLE.length - 1].type;
+}
+
+function createNeutralSceneSpawnPosition(spawnIndex, currentTime, config) {
+  const padding = Math.max(NEUTRAL_SCENE_SPAWN_CONFIG.edgePadding, config.radius + 56);
+  const span = ARENA_SIZE - padding * 2;
+
+  for (let attempt = 0; attempt < NEUTRAL_SCENE_SPAWN_CONFIG.spawnAttempts; attempt += 1) {
+    const x = padding + terrainNoise(terrainState.seed, spawnIndex, attempt, 967) * span;
+    const y = padding + terrainNoise(terrainState.seed, spawnIndex, attempt, 971) * span;
+    const position = snapVector({ x, y }, 4);
+    if (!isNeutralSceneSpawnPositionBlocked(position, config)) {
+      return position;
+    }
+  }
+
+  return null;
+}
+
+function isNeutralSceneSpawnPositionBlocked(position, config) {
+  const tooCloseToBall = balls.some((ball) => {
+    return ball.hp > 0 && isPrimaryCombatant(ball) && length(subtract(ball.position, position)) < NEUTRAL_SCENE_SPAWN_CONFIG.avoidBallRadius + config.radius;
+  });
+  if (tooCloseToBall) {
+    return true;
+  }
+
+  const tooCloseToObject = neutralSceneObjects.some((object) => {
+    return length(subtract(object.position, position)) < NEUTRAL_SCENE_SPAWN_CONFIG.avoidObjectRadius + object.radius + config.radius;
+  });
+  if (tooCloseToObject) {
+    return true;
+  }
+
+  return recentNeutralSceneSpawnZones.some((zone) => {
+    return length(subtract(zone.position, position)) < NEUTRAL_SCENE_SPAWN_CONFIG.recentSpawnAvoidRadius + config.radius;
+  });
+}
+
+function rememberNeutralSceneSpawnZone(position, currentTime) {
+  recentNeutralSceneSpawnZones.push({
+    position: { ...position },
+    expiresAt: currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.recentSpawnAvoidDuration,
+  });
+  pruneRecentNeutralSceneSpawnZones(currentTime);
+}
+
+function pruneRecentNeutralSceneSpawnZones(currentTime) {
+  recentNeutralSceneSpawnZones = recentNeutralSceneSpawnZones.filter((zone) => zone.expiresAt > currentTime);
+}
+
+function resolveNeutralSceneInteractions(currentTime) {
+  for (const object of neutralSceneObjects) {
+    for (const ball of getNeutralSceneCombatants()) {
+      if (object.consumed || ball.hp <= 0) {
+        continue;
+      }
+
+      const config = NEUTRAL_SCENE_TYPE_CONFIG[object.type];
+      if (!config) {
+        continue;
+      }
+
+      const distance = length(subtract(ball.position, object.position));
+      if (config.kind === "health") {
+        if (distance <= ball.radius + config.pickupRadius) {
+          applyNeutralHealthPack(object, ball, config, currentTime);
+        }
+        continue;
+      }
+
+      if (config.kind === "solid" || config.kind === "solidDamage") {
+        const collided = resolveNeutralSceneCollision(ball, object, currentTime);
+        if (collided && config.kind === "solidDamage") {
+          applyNeutralSceneDamage(object, ball, config, currentTime);
+        }
+        continue;
+      }
+
+      if (distance > ball.radius + object.radius) {
+        continue;
+      }
+
+      if (config.kind === "damageZone") {
+        applyNeutralSceneDamage(object, ball, config, currentTime);
+      } else if (config.kind === "freezeZone") {
+        applyNeutralIceTile(object, ball, config, currentTime);
+      }
+    }
+  }
+}
+
+function getNeutralSceneCombatants() {
+  return balls.filter((ball) => ball.hp > 0 && isPrimaryCombatant(ball));
+}
+
+function applyNeutralHealthPack(object, ball, config, currentTime) {
+  const healed = healBall(ball, config.healAmount);
+  if (healed <= 0) {
+    return;
+  }
+
+  object.consumed = true;
+  pushHeroEffect("neutralHeal", ball.position, ball.radius * 1.75, currentTime, config.color);
+  playGameSound("skill", getMusicIntensity());
+  triggerVibration([8], currentTime);
+}
+
+function applyNeutralSceneDamage(object, ball, config, currentTime) {
+  const lastHitAt = object.lastHitByLabel[ball.label] ?? -Infinity;
+  if (currentTime - lastHitAt < config.hitCooldown) {
+    return;
+  }
+
+  object.lastHitByLabel[ball.label] = currentTime;
+  const damage = damageBall(ball, config.damage);
+  if (damage > 0) {
+    playGameSound("hit", getMusicIntensity());
+    triggerVibration([10], currentTime);
+  }
+}
+
+function applyNeutralIceTile(object, ball, config, currentTime) {
+  object.consumed = true;
+  ball.frozenUntil = Math.max(ball.frozenUntil, currentTime + config.freezeDuration);
+  ball.attackState = null;
+  pushHeroEffect("neutralFreeze", ball.position, ball.radius * 1.9, currentTime, config.color);
+  playGameSound("skill", getMusicIntensity());
+  triggerVibration([8, 14], currentTime);
+}
+
+function resolveNeutralSceneCollision(ball, object, currentTime) {
+  const difference = subtract(ball.position, object.position);
+  const distance = length(difference);
+  const minDistance = ball.radius + object.radius;
+
+  if (distance > minDistance) {
+    return false;
+  }
+
+  const normal = distance === 0 ? normalize(ball.velocity) : scale(difference, 1 / Math.max(0.001, distance));
+  const overlap = minDistance - Math.max(0.001, distance);
+  ball.position = add(ball.position, scale(normal, overlap + 0.5));
+
+  const incomingSpeed = dot(ball.velocity, normal);
+  if (incomingSpeed < 0) {
+    ball.velocity = subtract(ball.velocity, scale(normal, incomingSpeed * 2));
+  } else if (incomingSpeed < 32) {
+    ball.velocity = add(ball.velocity, scale(normal, 72));
+  }
+  keepSpeed(ball);
+  playCollisionFeedback(Math.max(140, Math.abs(incomingSpeed)), currentTime);
+  return true;
 }
 
 function equipItemWeapon(ball, weaponId, currentTime) {
@@ -7740,6 +8081,18 @@ function drawBallBody(ctx, ball) {
     ctx.fillRect(x + cell * 7, y + cell, cell, cell * 10);
     ctx.globalAlpha = 1;
   }
+  if (isBallFrozen(ball, elapsedTimeSeconds)) {
+    ctx.globalAlpha = 0.42 + Math.sin(elapsedTimeSeconds * 10) * 0.06;
+    ctx.fillStyle = "#bae6fd";
+    ctx.fillRect(x + cell * 2, y + cell * 2, cell * 8, cell);
+    ctx.fillRect(x + cell * 2, y + cell * 9, cell * 8, cell);
+    ctx.fillRect(x + cell * 2, y + cell * 2, cell, cell * 8);
+    ctx.fillRect(x + cell * 9, y + cell * 2, cell, cell * 8);
+    ctx.fillStyle = "#e0f2fe";
+    ctx.fillRect(x + cell * 4, y + cell * 4, cell * 4, cell);
+    ctx.fillRect(x + cell * 5, y + cell * 6, cell * 3, cell);
+    ctx.globalAlpha = 1;
+  }
   if (getActiveHeroSkillEffect(ball, "divineDescent")) {
     ctx.globalAlpha = 0.42 + Math.sin(elapsedTimeSeconds * 9) * 0.08;
     ctx.strokeStyle = "#fde68a";
@@ -8999,6 +9352,130 @@ function drawImpaleTrajectory(ctx, trajectory, currentTime) {
   ctx.restore();
 }
 
+function drawNeutralSceneObjects(context, currentTime) {
+  if (!isCurrentClassicMode()) {
+    return;
+  }
+
+  for (const object of neutralSceneObjects) {
+    const config = NEUTRAL_SCENE_TYPE_CONFIG[object.type];
+    if (!config) {
+      continue;
+    }
+
+    const life = clamp((object.expiresAt - currentTime) / Math.max(0.001, object.expiresAt - object.createdAt), 0, 1);
+    context.save();
+    context.globalAlpha = 0.22 + life * 0.78;
+    if (object.type === "smallHealth" || object.type === "largeHealth") {
+      drawNeutralHealthPack(context, object, config, currentTime);
+    } else if (object.type === "thorns") {
+      drawNeutralThorns(context, object, currentTime);
+    } else if (object.type === "groundFire") {
+      drawTorchGroundFire(context, object, currentTime, life);
+    } else if (object.type === "iceTile") {
+      drawNeutralIceTile(context, object, currentTime);
+    } else if (object.type === "earthWall") {
+      drawNeutralEarthWall(context, object, life);
+    }
+    context.restore();
+  }
+}
+
+function drawNeutralHealthPack(context, object, config, currentTime) {
+  const bob = Math.sin((currentTime - object.createdAt) * 5.4) * 3;
+  const center = snapVector({ x: object.position.x, y: object.position.y + bob }, 4);
+  const size = object.type === "largeHealth" ? 56 : 34;
+  const x = center.x - size / 2;
+  const y = center.y - size / 2;
+  const plusWidth = Math.max(6, Math.round(size * 0.18));
+
+  drawPixelFrame(x, y, size, size, {
+    fill: object.type === "largeHealth" ? "#991b1b" : "#b91c1c",
+    border: config.color,
+    shadow: "#050711",
+    texture: voxelAssets.blocks.glowstone,
+    inset: "rgba(254, 202, 202, 0.34)",
+  });
+  context.fillStyle = "#450a0a";
+  context.fillRect(center.x - plusWidth * 1.5 + 2, center.y - plusWidth / 2 + 2, plusWidth * 3, plusWidth);
+  context.fillRect(center.x - plusWidth / 2 + 2, center.y - plusWidth * 1.5 + 2, plusWidth, plusWidth * 3);
+  context.fillStyle = "#fff7ed";
+  context.fillRect(center.x - plusWidth * 1.5, center.y - plusWidth / 2, plusWidth * 3, plusWidth);
+  context.fillRect(center.x - plusWidth / 2, center.y - plusWidth * 1.5, plusWidth, plusWidth * 3);
+}
+
+function drawNeutralThorns(context, object, currentTime) {
+  const center = snapVector(object.position, 4);
+  const pulse = 0.92 + Math.sin(currentTime * 7 + object.createdAt) * 0.06;
+  const radius = object.radius * pulse;
+
+  context.fillStyle = "#052e16";
+  context.fillRect(center.x - radius * 0.62, center.y - radius * 0.62, radius * 1.24, radius * 1.24);
+  context.fillStyle = "#166534";
+  context.fillRect(center.x - radius * 0.42, center.y - radius * 0.42, radius * 0.84, radius * 0.84);
+
+  for (let index = 0; index < 8; index += 1) {
+    const angle = (index * Math.PI * 2) / 8 + Math.sin(currentTime * 2.4) * 0.08;
+    const direction = vectorFromAngle(angle);
+    const side = vectorFromAngle(angle + Math.PI / 2);
+    const base = add(center, scale(direction, radius * 0.22));
+    const tip = add(center, scale(direction, radius * 1.04));
+    drawPixelLine(context, add(base, scale(side, -5)), tip, 10, "#050711");
+    drawPixelLine(context, add(base, scale(side, 5)), tip, 10, "#050711");
+    drawPixelLine(context, base, tip, 5, index % 2 === 0 ? "#84cc16" : "#bef264");
+  }
+
+  context.fillStyle = "#dcfce7";
+  context.fillRect(center.x - 4, center.y - 4, 8, 8);
+}
+
+function drawNeutralIceTile(context, object, currentTime) {
+  const center = snapVector(object.position, 4);
+  const size = object.radius * 1.55;
+  const x = center.x - size / 2;
+  const y = center.y - size / 2;
+  const shimmer = 0.45 + Math.sin(currentTime * 8 + object.createdAt) * 0.08;
+
+  drawPixelFrame(x, y, size, size, {
+    fill: "#075985",
+    border: "#bae6fd",
+    shadow: "#050711",
+    texture: voxelAssets.blocks.glowstone,
+    inset: "rgba(224, 242, 254, 0.38)",
+  });
+  context.globalAlpha *= 0.62 + shimmer;
+  context.fillStyle = "#e0f2fe";
+  context.fillRect(center.x - size * 0.32, center.y - 3, size * 0.64, 6);
+  context.fillRect(center.x - 3, center.y - size * 0.32, 6, size * 0.64);
+  drawPixelLine(context, { x: x + 10, y: y + size - 12 }, { x: x + size - 12, y: y + 10 }, 3, "#7dd3fc");
+  drawPixelLine(context, { x: x + 12, y: y + 12 }, { x: x + size - 14, y: y + size - 16 }, 3, "#dff7ff");
+}
+
+function drawNeutralEarthWall(context, object, life) {
+  const center = snapVector(object.position, 4);
+  const size = object.radius * 1.56;
+  const x = center.x - size / 2;
+  const y = center.y - size / 2;
+
+  drawPixelFrame(x, y, size, size, {
+    fill: "#713f12",
+    border: life < 0.24 ? "#d97706" : "#a16207",
+    shadow: "#050711",
+    texture: voxelAssets.blocks.dirt,
+    inset: "rgba(254, 240, 138, 0.2)",
+  });
+
+  const block = size / 3;
+  context.fillStyle = "rgba(5, 7, 17, 0.24)";
+  context.fillRect(x + block, y + 5, 3, size - 10);
+  context.fillRect(x + block * 2, y + 5, 3, size - 10);
+  context.fillRect(x + 5, y + block, size - 10, 3);
+  context.fillRect(x + 5, y + block * 2, size - 10, 3);
+  context.fillStyle = "#facc15";
+  context.fillRect(x + 10, y + 9, 7, 4);
+  context.fillRect(x + size - 18, y + size - 13, 8, 4);
+}
+
 function drawArenaHazards(ctx, currentTime) {
   for (const hazard of arenaHazards) {
     const life = clamp((hazard.expiresAt - currentTime) / Math.max(0.001, hazard.expiresAt - hazard.createdAt), 0, 1);
@@ -9476,6 +9953,7 @@ function drawArenaScene() {
   ctx.translate(layout.arena.x + shakeOffset.x, layout.arena.y + shakeOffset.y);
   ctx.scale(layout.arena.scale, layout.arena.scale);
   drawArena();
+  drawNeutralSceneObjects(ctx, elapsedTimeSeconds);
   drawDroppedItems(ctx, elapsedTimeSeconds);
   drawFlameTrails(ctx, elapsedTimeSeconds);
   drawWebLinks(ctx, elapsedTimeSeconds);
