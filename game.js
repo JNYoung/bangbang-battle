@@ -68,6 +68,7 @@ const sceneIds = Object.keys(SceneConfig);
 const ARENA_TERRAIN_TILE_SIZE = 40;
 const BACKDROP_TERRAIN_TILE_SIZE = 48;
 const PROFESSION_SCROLL_DRAG_THRESHOLD = 6;
+const RANDOM_PROFESSION_OPTION_ID = "__random_profession__";
 const DAMAGE_TEXT_DURATION = 0.86;
 const DAMAGE_TEXT_MERGE_WINDOW = 0.22;
 const SCENE_DROPDOWN_BREAKPOINT = 560;
@@ -1128,6 +1129,14 @@ function isCurrentClassicMode() {
   return (selectedProfessions.scene || DEFAULT_SCENE_ID) === DEFAULT_SCENE_ID;
 }
 
+function getActiveProfessionOptionIds() {
+  if (isCurrentItemMode()) {
+    return [];
+  }
+
+  return [RANDOM_PROFESSION_OPTION_ID, ...getActiveProfessionIds()];
+}
+
 function isCurrentItemMode() {
   return isItemScene(selectedProfessions.scene);
 }
@@ -1226,6 +1235,64 @@ function setSelectedScene(sceneId) {
       previous_value: previousScene,
     });
   }
+}
+
+function getRandomProfessionId(sceneId, currentId = null, excludedIds = []) {
+  const professionIds = getSceneProfessionIds(sceneId).filter((id) => !excludedIds.includes(id));
+  if (professionIds.length === 0) {
+    return currentId;
+  }
+
+  if (professionIds.length === 1) {
+    return professionIds[0];
+  }
+
+  const candidates = professionIds.filter((id) => id !== currentId);
+  const randomPool = candidates.length > 0 ? candidates : professionIds;
+  return randomPool[Math.floor(Math.random() * randomPool.length)];
+}
+
+function randomizeProfessionSide(side, excludedIds = []) {
+  if (isCurrentItemMode()) {
+    return null;
+  }
+
+  const previousProfession = selectedProfessions[side];
+  const nextProfession = getRandomProfessionId(selectedProfessions.scene, previousProfession, excludedIds);
+  selectedProfessions = {
+    ...selectedProfessions,
+    [side]: nextProfession,
+  };
+  activeProfessionSide = side;
+  resetProfessionScroll();
+
+  if (previousProfession !== nextProfession) {
+    trackSettingSelect(`role_${side}`, nextProfession, {
+      previous_value: previousProfession || "none",
+    });
+  }
+  serviceMessage = t("messages.selectedProfession", {
+    side: getSideLabel(side),
+    profession: getProfessionName(nextProfession),
+  });
+
+  return nextProfession;
+}
+
+function randomizeAndStartGame(mode) {
+  if (isCurrentItemMode()) {
+    startGame();
+    return;
+  }
+
+  if (mode === "both") {
+    const nextA = randomizeProfessionSide("a");
+    randomizeProfessionSide("b", nextA ? [nextA] : []);
+  } else {
+    randomizeProfessionSide(mode);
+  }
+
+  startGame();
 }
 
 function getSceneName(sceneId) {
@@ -6858,6 +6925,7 @@ function drawProfessionSelectScreen() {
   drawSetupSceneRow(panel.x + 28, y, panel.width - 56);
   y += 88;
   const actionY = panel.y + panel.height - 70;
+  const randomActionY = actionY - 54;
 
   if (isCurrentItemMode()) {
     drawItemModeSetup(panel, y, actionY);
@@ -6880,7 +6948,7 @@ function drawProfessionSelectScreen() {
 
   const gridGap = 12;
   const gridWidth = panel.width - 56;
-  const gridBottom = actionY - 20;
+  const gridBottom = randomActionY - 20;
   const gridArea = {
     x: panel.x + 28,
     y,
@@ -6888,7 +6956,7 @@ function drawProfessionSelectScreen() {
     height: Math.max(0, gridBottom - y),
   };
   const columns = panel.width >= 520 ? 3 : 2;
-  const activeProfessionIds = getActiveProfessionIds();
+  const activeProfessionIds = getActiveProfessionOptionIds();
   const rows = Math.ceil(activeProfessionIds.length / columns);
   const cellWidth = (gridWidth - gridGap * (columns - 1)) / columns;
   const cellHeight = getProfessionGridCellHeight(gridArea.height, rows, gridGap, panel.width, selectedProfessions.scene);
@@ -6923,8 +6991,19 @@ function drawProfessionSelectScreen() {
   ctx.restore();
   drawProfessionScrollFrame(gridArea, maxScroll);
 
+  drawSetupRandomButtons(panel, randomActionY);
   drawSetupActionButtons(panel, actionY);
   drawSceneDropdownOverlay();
+}
+
+function drawSetupRandomButtons(panel, y) {
+  const x = panel.x + 28;
+  const width = panel.width - 56;
+  const height = 40;
+
+  drawButton(t("setup.randomStart"), x, y, width, height, () => randomizeAndStartGame("both"), {
+    id: "setup-random-start",
+  });
 }
 
 function drawSetupActionButtons(panel, actionY) {
@@ -7444,6 +7523,11 @@ function drawProfessionScrollFrame(area, maxScroll) {
 }
 
 function drawProfessionGridItem(x, y, width, height, professionId, options = {}) {
+  if (professionId === RANDOM_PROFESSION_OPTION_ID) {
+    drawRandomProfessionGridItem(x, y, width, height, options);
+    return;
+  }
+
   const isSelected = selectedProfessions[activeProfessionSide] === professionId;
   const sideLabel = getSideLabel(activeProfessionSide);
   const professionName = getProfessionName(professionId);
@@ -7491,6 +7575,70 @@ function drawProfessionGridItem(x, y, width, height, professionId, options = {})
       }
       serviceMessage = t("messages.selectedProfession", { side: sideLabel, profession: professionName });
     },
+  });
+}
+
+function drawRandomProfessionGridItem(x, y, width, height, options = {}) {
+  ctx.save();
+  drawPixelFrame(x, y, width, height, {
+    fill: "#24304b",
+    border: "#d9aa55",
+    shadow: "#050711",
+    texture: voxelAssets.blocks.glowstone,
+  });
+
+  const iconSize = Math.min(64, Math.max(40, Math.min(height - 54, width * 0.42)));
+  drawRandomProfessionIcon(x + (width - iconSize) / 2, y + 16, iconSize);
+
+  const label = t("setup.randomProfession");
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(label, width - 18, width < 150 ? 15 : 17, 10, 900), 900);
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, x + width / 2, y + height - 24);
+  ctx.restore();
+
+  addInteractiveElement({
+    id: `profession-${activeProfessionSide}-random`,
+    rect: { x, y, width, height },
+    clipRect: options.clipRect,
+    action: () => {
+      randomizeProfessionSide(activeProfessionSide);
+    },
+  });
+}
+
+function drawRandomProfessionIcon(x, y, size) {
+  const cell = Math.max(3, Math.floor(size / 16));
+  const iconSize = cell * 16;
+  const left = Math.round(x + (size - iconSize) / 2);
+  const top = Math.round(y + (size - iconSize) / 2);
+
+  ctx.fillStyle = "#0d1427";
+  ctx.fillRect(left, top, iconSize, iconSize);
+  ctx.fillStyle = "#34466f";
+  ctx.fillRect(left + cell, top + cell, iconSize - cell * 2, iconSize - cell * 2);
+  ctx.fillStyle = "#111a2f";
+  ctx.fillRect(left + cell * 2, top + cell * 2, iconSize - cell * 4, iconSize - cell * 4);
+
+  drawPixelCells(left, top, cell, [
+    ".....YYYYYY.....",
+    "...YYYYYYYYYY...",
+    "..YYY......YYY..",
+    ".YY........YY...",
+    ".YY.......YY....",
+    ".........YY.....",
+    "........YY......",
+    ".......YY.......",
+    "......YY........",
+    "......YY........",
+    "................",
+    ".....YYYY.......",
+    ".....YYYY.......",
+    ".....YYYY.......",
+  ], {
+    Y: "#facc15",
   });
 }
 
