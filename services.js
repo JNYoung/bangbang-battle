@@ -5,9 +5,14 @@ const RESERVED_ANALYTICS_PREFIXES = ["firebase_", "ga_", "google_"];
 let analyticsCollectionEnabled = false;
 
 export const AnalyticsEvents = Object.freeze({
+  adClick: "ad_click",
+  adClose: "ad_close",
+  adRequest: "ad_request",
+  adShow: "ad_show",
   gameInitSuccess: "game_init_success",
   gameStart: "game_start",
   gameEnd: "game_end",
+  performanceSnapshot: "performance_snapshot",
   settingSelect: "setting_select",
   legalAccept: "legal_accept",
   restorePurchases: "restore_purchases",
@@ -57,6 +62,38 @@ export const analytics = {
 
     return {
       enabled: analyticsCollectionEnabled,
+      reason: "analytics_not_configured",
+    };
+  },
+
+  async getStatus() {
+    const nativePlugin = getNativeAnalyticsPlugin();
+    if (nativePlugin?.getStatus) {
+      try {
+        return {
+          available: true,
+          transport: "firebase_native",
+          result: await nativePlugin.getStatus(),
+        };
+      } catch (error) {
+        console.warn("Analytics status check failed", error);
+        return {
+          available: true,
+          transport: "firebase_native",
+          error,
+        };
+      }
+    }
+
+    if (getGtag()) {
+      return {
+        available: true,
+        transport: "gtag",
+      };
+    }
+
+    return {
+      available: false,
       reason: "analytics_not_configured",
     };
   },
@@ -171,23 +208,52 @@ function getNativeAnalyticsPlugin() {
   return globalThis.Capacitor?.Plugins?.GameAnalytics || null;
 }
 
+function getNativeAdsPlugin() {
+  return globalThis.Capacitor?.Plugins?.GameAds || globalThis.Capacitor?.Plugins?.AdMob || null;
+}
+
 function getGtag() {
   return typeof globalThis.gtag === "function" ? globalThis.gtag : null;
 }
 
 export const ads = {
-  enabled: false,
+  enabled: true,
+  get mode() {
+    return getNativeAdsPlugin() ? "native" : "mock";
+  },
   isAvailable() {
-    return false;
+    return true;
+  },
+  getBanner(placement = "default") {
+    const nativePlugin = getNativeAdsPlugin();
+    if (nativePlugin?.getBanner) {
+      return nativePlugin.getBanner({ placement });
+    }
+
+    return createMockAdResult(placement, "banner");
   },
   async showInterstitial(placement = "default") {
-    return {
-      shown: false,
-      placement,
-      reason: "ads_not_configured",
-    };
+    const nativePlugin = getNativeAdsPlugin();
+    if (nativePlugin?.showInterstitial) {
+      return nativePlugin.showInterstitial({ placement });
+    }
+
+    return createMockAdResult(placement, "interstitial");
   },
 };
+
+function createMockAdResult(placement, format) {
+  return {
+    shown: true,
+    available: true,
+    placement,
+    format,
+    network: "mock",
+    render: "canvas_mock",
+    creative_id: `mock_${placement}_${format}`,
+    campaign: "test_ad_chain",
+  };
+}
 
 export const iap = {
   enabled: false,

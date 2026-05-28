@@ -104,6 +104,32 @@ const ARENA_SHAKE_DURATION_SECONDS = 0.48;
 const ARENA_SHAKE_MAX_OFFSET = 10;
 const PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE = 2;
 const GAME_SPEED_OPTIONS = [1, 1.5, 2];
+const PERFORMANCE_STATS_CONFIG = Object.freeze({
+  displayWindowMs: 1600,
+  maxDisplaySamples: 180,
+  longFrameMs: 1000 / 30,
+  jankFrameMs: 50,
+  analyticsIntervalMs: 15000,
+  minAnalyticsFrames: 20,
+  memorySampleIntervalMs: 2000,
+  hudStorageKey: "bangbang.perfHud",
+});
+const AD_CHAIN_CONFIG = Object.freeze({
+  appOpen: {
+    placement: "app_open",
+    minCloseMs: 1500,
+    autoCloseMs: 4200,
+  },
+  battleBanner: {
+    placement: "battle_banner",
+    minWidth: 220,
+    maxWidth: 420,
+    height: 54,
+    compactHeight: 46,
+    gap: 10,
+    refreshMs: 30000,
+  },
+});
 const NEUTRAL_SCENE_SPAWN_CONFIG = Object.freeze({
   initialCount: 2,
   maxActive: 4,
@@ -225,6 +251,9 @@ let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
 let matchTelemetry = createMatchTelemetryState();
+let performanceStats = createPerformanceStatsState();
+let activeAdOverlay = null;
+let adSessionState = createAdSessionState();
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
 let lastArenaShakeTime = -Infinity;
 let arenaShakeStartedAt = -Infinity;
@@ -1408,6 +1437,7 @@ async function acceptLegalAndEnterMenu() {
   analytics.track(AnalyticsEvents.legalAccept, { version: LegalConfig.version });
   trackGameInitSuccess("legal_accept");
   setScreen(Screen.MAIN_MENU);
+  void maybeShowAppOpenAd("legal_accept");
 }
 
 function openMatchSetup() {
@@ -1495,6 +1525,8 @@ function restartGame() {
   elapsedTimeSeconds = 0;
   matchElapsedTimeSeconds = 0;
   matchTelemetry = createMatchTelemetryState();
+  resetPerformanceStats();
+  resetBattleBannerAd();
   lastArenaShakeTime = -Infinity;
   arenaShakeStartedAt = -Infinity;
   arenaShakeSeed = 0;
@@ -1638,6 +1670,48 @@ function createMatchTelemetryState() {
   };
 }
 
+function createPerformanceStatsState(startedAtMs = getNowMs()) {
+  return {
+    displaySamples: [],
+    reportSamples: [],
+    current: {
+      fps: 0,
+      frameMsAvg: 0,
+      frameMsP95: 0,
+      longFramePct: 0,
+      jankFramePct: 0,
+      memoryMb: null,
+    },
+    match: {
+      startedAtMs,
+      lastReportAtMs: startedAtMs,
+      totalFrames: 0,
+      totalFrameMs: 0,
+      maxFrameMs: 0,
+      longFrames: 0,
+      jankFrames: 0,
+      finalReported: false,
+    },
+    lastMemorySampleAtMs: 0,
+  };
+}
+
+function createAdSessionState() {
+  return {
+    appOpenShown: false,
+    appOpenRequestPending: false,
+    battleBanner: null,
+    battleBannerMatchId: "",
+    battleBannerShownAtMs: 0,
+    battleBannerImpressionTracked: false,
+    battleBannerRequestPending: false,
+  };
+}
+
+function resetPerformanceStats() {
+  performanceStats = createPerformanceStatsState(getNowMs());
+}
+
 function createMatchId() {
   const timestamp = Date.now().toString(36);
   const randomPart = Math.floor(Math.random() * 0xffffff).toString(36).padStart(5, "0");
@@ -1671,6 +1745,281 @@ function trackGameInitSuccess(consentSource = "boot") {
     analytics_consent: isAnalyticsConsentGranted() ? "granted" : "denied",
     consent_source: consentSource,
   });
+}
+
+function canShowAds() {
+  return complianceState.hasAcceptedCurrentLegal() && ads.isAvailable();
+}
+
+function trackAdEvent(eventName, placement, result = {}, extraPayload = {}) {
+  analytics.track(eventName, {
+    placement,
+    ad_format: result.format || extraPayload.ad_format || "unknown",
+    ad_network: result.network || ads.mode || "unknown",
+    creative_id: result.creative_id || "unknown",
+    scene: selectedProfessions.scene,
+    surface: getRuntimeSurface(),
+    locale: currentLocale,
+    ...extraPayload,
+  });
+}
+
+async function maybeShowAppOpenAd(source = "boot") {
+  if (!canShowAds() || adSessionState.appOpenShown || adSessionState.appOpenRequestPending) {
+    return;
+  }
+
+  const placement = AD_CHAIN_CONFIG.appOpen.placement;
+  adSessionState.appOpenRequestPending = true;
+  trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "interstitial" }, { source });
+
+  try {
+    const result = await ads.showInterstitial(placement);
+    if (!result?.shown) {
+      trackAdEvent(AnalyticsEvents.adClose, placement, result || {}, { source, reason: result?.reason || "not_shown" });
+      return;
+    }
+
+    adSessionState.appOpenShown = true;
+    if (result.render === "canvas_mock") {
+      activeAdOverlay = createAppOpenAdOverlay(result, source);
+      trackAdEvent(AnalyticsEvents.adShow, placement, result, { source });
+    } else {
+      trackAdEvent(AnalyticsEvents.adShow, placement, result, { source, render: result.render || "native" });
+    }
+  } catch (error) {
+    trackAdEvent(AnalyticsEvents.adClose, placement, { format: "interstitial", network: ads.mode }, { source, reason: "request_failed" });
+  } finally {
+    adSessionState.appOpenRequestPending = false;
+  }
+}
+
+function createAppOpenAdOverlay(result, source) {
+  const now = getNowMs();
+  return {
+    placement: AD_CHAIN_CONFIG.appOpen.placement,
+    result,
+    source,
+    startedAtMs: now,
+    closeAtMs: now + AD_CHAIN_CONFIG.appOpen.minCloseMs,
+    autoCloseAtMs: now + AD_CHAIN_CONFIG.appOpen.autoCloseMs,
+  };
+}
+
+function closeActiveAdOverlay(reason = "closed") {
+  if (!activeAdOverlay) {
+    return;
+  }
+
+  const overlay = activeAdOverlay;
+  activeAdOverlay = null;
+  trackAdEvent(AnalyticsEvents.adClose, overlay.placement, overlay.result, {
+    source: overlay.source,
+    reason,
+  });
+}
+
+function updateAdState(timestamp) {
+  if (activeAdOverlay && timestamp >= activeAdOverlay.autoCloseAtMs) {
+    closeActiveAdOverlay("auto_close");
+  }
+
+  if (screen === Screen.PLAYING && !gameOver) {
+    ensureBattleBannerAd(timestamp);
+  }
+}
+
+function resetBattleBannerAd() {
+  adSessionState.battleBanner = null;
+  adSessionState.battleBannerMatchId = matchTelemetry.matchId;
+  adSessionState.battleBannerShownAtMs = 0;
+  adSessionState.battleBannerImpressionTracked = false;
+  adSessionState.battleBannerRequestPending = false;
+}
+
+function ensureBattleBannerAd(timestamp) {
+  if (!canShowAds() || !layout?.battleAd || adSessionState.battleBannerRequestPending) {
+    return;
+  }
+
+  const shouldRefresh =
+    !adSessionState.battleBanner ||
+    adSessionState.battleBannerMatchId !== matchTelemetry.matchId ||
+    timestamp - adSessionState.battleBannerShownAtMs >= AD_CHAIN_CONFIG.battleBanner.refreshMs;
+  if (!shouldRefresh) {
+    return;
+  }
+
+  requestBattleBannerAd(timestamp);
+}
+
+function requestBattleBannerAd(timestamp) {
+  const placement = AD_CHAIN_CONFIG.battleBanner.placement;
+  adSessionState.battleBannerRequestPending = true;
+  trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "banner" }, {
+    match_id: matchTelemetry.matchId,
+  });
+
+  Promise.resolve(ads.getBanner(placement))
+    .then((result) => {
+      if (result?.available || result?.shown) {
+        adSessionState.battleBanner = result;
+        adSessionState.battleBannerMatchId = matchTelemetry.matchId;
+        adSessionState.battleBannerShownAtMs = timestamp;
+        adSessionState.battleBannerImpressionTracked = false;
+      }
+    })
+    .catch(() => {
+      trackAdEvent(AnalyticsEvents.adClose, placement, { format: "banner", network: ads.mode }, {
+        match_id: matchTelemetry.matchId,
+        reason: "request_failed",
+      });
+    })
+    .finally(() => {
+      adSessionState.battleBannerRequestPending = false;
+    });
+}
+
+function trackBattleBannerShown(result) {
+  if (adSessionState.battleBannerImpressionTracked) {
+    return;
+  }
+
+  adSessionState.battleBannerImpressionTracked = true;
+  trackAdEvent(AnalyticsEvents.adShow, AD_CHAIN_CONFIG.battleBanner.placement, result, {
+    match_id: matchTelemetry.matchId,
+  });
+}
+
+function recordPerformanceFrame(frameTimeMs, timestamp, isMatchActive) {
+  if (!Number.isFinite(frameTimeMs) || frameTimeMs <= 0) {
+    return;
+  }
+
+  const sample = {
+    timestamp,
+    frameTimeMs,
+  };
+  performanceStats.displaySamples.push(sample);
+  prunePerformanceDisplaySamples(timestamp);
+
+  if (isMatchActive) {
+    performanceStats.reportSamples.push(frameTimeMs);
+    performanceStats.match.totalFrames += 1;
+    performanceStats.match.totalFrameMs += frameTimeMs;
+    performanceStats.match.maxFrameMs = Math.max(performanceStats.match.maxFrameMs, frameTimeMs);
+    if (frameTimeMs >= PERFORMANCE_STATS_CONFIG.longFrameMs) {
+      performanceStats.match.longFrames += 1;
+    }
+    if (frameTimeMs >= PERFORMANCE_STATS_CONFIG.jankFrameMs) {
+      performanceStats.match.jankFrames += 1;
+    }
+  }
+
+  updateCurrentPerformanceStats(timestamp);
+}
+
+function prunePerformanceDisplaySamples(timestamp) {
+  const minTimestamp = timestamp - PERFORMANCE_STATS_CONFIG.displayWindowMs;
+  while (
+    performanceStats.displaySamples.length > PERFORMANCE_STATS_CONFIG.maxDisplaySamples ||
+    (performanceStats.displaySamples.length && performanceStats.displaySamples[0].timestamp < minTimestamp)
+  ) {
+    performanceStats.displaySamples.shift();
+  }
+}
+
+function updateCurrentPerformanceStats(timestamp) {
+  const frameTimes = performanceStats.displaySamples.map((sample) => sample.frameTimeMs);
+  if (!frameTimes.length) {
+    return;
+  }
+
+  const avgFrameMs = average(frameTimes);
+  const longFrameCount = frameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.longFrameMs).length;
+  const jankFrameCount = frameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.jankFrameMs).length;
+
+  performanceStats.current = {
+    fps: avgFrameMs > 0 ? 1000 / avgFrameMs : 0,
+    frameMsAvg: avgFrameMs,
+    frameMsP95: percentile(frameTimes, 0.95),
+    longFramePct: (longFrameCount / frameTimes.length) * 100,
+    jankFramePct: (jankFrameCount / frameTimes.length) * 100,
+    memoryMb: getCachedPerformanceMemoryMb(timestamp),
+  };
+}
+
+function maybeTrackPerformanceSnapshot(timestamp) {
+  if (timestamp - performanceStats.match.lastReportAtMs < PERFORMANCE_STATS_CONFIG.analyticsIntervalMs) {
+    return;
+  }
+
+  trackPerformanceSnapshot("periodic", timestamp);
+}
+
+function trackPerformanceSnapshot(sampleType, timestamp = getNowMs()) {
+  if (sampleType === "match_end") {
+    if (performanceStats.match.finalReported) {
+      return;
+    }
+    performanceStats.match.finalReported = true;
+  }
+
+  if (performanceStats.match.totalFrames < PERFORMANCE_STATS_CONFIG.minAnalyticsFrames) {
+    return;
+  }
+
+  const sampleFrameTimes = performanceStats.reportSamples.length
+    ? performanceStats.reportSamples
+    : performanceStats.displaySamples.map((sample) => sample.frameTimeMs);
+  if (!sampleFrameTimes.length) {
+    return;
+  }
+
+  analytics.track(AnalyticsEvents.performanceSnapshot, createPerformanceAnalyticsPayload(sampleType, timestamp, sampleFrameTimes));
+
+  performanceStats.reportSamples = [];
+  performanceStats.match.lastReportAtMs = timestamp;
+}
+
+function createPerformanceAnalyticsPayload(sampleType, timestamp, sampleFrameTimes) {
+  const avgFrameMs = average(sampleFrameTimes);
+  const longFrameCount = sampleFrameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.longFrameMs).length;
+  const jankFrameCount = sampleFrameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.jankFrameMs).length;
+  const matchAvgFrameMs = performanceStats.match.totalFrameMs / Math.max(1, performanceStats.match.totalFrames);
+  const memoryMb = getCachedPerformanceMemoryMb(timestamp);
+
+  return {
+    ...getMatchBaseAnalyticsPayload(),
+    match_id: matchTelemetry.matchId,
+    sample_type: sampleType,
+    sample_frames: sampleFrameTimes.length,
+    match_time_sec: roundAnalyticsNumber(matchElapsedTimeSeconds, 1),
+    wall_time_sec: roundAnalyticsNumber((timestamp - performanceStats.match.startedAtMs) / 1000, 1),
+    fps_avg: roundAnalyticsNumber(avgFrameMs > 0 ? 1000 / avgFrameMs : 0, 1),
+    frame_ms_avg: roundAnalyticsNumber(avgFrameMs, 1),
+    frame_ms_p95: roundAnalyticsNumber(percentile(sampleFrameTimes, 0.95), 1),
+    frame_ms_max: roundAnalyticsNumber(Math.max(...sampleFrameTimes), 1),
+    long_frame_pct: roundAnalyticsNumber((longFrameCount / sampleFrameTimes.length) * 100, 1),
+    jank_frame_pct: roundAnalyticsNumber((jankFrameCount / sampleFrameTimes.length) * 100, 1),
+    match_fps_avg: roundAnalyticsNumber(matchAvgFrameMs > 0 ? 1000 / matchAvgFrameMs : 0, 1),
+    match_jank_pct: roundAnalyticsNumber((performanceStats.match.jankFrames / Math.max(1, performanceStats.match.totalFrames)) * 100, 1),
+    memory_mb: memoryMb === null ? undefined : roundAnalyticsNumber(memoryMb, 1),
+  };
+}
+
+function getCachedPerformanceMemoryMb(timestamp) {
+  if (timestamp - performanceStats.lastMemorySampleAtMs < PERFORMANCE_STATS_CONFIG.memorySampleIntervalMs) {
+    return performanceStats.current.memoryMb;
+  }
+
+  performanceStats.lastMemorySampleAtMs = timestamp;
+  const memory = globalThis.performance?.memory;
+  if (!memory?.usedJSHeapSize) {
+    return null;
+  }
+
+  return memory.usedJSHeapSize / (1024 * 1024);
 }
 
 function createGameStartAnalyticsPayload() {
@@ -1798,9 +2147,31 @@ function sumMetric(metrics) {
   return Object.values(metrics).reduce((total, value) => total + value, 0);
 }
 
+function average(values) {
+  if (!values.length) {
+    return 0;
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function percentile(values, percentileValue) {
+  if (!values.length) {
+    return 0;
+  }
+
+  const sortedValues = [...values].sort((a, b) => a - b);
+  const index = clamp(Math.ceil(sortedValues.length * percentileValue) - 1, 0, sortedValues.length - 1);
+  return sortedValues[index];
+}
+
 function roundAnalyticsNumber(value, digits = 0) {
   const multiplier = 10 ** digits;
   return Math.round(value * multiplier) / multiplier;
+}
+
+function getNowMs() {
+  return globalThis.performance?.now?.() || Date.now();
 }
 
 function toggleFeedbackSetting(settingKey) {
@@ -2266,13 +2637,19 @@ function createTopHudLayout(metrics) {
   const hudHeight = titleHeight;
   const arenaControlsHeight = contentWidth < 430 ? 36 : 40;
   const arenaControlsGap = clamp(gap * 0.75, 6, 12);
-  const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap - arenaControlsGap - arenaControlsHeight);
+  const battleAdHeight = contentWidth < 430 ? AD_CHAIN_CONFIG.battleBanner.compactHeight : AD_CHAIN_CONFIG.battleBanner.height;
+  const battleAdGap = clamp(AD_CHAIN_CONFIG.battleBanner.gap, 8, 12);
+  const battleAdReserve = battleAdHeight + battleAdGap;
+  const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap - arenaControlsGap - arenaControlsHeight - battleAdReserve);
   const arenaSize = Math.floor(Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight));
   const spareHeight = Math.max(0, arenaMaxHeight - arenaSize);
   const arenaX = Math.round(left + (contentWidth - arenaSize) / 2);
   const arenaY = Math.round(top + hudHeight + gap + spareHeight * 0.5);
   const arenaControlsWidth = Math.round(Math.min(Math.max(128, arenaSize * 0.54), Math.min(260, arenaSize)));
   const arenaControlsHeightRounded = Math.round(arenaControlsHeight);
+  const battleAdWidth = Math.round(Math.min(AD_CHAIN_CONFIG.battleBanner.maxWidth, Math.max(AD_CHAIN_CONFIG.battleBanner.minWidth, Math.min(contentWidth, arenaSize * 0.78))));
+  const arenaControlsY = Math.round(arenaY + arenaSize + arenaControlsGap);
+  const battleAdY = Math.round(arenaControlsY + arenaControlsHeightRounded + battleAdGap);
 
   return {
     mode: "top",
@@ -2295,9 +2672,15 @@ function createTopHudLayout(metrics) {
     },
     arenaControls: {
       x: Math.round(arenaX + (arenaSize - arenaControlsWidth) / 2),
-      y: Math.round(arenaY + arenaSize + arenaControlsGap),
+      y: arenaControlsY,
       width: arenaControlsWidth,
       height: arenaControlsHeightRounded,
+    },
+    battleAd: {
+      x: Math.round(left + (contentWidth - battleAdWidth) / 2),
+      y: battleAdY,
+      width: battleAdWidth,
+      height: battleAdHeight,
     },
   };
 }
@@ -2306,12 +2689,19 @@ function createLandscapeLayout(metrics) {
   const { left, top, contentWidth, contentHeight, gap } = metrics;
   const arenaControlsHeight = contentHeight < 430 ? 34 : 38;
   const arenaControlsGap = clamp(gap * 0.55, 6, 10);
-  const arenaMaxHeight = Math.max(120, contentHeight - arenaControlsHeight - arenaControlsGap);
+  const showBattleAd = contentHeight >= 430;
+  const battleAdHeight = showBattleAd ? AD_CHAIN_CONFIG.battleBanner.compactHeight : 0;
+  const battleAdGap = showBattleAd ? clamp(AD_CHAIN_CONFIG.battleBanner.gap, 7, 10) : 0;
+  const arenaMaxHeight = Math.max(120, contentHeight - arenaControlsHeight - arenaControlsGap - battleAdHeight - battleAdGap);
   const arenaSize = Math.floor(Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight));
   const arenaX = Math.round(left + (contentWidth - arenaSize) / 2);
-  const arenaY = Math.round(top + (contentHeight - arenaSize - arenaControlsHeight - arenaControlsGap) / 2);
+  const reservedHeight = arenaSize + arenaControlsHeight + arenaControlsGap + battleAdHeight + battleAdGap;
+  const arenaY = Math.round(top + (contentHeight - reservedHeight) / 2);
   const arenaControlsWidth = Math.round(Math.min(Math.max(126, arenaSize * 0.48), Math.min(240, arenaSize)));
   const arenaControlsHeightRounded = Math.round(arenaControlsHeight);
+  const battleAdWidth = Math.round(Math.min(AD_CHAIN_CONFIG.battleBanner.maxWidth, Math.max(AD_CHAIN_CONFIG.battleBanner.minWidth, Math.min(contentWidth, arenaSize * 0.58))));
+  const arenaControlsY = Math.round(arenaY + arenaSize + arenaControlsGap);
+  const battleAdY = Math.round(arenaControlsY + arenaControlsHeightRounded + battleAdGap);
 
   return {
     mode: "landscape",
@@ -2334,22 +2724,38 @@ function createLandscapeLayout(metrics) {
     },
     arenaControls: {
       x: Math.round(arenaX + (arenaSize - arenaControlsWidth) / 2),
-      y: Math.round(arenaY + arenaSize + arenaControlsGap),
+      y: arenaControlsY,
       width: arenaControlsWidth,
       height: arenaControlsHeightRounded,
     },
+    battleAd: showBattleAd
+      ? {
+          x: Math.round(left + (contentWidth - battleAdWidth) / 2),
+          y: battleAdY,
+          width: battleAdWidth,
+          height: battleAdHeight,
+        }
+      : null,
   };
 }
 
 function gameLoop(timestamp) {
-  const deltaTime = Math.min((timestamp - lastFrameTime) / 1000, MAX_DELTA_TIME);
+  const frameTimeMs = Math.max(0, timestamp - lastFrameTime);
+  const deltaTime = Math.min(frameTimeMs / 1000, MAX_DELTA_TIME);
   lastFrameTime = timestamp;
 
-  if (screen === Screen.PLAYING && !gameOver) {
+  const isMatchActive = screen === Screen.PLAYING && !gameOver;
+  recordPerformanceFrame(frameTimeMs, timestamp, isMatchActive);
+  updateAdState(timestamp);
+
+  if (isMatchActive) {
     const scaledDeltaTime = deltaTime * gameSpeedMultiplier;
     elapsedTimeSeconds += scaledDeltaTime;
     matchElapsedTimeSeconds += scaledDeltaTime;
     update(scaledDeltaTime, elapsedTimeSeconds);
+    if (screen === Screen.PLAYING && !gameOver) {
+      maybeTrackPerformanceSnapshot(timestamp);
+    }
   }
 
   updateAudioEngine();
@@ -5826,6 +6232,7 @@ function checkGameOver() {
     stopMusic();
     playGameSound("result", 1);
     triggerVibration([28, 28, 38], elapsedTimeSeconds);
+    trackPerformanceSnapshot("match_end");
     analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
     setScreen(Screen.RESULT);
     return;
@@ -5842,6 +6249,7 @@ function checkGameOver() {
   stopMusic();
   playGameSound("result", 1);
   triggerVibration([28, 28, 38], elapsedTimeSeconds);
+  trackPerformanceSnapshot("match_end");
   analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
   setScreen(Screen.RESULT);
 }
@@ -5893,6 +6301,7 @@ function draw() {
       drawHud(t("status.playing"));
       drawArenaScene();
       drawShakeArenaButton();
+      drawBattleBannerAd();
       break;
     case Screen.PAUSED:
       drawHud(t("status.paused"));
@@ -5908,6 +6317,8 @@ function draw() {
       drawMainMenuScreen();
       break;
   }
+
+  drawActiveAdOverlay();
 }
 
 function drawBackground() {
@@ -5945,9 +6356,83 @@ function drawHud(statusText) {
   ctx.fillText(statusText, layout.status.x, layout.status.y);
   ctx.restore();
 
+  if (isGameplayHudScreen() && shouldDrawPerformanceHud()) {
+    drawPerformanceHud();
+  }
+
   if (screen === Screen.PLAYING) {
     drawHudControls();
   }
+}
+
+function isGameplayHudScreen() {
+  return screen === Screen.PLAYING || screen === Screen.PAUSED || screen === Screen.RESULT;
+}
+
+function shouldDrawPerformanceHud() {
+  return Boolean(import.meta.env?.DEV) || isPerformanceHudDebugEnabled();
+}
+
+function isPerformanceHudDebugEnabled() {
+  try {
+    const params = new URLSearchParams(globalThis.location?.search || "");
+    return (
+      params.get("perfHud") === "1" ||
+      params.get("debugPerf") === "1" ||
+      globalThis.localStorage?.getItem(PERFORMANCE_STATS_CONFIG.hudStorageKey) === "1"
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
+function drawPerformanceHud() {
+  const rect = getPerformanceHudRect();
+  const stats = performanceStats.current;
+  const fps = Math.round(stats.fps);
+  const frameMs = Math.round(stats.frameMsAvg);
+  const jankPct = Math.round(stats.jankFramePct);
+  const qualityColor = getPerformanceQualityColor(stats);
+  const secondaryLabel = `${frameMs}ms  J${jankPct}%`;
+
+  ctx.save();
+  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
+    fill: "rgba(8, 16, 28, 0.82)",
+    border: qualityColor,
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.deepslate,
+  });
+  setCanvasDirection(ctx);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = qualityColor;
+  ctx.font = canvasFont(getFittedFontSize(`FPS ${fps}`, rect.width - 12, 12, 9, 900), 900);
+  ctx.fillText(`FPS ${fps}`, rect.x + 7, rect.y + rect.height * 0.34);
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize(secondaryLabel, rect.width - 12, 10, 8, 700), 700);
+  ctx.fillText(secondaryLabel, rect.x + 7, rect.y + rect.height * 0.7);
+  ctx.restore();
+}
+
+function getPerformanceHudRect() {
+  const compact = layout.content.width < 430;
+  return {
+    x: Math.round(layout.content.x + 8),
+    y: Math.round(layout.content.y + 10),
+    width: compact ? 92 : 108,
+    height: compact ? 38 : 42,
+  };
+}
+
+function getPerformanceQualityColor(stats) {
+  if (stats.jankFramePct >= 8 || stats.frameMsP95 >= 50) {
+    return "#ef4444";
+  }
+  if (stats.longFramePct >= 12 || stats.frameMsP95 >= 34) {
+    return "#fbbf24";
+  }
+  return "#8be8ff";
 }
 
 function drawHudControls() {
@@ -6120,6 +6605,180 @@ function drawShakeGlyphLines(x, y) {
     ctx.lineTo(x + 3, lineY + 3);
     ctx.lineTo(x + 8, lineY);
     ctx.stroke();
+  }
+}
+
+function drawBattleBannerAd() {
+  const rect = layout?.battleAd;
+  if (!rect || !canShowAds()) {
+    return;
+  }
+
+  const result = adSessionState.battleBanner;
+  if (!result) {
+    drawBattleBannerPlaceholder(rect);
+    return;
+  }
+
+  trackBattleBannerShown(result);
+
+  ctx.save();
+  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
+    fill: "#12364b",
+    border: "#fbbf24",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.glowstone,
+  });
+
+  ctx.fillStyle = "#050711";
+  ctx.globalAlpha = 0.16;
+  ctx.fillRect(rect.x + 12, rect.y + 10, rect.width - 24, rect.height - 20);
+  ctx.globalAlpha = 1;
+
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.battleTitle"), rect.width - 80, 13, 9, 900), 900);
+  ctx.fillText(t("ads.battleTitle"), rect.x + rect.width / 2, rect.y + rect.height * 0.38);
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.testLabel"), rect.width - 80, 10, 8, 700), 700);
+  ctx.fillText(t("ads.testLabel"), rect.x + rect.width / 2, rect.y + rect.height * 0.68);
+
+  ctx.fillStyle = "#fbbf24";
+  ctx.font = canvasFont(10, 900);
+  ctx.textAlign = "left";
+  ctx.fillText("AD", rect.x + 12, rect.y + 15);
+  ctx.restore();
+
+  addInteractiveElement({
+    id: "battle-banner-ad",
+    rect,
+    action: () => {
+      trackAdEvent(AnalyticsEvents.adClick, AD_CHAIN_CONFIG.battleBanner.placement, result, {
+        match_id: matchTelemetry.matchId,
+      });
+    },
+  });
+}
+
+function drawBattleBannerPlaceholder(rect) {
+  ctx.save();
+  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
+    fill: "#172033",
+    border: "#4d5575",
+    shadow: "#050711",
+    inset: "#8aa0c8",
+    texture: voxelAssets.blocks.deepslate,
+  });
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.loading"), rect.width - 24, 11, 8, 700), 700);
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(t("ads.loading"), rect.x + rect.width / 2, rect.y + rect.height / 2);
+  ctx.restore();
+}
+
+function drawActiveAdOverlay() {
+  if (!activeAdOverlay) {
+    return;
+  }
+
+  const now = getNowMs();
+  const canClose = now >= activeAdOverlay.closeAtMs;
+  const remainingSeconds = Math.max(0, Math.ceil((activeAdOverlay.closeAtMs - now) / 1000));
+  const panelWidth = Math.min(420, viewport.width - 42);
+  const panelHeight = Math.min(360, viewport.height - 100);
+  const panelX = Math.round((viewport.width - panelWidth) / 2);
+  const panelY = Math.round((viewport.height - panelHeight) / 2);
+  const closeSize = 42;
+  const closeRect = {
+    x: panelX + panelWidth - closeSize - 18,
+    y: panelY + 16,
+    width: closeSize,
+    height: closeSize,
+  };
+
+  ctx.save();
+  ctx.fillStyle = "rgba(5, 7, 17, 0.72)";
+  ctx.fillRect(0, 0, viewport.width, viewport.height);
+  drawPixelFrame(panelX, panelY, panelWidth, panelHeight, {
+    fill: "#263249",
+    border: "#fbbf24",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.stone,
+  });
+
+  ctx.fillStyle = "#050711";
+  ctx.globalAlpha = 0.22;
+  ctx.fillRect(panelX + 24, panelY + 78, panelWidth - 48, 112);
+  ctx.globalAlpha = 1;
+
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#fbbf24";
+  ctx.font = canvasFont(12, 900);
+  ctx.fillText("TEST AD", panelX + panelWidth / 2, panelY + 48);
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.appOpenTitle"), panelWidth - 72, 28, 18, 900), 900);
+  ctx.fillText(t("ads.appOpenTitle"), panelX + panelWidth / 2, panelY + 126);
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.appOpenBody"), panelWidth - 56, 14, 10, 700), 700);
+  ctx.fillText(t("ads.appOpenBody"), panelX + panelWidth / 2, panelY + 182);
+
+  const ctaRect = {
+    x: panelX + 34,
+    y: panelY + panelHeight - 92,
+    width: panelWidth - 68,
+    height: 46,
+  };
+  drawPixelFrame(ctaRect.x, ctaRect.y, ctaRect.width, ctaRect.height, {
+    fill: "#12364b",
+    border: "#8be8ff",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.glowstone,
+  });
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.cta"), ctaRect.width - 18, 16, 10, 900), 900);
+  ctx.fillText(t("ads.cta"), ctaRect.x + ctaRect.width / 2, ctaRect.y + ctaRect.height / 2);
+
+  drawPixelFrame(closeRect.x, closeRect.y, closeRect.width, closeRect.height, {
+    fill: canClose ? COLORS.button : "#4d5575",
+    border: canClose ? "#8be8ff" : "#8aa0c8",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: canClose ? voxelAssets.blocks.plank : voxelAssets.blocks.stone,
+  });
+  ctx.fillStyle = canClose ? COLORS.buttonText : COLORS.muted;
+  ctx.font = canvasFont(12, 900);
+  ctx.fillText(canClose ? "X" : `${remainingSeconds}`, closeRect.x + closeRect.width / 2, closeRect.y + closeRect.height / 2);
+  ctx.restore();
+
+  addInteractiveElement({
+    id: "ad-overlay-blocker",
+    rect: { x: 0, y: 0, width: viewport.width, height: viewport.height },
+    action: () => {},
+  });
+  addInteractiveElement({
+    id: "app-open-ad-cta",
+    rect: ctaRect,
+    action: () => {
+      trackAdEvent(AnalyticsEvents.adClick, activeAdOverlay.placement, activeAdOverlay.result, {
+        source: activeAdOverlay.source,
+      });
+    },
+  });
+  if (canClose) {
+    addInteractiveElement({
+      id: "app-open-ad-close",
+      rect: closeRect,
+      action: () => closeActiveAdOverlay("close_button"),
+    });
   }
 }
 
@@ -10238,6 +10897,13 @@ function scrollProfessionGridBy(deltaY) {
 }
 
 function handleKeyDown(event) {
+  if (activeAdOverlay) {
+    if (event.key === "Escape" && getNowMs() >= activeAdOverlay.closeAtMs) {
+      closeActiveAdOverlay("escape");
+    }
+    return;
+  }
+
   if (event.key === "Escape") {
     if (screen === Screen.LEGAL_DOCUMENT) {
       setScreen(previousScreen);
@@ -10570,6 +11236,9 @@ async function bootGame() {
   await syncAnalyticsCollection();
   trackGameInitSuccess();
   screen = complianceState.hasAcceptedCurrentLegal() ? Screen.MAIN_MENU : Screen.CONSENT;
+  if (screen === Screen.MAIN_MENU) {
+    void maybeShowAppOpenAd("boot");
+  }
   lastFrameTime = performance.now();
   requestAnimationFrame(gameLoop);
 }
