@@ -6046,7 +6046,7 @@ function drawSettingsScreen() {
   y = drawWrappedText(
     t("settings.legalInfo", {
       version: LegalConfig.version,
-      companyName: LegalConfig.companyName,
+      developerName: LegalConfig.developerName,
       contactEmail: LegalConfig.contactEmail,
     }),
     panel.x + 28,
