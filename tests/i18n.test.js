@@ -81,25 +81,25 @@ test("locale options and translations are complete enough for the UI", () => {
 test("localized legal documents interpolate store metadata", () => {
   const document = getLocalizedLegalDocument("en", "privacy", {
     appName: "Arena",
-    companyName: "Example Co.",
+    developerName: "Example Dev",
     contactEmail: "privacy@example.com",
   });
 
   assert.equal(document.title, "Privacy Policy");
   assert.equal(document.sections.length > 0, true);
-  assert.match(document.sections.at(-1).body, /Example Co\./);
+  assert.match(document.sections.at(-1).body, /Example Dev/);
   assert.match(document.sections.at(-1).body, /privacy@example\.com/);
 
   const traditionalDocument = getLocalizedLegalDocument("zh-TW", "privacy", {
     appName: "Arena",
-    companyName: "Example Co.",
+    developerName: "Example Dev",
     contactEmail: "privacy@example.com",
   });
   assert.equal(traditionalDocument.title, "隱私政策");
 
   const japaneseDocument = getLocalizedLegalDocument("ja-JP", "privacy", {
     appName: "Arena",
-    companyName: "Example Co.",
+    developerName: "Example Dev",
     contactEmail: "privacy@example.com",
   });
   assert.equal(japaneseDocument.title, "プライバシーポリシー");

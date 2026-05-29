@@ -2,8 +2,8 @@ import { getLocalizedLegalDocument, translate } from "./i18n.js";
 
 export const LegalConfig = {
   version: "2026.05.27",
-  companyName: "【请替换为公司主体名称】",
-  contactEmail: "privacy@example.com",
+  developerName: "JN.Young",
+  contactEmail: "j.n.young0209@gmail.com",
   appName: "职业球球斗技场",
   ageRatingGuidance: "本游戏包含轻微卡通/幻想对战元素，不面向儿童定向投放。",
   privacyPolicy: {
@@ -32,9 +32,9 @@ export const LegalConfig = {
       {
         title: "五、联系我们",
         body:
-          "运营主体：" +
-          "【请替换为公司主体名称】" +
-          "。如需咨询隐私相关事项，请通过 privacy@example.com 联系我们。提审前请将主体和邮箱替换为正式信息。",
+          "开发者：" +
+          "JN.Young" +
+          "。如需咨询隐私相关事项，请通过 j.n.young0209@gmail.com 联系我们。",
       },
     ],
   },
@@ -77,7 +77,7 @@ export function getLegalVersionKey(config = LegalConfig) {
 export function getLegalDocument(type, config = LegalConfig, locale = "zh") {
   return getLocalizedLegalDocument(locale, type, {
     appName: translate(locale, "app.name"),
-    companyName: config.companyName,
+    developerName: config.developerName,
     contactEmail: config.contactEmail,
   });
 }
