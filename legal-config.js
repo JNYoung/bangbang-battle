@@ -1,7 +1,7 @@
 import { getLocalizedLegalDocument, translate } from "./i18n.js";
 
 export const LegalConfig = {
-  version: "2026.05.27",
+  version: "2026.05.29",
   developerName: "JN.Young",
   contactEmail: "j.n.young0209@gmail.com",
   appName: "职业球球斗技场",
@@ -20,9 +20,9 @@ export const LegalConfig = {
           "为了让你下次打开游戏时保留选择，本游戏会使用设备本地存储保存隐私政策版本、用户协议版本、球 A/球 B 的职业选择和设置项。",
       },
       {
-        title: "三、统计、测试广告与支付",
+        title: "三、统计、广告与支付",
         body:
-          "数据统计可在设置中关闭，撤回同意会同时关闭统计。当前版本仅展示本地测试广告位，不接入真实广告 SDK 或应用内购买，不会基于广告标识投放、跳转真实广告或发起支付；若未来接入真实广告或付费内容，我们会先更新本政策并重新获取必要同意。",
+          "数据统计和广告展示可在设置中关闭，撤回同意会同时关闭统计与广告。当前版本已接入 Google AdMob 广告能力，默认使用非个性化广告请求和游戏场景广告位；AdMob 可能为了展示、衡量和防止广告欺诈处理广告相关信息。当前版本不接入应用内购买，不会发起支付。",
       },
       {
         title: "四、未成年人和内容分级",

@@ -50,7 +50,7 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 | --- | --- | --- |
 | `ad_request` | An ad placement is requested | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, optional `match_id` |
 | `ad_show` | An ad placement becomes visible or native SDK reports it shown | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, optional `match_id`, `source` |
-| `ad_click` | A test ad slot or future native ad is tapped | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, optional `match_id`, `source` |
+| `ad_click` | A mock ad slot or native ad is tapped | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, optional `match_id`, `source` |
 | `ad_close` | An app-open ad closes, auto-closes, or fails to show | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, `reason`, optional `source` |
 | `game_init_success` | App boot finishes platform initialization | `scene`, `locale`, `surface`, `analytics_enabled` |
 | `game_start` | A match starts | `match_id`, `scene`, `ball_count`, `own_side`, `opponent_side`, `own_role`, `opponent_role`, `locale`, `surface` |
@@ -68,7 +68,7 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 - `performance_snapshot` is throttled to avoid noisy analytics. Periodic samples are emitted about every 15 real seconds during active matches, and a final `sample_type=match_end` snapshot is emitted before `game_end` when enough frames were observed.
 - `long_frame_pct` uses frames at or above roughly 30 FPS frame time (`33.3ms`), while `jank_frame_pct` uses frames at or above `50ms`.
 - `memory_mb` is included only on runtimes that expose JavaScript heap usage.
-- Ad events currently use the local mock ad chain (`ad_network=mock`) unless a native Capacitor ad plugin is present. Mock ads are for layout and analytics-flow testing only.
+- Browser ad events use the local game-themed mock ad chain (`ad_network=mock_game_ads`). Native Capacitor builds use `ad_network=admob` when the AdMob plugin is available, or `native_game_ads` if a custom bridge supplies the placement.
 
 ## Additional Events To Consider
 
