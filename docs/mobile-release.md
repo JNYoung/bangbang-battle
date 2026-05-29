@@ -7,12 +7,14 @@ Current local release artifacts:
 - `android/app/build/outputs/apk/release/app-release.apk`
 - `android/app/build/outputs/bundle/release/app-release.aab`
 
-Generate a local release keystore before building a signed release APK:
+Generate a local release keystore before building signed release artifacts:
 
 ```sh
 npm run android:prepare-signing
-npm run android:release
+npm run android:gp:bundle
 ```
+
+Use `npm run android:gp:bundle` for Google Play upload because new Play apps use Android App Bundles. Use `npm run android:release` only when a signed release APK is needed for side-loading or local QA.
 
 Capacitor Android currently compiles with Java 21. This local project uses Android Studio's bundled JBR as the Android build JDK; if the terminal defaults to an older JDK, export the Android Studio environment before running Gradle:
 

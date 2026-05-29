@@ -20,10 +20,10 @@ npm run preview
 - 个人开发者：`JN.Young`
 - 支持/隐私邮箱：`j.n.young0209@gmail.com`
 
-## AdMob / 商店检查项
+## Meta / AdMob / 商店检查项
 
 - 官网使用 HTTPS 部署。
 - `/app-ads.txt` 必须位于域名根路径，并返回 HTTP 200。
 - 隐私政策 URL 建议填写 `https://professionballarena.top/privacy/`。
 - 支持 URL 建议填写 `https://professionballarena.top/support/`。
-- AdMob SDK 已在游戏主体工程接入；发布前应确认应用内同意流程、隐私政策、商店数据安全表单、广告单元 ID 和内容分级信息一致。
+- 广告 SDK 已按平台拆分：Meta 小游戏使用 Meta Instant Games 广告接口，Android/iOS 使用 AdMob；发布前应确认应用内同意流程、隐私政策、商店数据安全表单、广告位 ID 和内容分级信息一致。

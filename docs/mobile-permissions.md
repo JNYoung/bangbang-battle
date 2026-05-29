@@ -8,21 +8,23 @@
 
 ## Android
 
-Declared app permissions:
+Release permissions to account for:
 
 - `android.permission.INTERNET`: required by the WebView shell and Firebase Analytics upload.
 - `android.permission.VIBRATE`: required for the optional vibration feedback setting.
+- `android.permission.ACCESS_NETWORK_STATE`: brought in by AdMob/Firebase dependencies in the merged manifest for network availability checks.
 
 Removed or disabled analytics-advertising identifiers:
 
 - `com.google.android.gms.permission.AD_ID` is removed from the merged manifest.
-- Android Privacy Sandbox ad-services ID and attribution permissions are removed from the merged manifest.
+- Android Privacy Sandbox ad-services ID, attribution, and topics permissions are removed from the merged manifest.
+- Dependency-added `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, and `FOREGROUND_SERVICE` permissions are removed from the merged manifest because the game does not use background services.
 - Firebase Analytics collection and ad ID collection default to disabled at process start.
 
 AdMob configuration:
 
-- The native AdMob plugin is configured with the Google sample Android app ID for debug builds.
-- Ad requests default to non-personalized mode (`VITE_ADMOB_NPA=true`) and Google test ad units (`VITE_ADMOB_TESTING=true`) unless release env vars provide real ad units.
+- The native AdMob plugin is configured with the production Android app ID `ca-app-pub-2481288993515154~4798979229`.
+- Android ad requests default to non-personalized mode (`VITE_ADMOB_NPA=true`). Local, debug, and internal QA builds use Google test ad units by default; set `VITE_ADMOB_MODE=real` or use `npm run android:release` for production ad units on formal release builds.
 - The app adds game-context metadata in the ad service, but final "game ads only" category filtering must be configured in the AdMob console.
 
 Runtime flow:
@@ -41,7 +43,7 @@ The iOS target does not request camera, microphone, location, contacts, calendar
 
 AdMob configuration:
 
-- `GADApplicationIdentifier` currently uses the Google sample iOS app ID for debug builds.
+- `GADApplicationIdentifier` currently uses the Google sample iOS app ID until an iOS AdMob app and production ad units are created.
 - `SKAdNetworkItems` includes Google's SKAdNetwork identifier for install attribution support.
 - The app does not call the ATT prompt in the current runtime flow; ad requests default to non-personalized mode.
 
