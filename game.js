@@ -105,12 +105,17 @@ const ARENA_SHAKE_MAX_OFFSET = 10;
 const PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE = 2;
 const PLAYING_VIEWPORT_HEIGHT_JITTER_TOLERANCE = 16;
 const GAME_SPEED_OPTIONS = [1, 1.5, 2];
+const BATTLE_INTRO_DURATION_SECONDS = 2.35;
+const BATTLE_INTRO_CLASH_TIME_SECONDS = 1.08;
+const RESULT_FIREWORK_CYCLE_SECONDS = 2.7;
+const RESULT_FIREWORK_COUNT = 8;
 
 let balls = [];
 let gameOver = false;
 let resultMessage = "";
 let lastFrameTime = 0;
 let elapsedTimeSeconds = 0;
+let visualElapsedTimeSeconds = 0;
 let matchElapsedTimeSeconds = 0;
 let viewport = { width: 0, height: 0, dpr: 1 };
 let pendingResizeFrame = 0;
@@ -157,6 +162,9 @@ let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
 let lastArenaShakeTime = -Infinity;
 let arenaShakeStartedAt = -Infinity;
 let arenaShakeSeed = 0;
+let battleIntroStartedAt = 0;
+let resultCelebrationStartedAt = 0;
+let resultWinnerSide = "draw";
 let audioContext = null;
 let audioMasterGain = null;
 let audioMusicGain = null;
@@ -1474,6 +1482,9 @@ function restartGame() {
   lastArenaShakeTime = -Infinity;
   arenaShakeStartedAt = -Infinity;
   arenaShakeSeed = 0;
+  battleIntroStartedAt = 0;
+  resultCelebrationStartedAt = 0;
+  resultWinnerSide = "draw";
   lastVibrationTime = -Infinity;
   lastCollisionFeedbackTime = -Infinity;
   lastFrameTime = performance.now();
@@ -2308,6 +2319,7 @@ function gameLoop(timestamp) {
     update(scaledDeltaTime, elapsedTimeSeconds);
   }
 
+  visualElapsedTimeSeconds += deltaTime;
   updateAudioEngine();
   damageIndicators = updateDamageIndicators(damageIndicators, elapsedTimeSeconds);
   draw();
@@ -5549,6 +5561,7 @@ function checkGameOver() {
     gameOver = true;
     const winnerSide = aliveBalls.length === 0 ? "draw" : aliveBalls[0].label;
     resultMessage = aliveBalls.length === 0 ? t("result.draw") : t("result.winnerNoProfession", { side: getSideLabel(aliveBalls[0].label) });
+    startResultCelebration(winnerSide);
     stopMusic();
     playGameSound("result", 1);
     triggerVibration([28, 28, 38], elapsedTimeSeconds);
@@ -5565,11 +5578,17 @@ function checkGameOver() {
   gameOver = true;
   const winnerSide = getWinnerSide(ballA, ballB);
   resultMessage = getResultText(ballA, ballB);
+  startResultCelebration(winnerSide);
   stopMusic();
   playGameSound("result", 1);
   triggerVibration([28, 28, 38], elapsedTimeSeconds);
   analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
   setScreen(Screen.RESULT);
+}
+
+function startResultCelebration(winnerSide) {
+  resultWinnerSide = winnerSide;
+  resultCelebrationStartedAt = visualElapsedTimeSeconds;
 }
 
 function getWinnerSide(ballA, ballB) {
@@ -5619,6 +5638,7 @@ function draw() {
       drawHud(t("status.playing"));
       drawArenaScene();
       drawShakeArenaButton();
+      drawBattleIntroOverlay();
       break;
     case Screen.PAUSED:
       drawHud(t("status.paused"));
@@ -5847,6 +5867,173 @@ function drawShakeGlyphLines(x, y) {
     ctx.lineTo(x + 8, lineY);
     ctx.stroke();
   }
+}
+
+function drawBattleIntroOverlay() {
+  if (!layout?.arena || screen !== Screen.PLAYING) {
+    return;
+  }
+
+  const introAge = elapsedTimeSeconds - battleIntroStartedAt;
+  const introProgress = clamp(introAge / BATTLE_INTRO_DURATION_SECONDS, 0, 1);
+  if (introProgress >= 1) {
+    return;
+  }
+
+  const arena = layout.arena;
+  const center = {
+    x: arena.x + arena.size / 2,
+    y: arena.y + arena.size / 2,
+  };
+  const clashProgress = easeOutCubic(clamp(introAge / BATTLE_INTRO_CLASH_TIME_SECONDS, 0, 1));
+  const fadeOut = introProgress > 0.72 ? 1 - easeOutCubic((introProgress - 0.72) / 0.28) : 1;
+  const ballRadius = clamp(arena.size * 0.095, 34, 76);
+  const impactPulse = introAge >= BATTLE_INTRO_CLASH_TIME_SECONDS
+    ? Math.max(0, 1 - (introAge - BATTLE_INTRO_CLASH_TIME_SECONDS) / 0.62)
+    : 0;
+  const recoil = Math.sin(Math.max(0, introAge - BATTLE_INTRO_CLASH_TIME_SECONDS) * 28) * impactPulse * arena.size * 0.015;
+  const ballY = center.y + Math.sin(introAge * 11) * 3 * fadeOut;
+  const leftCenter = {
+    x: lerp(arena.x + arena.size * 0.16, center.x - ballRadius * 0.82, clashProgress) - recoil,
+    y: ballY,
+  };
+  const rightCenter = {
+    x: lerp(arena.x + arena.size * 0.84, center.x + ballRadius * 0.82, clashProgress) + recoil,
+    y: ballY,
+  };
+
+  ctx.save();
+  drawBattleIntroVignette(arena, introProgress, fadeOut);
+  drawClashTrail(leftCenter, rightCenter, center, ballRadius, clashProgress, fadeOut);
+  ctx.globalAlpha = fadeOut;
+  drawPixelClashBall(leftCenter, ballRadius, getSideVisualConfig("A"), 1, introAge);
+  drawPixelClashBall(rightCenter, ballRadius, getSideVisualConfig("B"), -1, introAge + 0.37);
+  ctx.globalAlpha = 1;
+  drawClashSpark(center, ballRadius * (0.8 + impactPulse * 0.5), introAge, (0.65 + clashProgress * 0.55) * fadeOut);
+  drawPixelHeadline(getEffectText("battle"), center.x, arena.y + arena.size * 0.18, arena.size * 0.82, clamp(arena.size * 0.08, 28, 58), "#ffd166", fadeOut);
+  ctx.restore();
+}
+
+function drawBattleIntroVignette(arena, progress, fadeOut) {
+  const alpha = (0.2 + (1 - Math.abs(progress - 0.5) * 2) * 0.16) * fadeOut;
+  ctx.fillStyle = `rgba(5, 7, 17, ${alpha})`;
+  ctx.fillRect(0, 0, viewport.width, viewport.height);
+
+  const scanlineStep = Math.max(6, Math.round(arena.size / 36));
+  ctx.fillStyle = `rgba(255, 246, 214, ${0.06 * fadeOut})`;
+  for (let y = arena.y + scanlineStep; y < arena.y + arena.size; y += scanlineStep * 2) {
+    ctx.fillRect(arena.x, Math.round(y), arena.size, 2);
+  }
+}
+
+function drawClashTrail(leftCenter, rightCenter, center, ballRadius, progress, fadeOut) {
+  const trailAlpha = (0.16 + progress * 0.28) * fadeOut;
+  ctx.save();
+  ctx.globalAlpha = trailAlpha;
+  drawPixelLine(ctx, { x: leftCenter.x - ballRadius * 1.3, y: leftCenter.y }, center, 14, "#5ed8e6");
+  drawPixelLine(ctx, { x: rightCenter.x + ballRadius * 1.3, y: rightCenter.y }, center, 14, "#e5a43a");
+  ctx.globalAlpha = trailAlpha * 1.2;
+  drawPixelLine(ctx, { x: leftCenter.x - ballRadius * 0.75, y: leftCenter.y + 10 }, center, 6, "#dffcff");
+  drawPixelLine(ctx, { x: rightCenter.x + ballRadius * 0.75, y: rightCenter.y - 10 }, center, 6, "#ffe6a1");
+  ctx.restore();
+}
+
+function drawPixelClashBall(center, radius, visual, facing, time) {
+  const cell = Math.max(3, Math.floor(radius / 8));
+  const spriteSize = cell * 16;
+  const left = Math.round(center.x - spriteSize / 2);
+  const top = Math.round(center.y - spriteSize / 2);
+  const eyeX = facing > 0 ? left + cell * 10 : left + cell * 4;
+  const eyeY = top + cell * 7;
+  const bob = Math.round(Math.sin(time * 13) * cell * 0.45);
+
+  ctx.save();
+  ctx.translate(0, bob);
+  drawPixelCells(left + cell, top + cell * 2, cell, [
+    "....OOOOOO....",
+    "..OOOOOOOOOO..",
+    ".OOOOOOOOOOOO.",
+    "OOOOOOOOOOOOOO",
+    "OOOOOOOOOOOOOO",
+    "OOOOOOOOOOOOOO",
+    "OOOOOOOOOOOOOO",
+    ".OOOOOOOOOOOO.",
+    "..OOOOOOOOOO..",
+    "....OOOOOO....",
+  ], {
+    O: "#050711",
+  });
+  drawPixelCells(left, top, cell, [
+    ".....BBBBBB.....",
+    "...BBBBBBBBBB...",
+    "..BBBBBBBBBBBB..",
+    ".BBBBBBBBBBBBBB.",
+    ".BBBBBBBBBBBBBB.",
+    "BBBBBBBBBBBBBBBB",
+    "BBBBBBBBBBBBBBBB",
+    "BBBBBBBBBBBBBBBB",
+    "BBBBBBBBBBBBBBBB",
+    ".BBBBBBBBBBBBBB.",
+    ".BBBBBBBBBBBBBB.",
+    "..BBBBBBBBBBBB..",
+    "...BBBBBBBBBB...",
+    ".....BBBBBB.....",
+  ], {
+    B: visual.color,
+  });
+  drawPixelCells(left, top, cell, [
+    ".....HHHH.......",
+    "...HHHHHH.......",
+    "..HHHH..........",
+    ".HHH...........",
+    ".HH............",
+  ], {
+    H: visual.accentColor,
+  });
+
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(eyeX - cell, eyeY - cell, cell * 3, cell * 3);
+  ctx.fillStyle = visual.accentColor;
+  ctx.fillRect(eyeX, eyeY, cell * 2, cell);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(eyeX + (facing > 0 ? cell : 0), eyeY, cell, cell);
+
+  const slashStart = facing > 0 ? left + cell * 7 : left + cell * 5;
+  ctx.fillStyle = "#050711";
+  for (let index = 0; index < 4; index += 1) {
+    ctx.fillRect(slashStart + facing * index * cell, top + cell * (5 + index), cell * 5, cell);
+  }
+  ctx.restore();
+}
+
+function drawClashSpark(center, radius, time, intensity = 1) {
+  const sparkRadius = radius * (0.72 + Math.sin(time * 32) * 0.08);
+  const rayCount = 12;
+
+  ctx.save();
+  ctx.globalAlpha = clamp(intensity, 0, 1);
+  for (let index = 0; index < rayCount; index += 1) {
+    const angle = (index * Math.PI * 2) / rayCount + Math.sin(time * 9) * 0.08;
+    const direction = vectorFromAngle(angle);
+    const start = add(center, scale(direction, sparkRadius * 0.18));
+    const end = add(center, scale(direction, sparkRadius * (0.75 + (index % 3) * 0.16)));
+    drawPixelLine(ctx, start, end, index % 2 === 0 ? 7 : 4, "#050711");
+    drawPixelLine(ctx, start, end, index % 2 === 0 ? 3 : 2, index % 2 === 0 ? "#ffd166" : "#ff8a24");
+  }
+
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(center.x - sparkRadius * 0.18, center.y - sparkRadius * 0.18, sparkRadius * 0.36, sparkRadius * 0.36);
+  ctx.fillStyle = "#fff6d6";
+  ctx.fillRect(center.x - sparkRadius * 0.1, center.y - sparkRadius * 0.1, sparkRadius * 0.2, sparkRadius * 0.2);
+  ctx.fillStyle = "#ffd166";
+  for (let index = 0; index < 10; index += 1) {
+    const particleAngle = time * 2.2 + index * 1.7;
+    const particleDistance = sparkRadius * (0.36 + ((index * 17) % 9) / 18);
+    const point = add(center, scale(vectorFromAngle(particleAngle), particleDistance));
+    const size = 4 + (index % 3) * 2;
+    ctx.fillRect(Math.round(point.x - size / 2), Math.round(point.y - size / 2), size, size);
+  }
+  ctx.restore();
 }
 
 function drawConsentScreen() {
@@ -6156,13 +6343,26 @@ function drawLegalDocumentScreen() {
 
 function drawResultOverlay() {
   ctx.save();
-  ctx.fillStyle = "rgba(8, 11, 15, 0.6)";
+  ctx.fillStyle = "rgba(8, 11, 15, 0.44)";
   ctx.fillRect(0, 0, viewport.width, viewport.height);
 
   const panelWidth = Math.min(390, viewport.width - 36);
   const panelHeight = 220;
   const panelX = (viewport.width - panelWidth) / 2;
   const panelY = (viewport.height - panelHeight) / 2;
+  const celebrationAge = visualElapsedTimeSeconds - resultCelebrationStartedAt;
+  const winnerVisual = resultWinnerSide === "draw" ? SIDE_VISUAL_CONFIG.F : getSideVisualConfig(resultWinnerSide);
+
+  drawVictoryFireworks(celebrationAge, winnerVisual);
+  drawPixelHeadline(
+    getResultCelebrationHeadline(),
+    viewport.width / 2,
+    Math.max(44, panelY - 42),
+    Math.min(viewport.width - 32, 520),
+    clamp(viewport.width * 0.072, 30, 56),
+    winnerVisual.accentColor,
+    1,
+  );
 
   drawPanel({ x: panelX, y: panelY, width: panelWidth, height: panelHeight });
   ctx.fillStyle = COLORS.text;
@@ -6180,6 +6380,129 @@ function drawResultOverlay() {
   buttonY += 54;
   drawButton(t("result.backMain"), buttonX, buttonY, panelWidth - 56, 42, returnToMenu, { id: "result-back-main" });
   ctx.restore();
+}
+
+function drawVictoryFireworks(celebrationAge, winnerVisual) {
+  const colors = [
+    winnerVisual.color,
+    winnerVisual.accentColor,
+    "#ffd166",
+    "#ff8a24",
+    "#8be8ff",
+    "#f8fbff",
+  ];
+
+  for (let index = 0; index < RESULT_FIREWORK_COUNT; index += 1) {
+    const cycleAge = positiveModulo(celebrationAge + index * 0.37, RESULT_FIREWORK_CYCLE_SECONDS);
+    const cycleProgress = cycleAge / RESULT_FIREWORK_CYCLE_SECONDS;
+    const center = {
+      x: lerp(viewport.width * 0.16, viewport.width * 0.84, pseudoRandom(index * 17 + 3)),
+      y: lerp(viewport.height * 0.14, viewport.height * 0.54, pseudoRandom(index * 29 + 7)),
+    };
+    const delay = pseudoRandom(index * 41 + 11) * 0.22;
+    const burstProgress = clamp((cycleProgress - delay) / 0.78, 0, 1);
+    if (burstProgress <= 0 || burstProgress >= 1) {
+      drawFireworkLaunchTrail(center, cycleProgress, colors[index % colors.length]);
+      continue;
+    }
+
+    drawPixelFireworkBurst(center, burstProgress, colors, index);
+  }
+}
+
+function drawFireworkLaunchTrail(center, cycleProgress, color) {
+  if (cycleProgress > 0.24) {
+    return;
+  }
+
+  const progress = easeOutCubic(cycleProgress / 0.24);
+  const bottom = viewport.height + 12;
+  const y = lerp(bottom, center.y, progress);
+  const alpha = 1 - progress * 0.35;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  drawPixelLine(ctx, { x: center.x, y: bottom }, { x: center.x, y }, 7, "#050711");
+  drawPixelLine(ctx, { x: center.x, y: bottom }, { x: center.x, y }, 3, color);
+  ctx.fillStyle = "#fff6d6";
+  ctx.fillRect(Math.round(center.x - 4), Math.round(y - 4), 8, 8);
+  ctx.restore();
+}
+
+function drawPixelFireworkBurst(center, progress, colors, seed) {
+  const easedProgress = easeOutCubic(progress);
+  const fade = 1 - easeInCubic(progress);
+  const particleCount = 18;
+  const maxRadius = lerp(30, Math.min(viewport.width, viewport.height) * 0.18, pseudoRandom(seed * 23 + 5));
+
+  ctx.save();
+  ctx.globalAlpha = fade;
+  for (let index = 0; index < particleCount; index += 1) {
+    const angle = (index * Math.PI * 2) / particleCount + pseudoRandom(seed * 53 + index) * 0.2;
+    const jitter = 0.74 + pseudoRandom(seed * 97 + index * 3) * 0.42;
+    const point = add(center, scale(vectorFromAngle(angle), maxRadius * easedProgress * jitter));
+    const size = Math.max(4, Math.round(10 * (1 - progress) + (index % 3) * 2));
+    ctx.fillStyle = "#050711";
+    ctx.fillRect(Math.round(point.x - size / 2 - 2), Math.round(point.y - size / 2 - 2), size + 4, size + 4);
+    ctx.fillStyle = colors[(index + seed) % colors.length];
+    ctx.fillRect(Math.round(point.x - size / 2), Math.round(point.y - size / 2), size, size);
+
+    if (index % 3 === 0) {
+      const inner = add(center, scale(vectorFromAngle(angle), maxRadius * easedProgress * jitter * 0.52));
+      ctx.fillStyle = "#fff6d6";
+      ctx.fillRect(Math.round(inner.x - 3), Math.round(inner.y - 3), 6, 6);
+    }
+  }
+  ctx.restore();
+}
+
+function drawPixelHeadline(text, x, y, maxWidth, desiredFontSize, color, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const fontSize = getFittedFontSize(text, maxWidth, desiredFontSize, 18, 900);
+  ctx.font = canvasFont(fontSize, 900);
+  ctx.lineWidth = Math.max(6, Math.round(fontSize * 0.18));
+  ctx.strokeStyle = "#050711";
+  ctx.strokeText(text, x + 3, y + 3);
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+  ctx.fillStyle = "rgba(255, 246, 214, 0.74)";
+  ctx.fillRect(Math.round(x - maxWidth * 0.24), Math.round(y + fontSize * 0.52), Math.round(maxWidth * 0.48), 4);
+  ctx.restore();
+}
+
+function getResultCelebrationHeadline() {
+  if (resultWinnerSide === "draw") {
+    return getEffectText("draw");
+  }
+
+  return getEffectText("victory");
+}
+
+function getEffectText(key) {
+  const textByLocale = {
+    zh: { battle: "开战", victory: "胜利", draw: "平局" },
+    "zh-TW": { battle: "開戰", victory: "勝利", draw: "平局" },
+    ja: { battle: "開戦", victory: "勝利", draw: "引き分け" },
+    en: { battle: "BATTLE", victory: "VICTORY", draw: "DRAW" },
+    fr: { battle: "COMBAT", victory: "VICTOIRE", draw: "ÉGALITÉ" },
+    de: { battle: "KAMPF", victory: "SIEG", draw: "REMIS" },
+    ar: { battle: "قتال", victory: "فوز", draw: "تعادل" },
+  };
+
+  return textByLocale[currentLocale]?.[key] || textByLocale.zh[key];
+}
+
+function pseudoRandom(seed) {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function positiveModulo(value, divisor) {
+  return ((value % divisor) + divisor) % divisor;
 }
 
 function drawPauseOverlay() {
