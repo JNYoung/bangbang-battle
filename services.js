@@ -30,6 +30,32 @@ const AD_FALLBACK_ENV_KEYS = Object.freeze({
   appOpen: "APP_OPEN",
   battleBanner: "BATTLE_BANNER",
 });
+const AD_MOB_MODES = Object.freeze({
+  auto: "auto",
+  mock: "mock",
+  real: "real",
+  test: "test",
+});
+const META_AD_NETWORK = "meta_instant_games";
+const META_INTERSTITIAL_FORMAT = "interstitial";
+const META_REWARDED_FORMAT = "rewarded";
+const META_PLACEMENT_ENV_KEYS = Object.freeze({
+  app_open: {
+    interstitial: [
+      "VITE_META_APP_OPEN_AD_PLACEMENT_ID",
+      "VITE_META_INTERSTITIAL_PLACEMENT_ID",
+      "VITE_META_APP_OPEN_PLACEMENT_ID",
+    ],
+  },
+  rewarded_video: {
+    rewarded: [
+      "VITE_META_REWARDED_VIDEO_PLACEMENT_ID",
+      "VITE_META_REWARDED_AD_PLACEMENT_ID",
+      "VITE_META_REWARDED_PLACEMENT_ID",
+    ],
+  },
+});
+const IS_META_BUILD_TARGET = import.meta.env?.VITE_PLATFORM_TARGET === "meta";
 const GAME_AD_CONTEXT = Object.freeze({
   category: "games",
   keywords: ["arcade game", "mobile game", "battle game", "pixel game"],
@@ -41,6 +67,10 @@ const adMobState = {
   initialized: false,
   initializationError: null,
   activeBannerPlacement: null,
+};
+const metaAdState = {
+  initialized: false,
+  initializationError: null,
 };
 
 export const AnalyticsEvents = Object.freeze({
@@ -261,18 +291,49 @@ export const ads = {
     if (getNativeAdsPlugin()) {
       return "native";
     }
+    if (isMetaInstantRuntime()) {
+      return META_AD_NETWORK;
+    }
     if (adMobState.initialized) {
       return "admob";
     }
     return "mock";
   },
   isAvailable() {
+    if (getNativeAdsPlugin()) {
+      return true;
+    }
+    if (isMetaInstantRuntime()) {
+      return hasMetaAdApi(META_INTERSTITIAL_FORMAT) || hasMetaAdApi(META_REWARDED_FORMAT);
+    }
     return true;
+  },
+  supportsPlacement(placement = "default", format = "interstitial") {
+    const nativePlugin = getNativeAdsPlugin();
+    if (nativePlugin) {
+      return true;
+    }
+
+    if (isMetaInstantRuntime()) {
+      if (format === "banner") {
+        return false;
+      }
+      if (format === META_REWARDED_FORMAT) {
+        return hasMetaAdApi(META_REWARDED_FORMAT);
+      }
+      return hasMetaAdApi(META_INTERSTITIAL_FORMAT);
+    }
+
+    return format === "banner" || format === "interstitial";
   },
   async initialize() {
     const nativePlugin = getNativeAdsPlugin();
     if (nativePlugin?.initialize) {
       return nativePlugin.initialize({ context: GAME_AD_CONTEXT });
+    }
+
+    if (isMetaInstantRuntime()) {
+      return initializeMetaInstantAds();
     }
 
     if (!shouldUseNativeAdMob()) {
@@ -291,6 +352,7 @@ export const ads = {
         initialized: true,
         mode: "admob",
         testing: isAdMobTestingEnabled(),
+        admob_mode: getResolvedAdMobMode(),
         non_personalized_ads: shouldRequestNonPersonalizedAds(),
         context: GAME_AD_CONTEXT,
       };
@@ -312,6 +374,7 @@ export const ads = {
         initialized: true,
         mode: "admob",
         testing: isAdMobTestingEnabled(),
+        admob_mode: getResolvedAdMobMode(),
         non_personalized_ads: shouldRequestNonPersonalizedAds(),
         context: GAME_AD_CONTEXT,
       };
@@ -334,16 +397,32 @@ export const ads = {
       admobInitialized: adMobState.initialized,
       admobInitializationError: adMobState.initializationError?.message || null,
       activeBannerPlacement: adMobState.activeBannerPlacement,
+      metaInitialized: metaAdState.initialized,
+      metaInitializationError: metaAdState.initializationError?.message || null,
+      metaSupportedAPIs: getSupportedMetaApis(),
+      metaPlacements: getMetaPlacementStatus(),
       testing: isAdMobTestingEnabled(),
+      configuredAdMobMode: getConfiguredAdMobMode(),
+      resolvedAdMobMode: getResolvedAdMobMode(),
+      liveAdMobEnabled: getResolvedAdMobMode() === AD_MOB_MODES.real,
       realAdUnitsConfigured: hasRealAdUnitsConfigured(getNativePlatform()),
       non_personalized_ads: shouldRequestNonPersonalizedAds(),
       game_ad_context: GAME_AD_CONTEXT,
+      placements: {
+        app_open_interstitial: this.supportsPlacement("app_open", "interstitial"),
+        battle_banner_banner: this.supportsPlacement("battle_banner", "banner"),
+        rewarded_video: this.supportsPlacement("rewarded_video", META_REWARDED_FORMAT),
+      },
     };
   },
   getBanner(placement = "default", options = {}) {
     const nativePlugin = getNativeAdsPlugin();
     if (nativePlugin?.getBanner) {
       return nativePlugin.getBanner({ placement, ...options, context: GAME_AD_CONTEXT });
+    }
+
+    if (isMetaInstantRuntime()) {
+      return createMetaAdNotShownResult(placement, "banner", "meta_banner_not_supported");
     }
 
     if (shouldUseNativeAdMob()) {
@@ -358,16 +437,41 @@ export const ads = {
       return nativePlugin.showInterstitial({ placement, context: GAME_AD_CONTEXT });
     }
 
+    if (isMetaInstantRuntime()) {
+      return showMetaInstantInterstitial(placement);
+    }
+
     if (shouldUseNativeAdMob()) {
       return showAdMobInterstitial(placement);
     }
 
     return createMockAdResult(placement, "interstitial");
   },
+  async showRewardedVideo(placement = "rewarded_video") {
+    const nativePlugin = getNativeAdsPlugin();
+    if (nativePlugin?.showRewardedVideo) {
+      return nativePlugin.showRewardedVideo({ placement, context: GAME_AD_CONTEXT });
+    }
+
+    if (isMetaInstantRuntime()) {
+      return showMetaInstantRewardedVideo(placement);
+    }
+
+    return createMockAdResult(placement, META_REWARDED_FORMAT);
+  },
   async hideBanner(placement = "default") {
     const nativePlugin = getNativeAdsPlugin();
     if (nativePlugin?.hideBanner) {
       return nativePlugin.hideBanner({ placement });
+    }
+
+    if (isMetaInstantRuntime()) {
+      return {
+        hidden: false,
+        placement,
+        network: META_AD_NETWORK,
+        reason: "meta_banner_not_supported",
+      };
     }
 
     if (!adMobState.module?.AdMob || !adMobState.activeBannerPlacement) {
@@ -398,6 +502,76 @@ export const ads = {
     }
   },
 };
+
+function initializeMetaInstantAds() {
+  try {
+    const supportsInterstitial = hasMetaAdApi(META_INTERSTITIAL_FORMAT);
+    const supportsRewarded = hasMetaAdApi(META_REWARDED_FORMAT);
+    metaAdState.initialized = true;
+    metaAdState.initializationError = null;
+
+    return {
+      available: supportsInterstitial || supportsRewarded,
+      initialized: true,
+      mode: META_AD_NETWORK,
+      network: META_AD_NETWORK,
+      supports: {
+        interstitial: supportsInterstitial,
+        rewarded: supportsRewarded,
+        banner: false,
+      },
+      placements: getMetaPlacementStatus(),
+      context: GAME_AD_CONTEXT,
+    };
+  } catch (error) {
+    metaAdState.initializationError = error;
+    return {
+      available: false,
+      initialized: false,
+      mode: META_AD_NETWORK,
+      network: META_AD_NETWORK,
+      reason: "meta_ads_initialization_failed",
+      error,
+    };
+  }
+}
+
+async function showMetaInstantInterstitial(placement) {
+  if (!hasMetaAdApi(META_INTERSTITIAL_FORMAT)) {
+    return createMetaAdNotShownResult(placement, META_INTERSTITIAL_FORMAT, "meta_interstitial_unavailable");
+  }
+
+  return showMetaInstantAd(placement, META_INTERSTITIAL_FORMAT);
+}
+
+async function showMetaInstantRewardedVideo(placement) {
+  if (!hasMetaAdApi(META_REWARDED_FORMAT)) {
+    return createMetaAdNotShownResult(placement, META_REWARDED_FORMAT, "meta_rewarded_unavailable");
+  }
+
+  return showMetaInstantAd(placement, META_REWARDED_FORMAT);
+}
+
+async function showMetaInstantAd(placement, format) {
+  const fb = getMetaInstant();
+  const placementId = getMetaPlacementId(placement, format);
+  if (!placementId) {
+    return createMetaAdNotShownResult(placement, format, "meta_placement_id_missing");
+  }
+
+  try {
+    const ad =
+      format === META_REWARDED_FORMAT
+        ? await fb.getRewardedVideoAsync(placementId)
+        : await fb.getInterstitialAdAsync(placementId);
+    await ad.loadAsync();
+    await ad.showAsync();
+    return createMetaAdResult(placement, format, `meta_${format}`, placementId);
+  } catch (error) {
+    console.warn("Meta Instant ad failed", placement, error);
+    return createMetaAdNotShownResult(placement, format, "meta_ad_failed", error);
+  }
+}
 
 async function showAdMobInterstitial(placement) {
   const adMobModule = await getReadyAdMobModule();
@@ -459,6 +633,10 @@ async function getReadyAdMobModule() {
 }
 
 async function loadAdMobModule() {
+  if (isMetaBuildTarget()) {
+    throw new Error("AdMob is disabled for Meta Instant Games builds.");
+  }
+
   if (adMobState.module) {
     return adMobState.module;
   }
@@ -477,7 +655,7 @@ async function loadAdMobModule() {
 }
 
 function shouldUseNativeAdMob() {
-  return Boolean(globalThis.Capacitor?.isNativePlatform?.());
+  return !isMetaBuildTarget() && isNativeRuntime() && getResolvedAdMobMode() !== AD_MOB_MODES.mock;
 }
 
 function getNativePlatform() {
@@ -485,22 +663,155 @@ function getNativePlatform() {
   if (platform === "android" || platform === "ios") {
     return platform;
   }
-  return shouldUseNativeAdMob() ? "android" : "web";
+  return isNativeRuntime() ? "android" : "web";
 }
 
 function getAdUnitId(placement, fallbackKey) {
   const platform = getNativePlatform();
   const placementKey = getPlacementEnvKey(placement, fallbackKey);
-  return (
-    getEnvAdUnitId(platform, placementKey) ||
-    (!isAdMobTestingEnabled() ? REAL_AD_UNITS[platform]?.[fallbackKey] : null) ||
-    GOOGLE_TEST_AD_UNITS[platform]?.[fallbackKey] ||
-    GOOGLE_TEST_AD_UNITS.web[fallbackKey]
-  );
+  const resolvedMode = getResolvedAdMobMode();
+
+  if (resolvedMode === AD_MOB_MODES.real) {
+    return (
+      getEnvAdUnitId(platform, placementKey) ||
+      REAL_AD_UNITS[platform]?.[fallbackKey] ||
+      GOOGLE_TEST_AD_UNITS[platform]?.[fallbackKey] ||
+      GOOGLE_TEST_AD_UNITS.web[fallbackKey]
+    );
+  }
+
+  if (resolvedMode === AD_MOB_MODES.test) {
+    return GOOGLE_TEST_AD_UNITS[platform]?.[fallbackKey] || GOOGLE_TEST_AD_UNITS.web[fallbackKey];
+  }
+
+  return GOOGLE_TEST_AD_UNITS.web[fallbackKey];
 }
 
 function isAdMobTestingEnabled() {
-  return getBooleanBuildEnvValue("VITE_ADMOB_TESTING", !hasRealAdUnitsConfigured(getNativePlatform()));
+  return getResolvedAdMobMode() === AD_MOB_MODES.test;
+}
+
+function getResolvedAdMobMode() {
+  const configuredMode = getConfiguredAdMobMode();
+  const platform = getNativePlatform();
+
+  if (!isNativeRuntime() || configuredMode === AD_MOB_MODES.mock) {
+    return AD_MOB_MODES.mock;
+  }
+
+  if (configuredMode === AD_MOB_MODES.real) {
+    return hasRealAdUnitsConfigured(platform) ? AD_MOB_MODES.real : AD_MOB_MODES.test;
+  }
+
+  if (configuredMode === AD_MOB_MODES.test) {
+    return AD_MOB_MODES.test;
+  }
+
+  return AD_MOB_MODES.test;
+}
+
+function getConfiguredAdMobMode() {
+  const explicitMode = normalizeAdMobMode(getBuildEnvValue("VITE_ADMOB_MODE"));
+  if (explicitMode) {
+    return explicitMode;
+  }
+
+  const explicitTesting = getExplicitBooleanBuildEnvValue("VITE_ADMOB_TESTING");
+  if (explicitTesting !== null) {
+    return explicitTesting ? AD_MOB_MODES.test : AD_MOB_MODES.real;
+  }
+
+  const explicitReleaseAds = getExplicitBooleanBuildEnvValue("VITE_ADMOB_RELEASE_ADS");
+  if (explicitReleaseAds === true) {
+    return AD_MOB_MODES.real;
+  }
+
+  return AD_MOB_MODES.auto;
+}
+
+function normalizeAdMobMode(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "production" || normalized === "prod" || normalized === "live") {
+    return AD_MOB_MODES.real;
+  }
+  if (normalized === "testing" || normalized === "debug") {
+    return AD_MOB_MODES.test;
+  }
+  if (normalized === "off" || normalized === "disabled" || normalized === "canvas") {
+    return AD_MOB_MODES.mock;
+  }
+  if (Object.hasOwn(AD_MOB_MODES, normalized)) {
+    return AD_MOB_MODES[normalized];
+  }
+  return null;
+}
+
+function isNativeRuntime() {
+  return Boolean(globalThis.Capacitor?.isNativePlatform?.());
+}
+
+function isMetaBuildTarget() {
+  return IS_META_BUILD_TARGET || getBuildEnvValue("VITE_PLATFORM_TARGET") === "meta";
+}
+
+function getMetaInstant() {
+  return globalThis.FBInstant || globalThis.window?.FBInstant || null;
+}
+
+function isMetaInstantRuntime() {
+  return Boolean(getMetaInstant());
+}
+
+function hasMetaAdApi(format) {
+  const fb = getMetaInstant();
+  if (!fb) {
+    return false;
+  }
+
+  const methodName = format === META_REWARDED_FORMAT ? "getRewardedVideoAsync" : "getInterstitialAdAsync";
+  if (typeof fb[methodName] !== "function") {
+    return false;
+  }
+
+  const supportedApis = getSupportedMetaApis();
+  return supportedApis.length === 0 || supportedApis.includes(methodName);
+}
+
+function getSupportedMetaApis() {
+  const fb = getMetaInstant();
+  if (typeof fb?.getSupportedAPIs !== "function") {
+    return [];
+  }
+
+  try {
+    const supportedApis = fb.getSupportedAPIs();
+    return Array.isArray(supportedApis) ? supportedApis : [];
+  } catch {
+    return [];
+  }
+}
+
+function getMetaPlacementStatus() {
+  return {
+    appOpen: Boolean(getMetaPlacementId("app_open", META_INTERSTITIAL_FORMAT)),
+    rewardedVideo: Boolean(getMetaPlacementId("rewarded_video", META_REWARDED_FORMAT)),
+  };
+}
+
+function getMetaPlacementId(placement, format) {
+  const key = String(placement || "");
+  const envKeys = META_PLACEMENT_ENV_KEYS[key]?.[format] || [];
+  for (const envKey of envKeys) {
+    const value = getBuildEnvValue(envKey);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
 }
 
 function shouldRequestNonPersonalizedAds() {
@@ -530,15 +841,21 @@ function getEnvAdUnitId(platform, placementKey) {
 }
 
 function getBooleanBuildEnvValue(key, fallback) {
+  const explicitValue = getExplicitBooleanBuildEnvValue(key);
+  return explicitValue === null ? fallback : explicitValue;
+}
+
+function getExplicitBooleanBuildEnvValue(key) {
   const value = getBuildEnvValue(key);
   if (value === undefined || value === null || value === "") {
-    return fallback;
+    return null;
   }
   return !["0", "false", "no", "off"].includes(String(value).toLowerCase());
 }
 
 function getBuildEnvValue(key) {
-  return import.meta.env?.[key];
+  const processEnv = typeof process !== "undefined" ? process.env : null;
+  return import.meta.env?.[key] ?? globalThis.__BANGBANG_BUILD_ENV__?.[key] ?? processEnv?.[key];
 }
 
 function createMockAdResult(placement, format) {
@@ -567,6 +884,23 @@ function createNativeAdResult(placement, format, render, creativeId, extra = {})
     creative_id: creativeId,
     campaign: "admob_game_context",
     testing: isAdMobTestingEnabled(),
+    admob_mode: getResolvedAdMobMode(),
+    game_ad_context: GAME_AD_CONTEXT.category,
+    ...extra,
+  };
+}
+
+function createMetaAdResult(placement, format, render, creativeId, extra = {}) {
+  return {
+    shown: true,
+    available: true,
+    placement,
+    format,
+    network: META_AD_NETWORK,
+    render,
+    creative_id: creativeId,
+    campaign: "meta_instant_games",
+    testing: false,
     game_ad_context: GAME_AD_CONTEXT.category,
     ...extra,
   };
@@ -580,6 +914,21 @@ function createAdNotShownResult(placement, format, reason, error = null) {
     format,
     network: "admob",
     reason,
+    testing: isAdMobTestingEnabled(),
+    admob_mode: getResolvedAdMobMode(),
+    error,
+  };
+}
+
+function createMetaAdNotShownResult(placement, format, reason, error = null) {
+  return {
+    shown: false,
+    available: false,
+    placement,
+    format,
+    network: META_AD_NETWORK,
+    reason,
+    testing: false,
     error,
   };
 }

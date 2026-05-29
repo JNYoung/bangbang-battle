@@ -30,6 +30,7 @@ async function assertMetaBundle() {
   if (!indexHtml.includes("fbinstant.latest.js")) {
     throw new Error("Meta bundle index.html is missing the FBInstant SDK script.");
   }
+  await assertMetaBundleDoesNotIncludeAdMob();
 
   const config = JSON.parse(await fs.readFile(path.join(metaTempDir, "fbapp-config.json"), "utf8"));
   if (!config.instant_games?.platform_version || !config.instant_games?.orientation) {
@@ -44,6 +45,19 @@ async function assertMetaBundle() {
   const zipStat = await fs.stat(metaZipPath);
   if (zipStat.size < 1024) {
     throw new Error("Meta bundle zip is unexpectedly small.");
+  }
+}
+
+async function assertMetaBundleDoesNotIncludeAdMob() {
+  const assetDir = path.join(metaTempDir, "assets");
+  const assets = await fs.readdir(assetDir);
+  const jsAssets = assets.filter((asset) => asset.endsWith(".js"));
+
+  for (const asset of jsAssets) {
+    const content = await fs.readFile(path.join(assetDir, asset), "utf8");
+    if (content.includes("@capacitor-community/admob")) {
+      throw new Error("Meta bundle should not include the AdMob SDK import.");
+    }
   }
 }
 

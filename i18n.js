@@ -40,7 +40,7 @@ const translations = {
     consent: {
       subtitle: "上架合规确认",
       title: "开始之前",
-      intro: "请先阅读并同意《隐私政策》和《用户协议》。同意后会在已配置平台启用 Firebase Analytics 上报基础游戏与性能事件，并可展示 Google AdMob 广告；当前不接入应用内购买。",
+      intro: "请先阅读并同意《隐私政策》和《用户协议》。同意后会在已配置平台启用基础游戏与性能统计，并可展示平台广告；Meta 小游戏使用 Meta Instant Games 广告能力，Android/iOS 使用 Google AdMob。当前不接入应用内购买。",
       privacy: "查看隐私政策",
       terms: "查看用户协议",
       agree: "我已阅读并同意上述协议",
@@ -92,7 +92,7 @@ const translations = {
       terms: "查看用户协议",
       restore: "恢复购买",
       withdraw: "撤回同意",
-      statsInfo: "统计：{analytics}。广告：{ads}。{iap}：未配置真实商品。广告优先请求游戏场景广告，调试构建使用测试广告单元。",
+      statsInfo: "统计：{analytics}。广告：{ads}。{iap}：未配置真实商品。广告按平台分流，Meta 包使用 Meta 广告能力，移动端使用 AdMob，调试 Web 使用本地测试广告。",
       sdkNotice: "你可以关闭数据统计，或撤回同意后重新确认协议。",
       backMain: "返回主菜单",
     },
@@ -114,7 +114,7 @@ const translations = {
           },
           {
             title: "三、统计、广告与支付",
-            body: "数据统计和广告展示可在设置中关闭，撤回同意会同时关闭统计与广告。当前版本已接入 Google AdMob 广告能力，默认使用非个性化广告请求和游戏场景广告位；AdMob 可能为了展示、衡量和防止广告欺诈处理广告相关信息。当前版本不接入应用内购买，不会发起支付。",
+            body: "数据统计和广告展示可在设置中关闭，撤回同意会同时关闭统计与广告。当前版本按平台使用广告能力：Meta 小游戏环境通过 Meta Instant Games 广告接口展示插屏或激励视频，Android/iOS 通过 Google AdMob 展示应用场景广告。对应广告平台可能为了展示、衡量和防止广告欺诈处理广告相关信息。当前版本不接入应用内购买，不会发起支付。",
           },
           {
             title: "四、未成年人和内容分级",
@@ -248,7 +248,7 @@ const translations = {
     consent: {
       subtitle: "Release compliance",
       title: "Before You Start",
-      intro: "Please read and accept the Privacy Policy and User Agreement. After consent, Firebase Analytics reports basic gameplay and performance events on configured platforms, and Google AdMob ads may be shown. In-app purchases remain unconfigured.",
+      intro: "Please read and accept the Privacy Policy and User Agreement. After consent, configured platforms may report basic gameplay/performance events and show platform ads. Meta Instant Games uses Meta ads, while Android/iOS use Google AdMob. In-app purchases remain unconfigured.",
       privacy: "Privacy Policy",
       terms: "User Agreement",
       agree: "I have read and agree",
@@ -300,7 +300,7 @@ const translations = {
       terms: "User Agreement",
       restore: "Restore",
       withdraw: "Withdraw Consent",
-      statsInfo: "Analytics: {analytics}. Ads: {ads}. {iap}: no real products. Ads prefer game-context placements, and debug builds use test ad units.",
+      statsInfo: "Analytics: {analytics}. Ads: {ads}. {iap}: no real products. Ads are routed by platform: Meta ads for the Meta bundle, AdMob for mobile, local test ads for debug web.",
       sdkNotice: "You can turn analytics off here or withdraw consent to review the terms again.",
       backMain: "Back to Menu",
     },
@@ -322,7 +322,7 @@ const translations = {
           },
           {
             title: "3. Analytics, Ads, and Payments",
-            body: "Analytics and ad display can be turned off in Settings, and withdrawing consent disables both. This build integrates Google AdMob ad capability with non-personalized requests and game-context ad placements by default. AdMob may process ad-related information to serve ads, measure performance, and prevent fraud. In-app purchases remain unconfigured and no payment flow is started.",
+            body: "Analytics and ad display can be turned off in Settings, and withdrawing consent disables both. This build routes ads by platform: Meta Instant Games uses Meta ad APIs for interstitial or rewarded video placements, while Android/iOS use Google AdMob for app-context ads. The relevant ad platform may process ad-related information to serve ads, measure performance, and prevent fraud. In-app purchases remain unconfigured and no payment flow is started.",
           },
           {
             title: "4. Minors and Ratings",
@@ -429,7 +429,7 @@ const translations = {
     consent: {
       subtitle: "Conformité de publication",
       title: "Avant de commencer",
-      intro: "Veuillez lire et accepter la Politique de confidentialité et le Contrat utilisateur. Après accord, Firebase Analytics envoie des événements de jeu et de performance de base sur les plateformes configurées, et des publicités Google AdMob peuvent s'afficher. Les achats intégrés restent non configurés.",
+      intro: "Veuillez lire et accepter la Politique de confidentialité et le Contrat utilisateur. Après accord, les plateformes configurées peuvent envoyer des événements de jeu/performance de base et afficher des publicités de plateforme. Meta Instant Games utilise les publicités Meta, Android/iOS utilisent Google AdMob. Les achats intégrés restent non configurés.",
       privacy: "Confidentialité",
       terms: "Contrat utilisateur",
       agree: "J'ai lu et j'accepte",
@@ -478,7 +478,7 @@ const translations = {
         sections: [
           { title: "1. Traitement des informations", body: "Après accord, le jeu utilise Firebase Analytics sur les plateformes configurées pour envoyer des événements de jeu et de performance de base comme l'initialisation réussie, le début et la fin de partie, des instantanés de fréquence d'images et les choix de réglages. Il ne collecte pas de compte, position, contacts, caméra, micro ni données issues de permissions sensibles." },
           { title: "2. Stockage local", body: "Pour garder vos choix au prochain lancement, le jeu utilise le stockage local de l'appareil pour les versions des politiques, les choix de profession des balles A/B et les réglages." },
-          { title: "3. Statistiques, publicités et paiements", body: "Les statistiques et l'affichage publicitaire peuvent être désactivés dans les réglages, et le retrait de l'accord désactive les deux. Cette version intègre Google AdMob avec des demandes non personnalisées et des emplacements de contexte jeu par défaut. AdMob peut traiter des informations publicitaires pour afficher, mesurer et protéger les publicités contre la fraude. Les achats intégrés restent non configurés et aucun paiement n'est lancé." },
+          { title: "3. Statistiques, publicités et paiements", body: "Les statistiques et l'affichage publicitaire peuvent être désactivés dans les réglages, et le retrait de l'accord désactive les deux. Cette version route les publicités selon la plateforme : Meta Instant Games utilise les API publicitaires Meta pour les interstitiels ou vidéos récompensées, tandis qu'Android/iOS utilisent Google AdMob. La plateforme publicitaire concernée peut traiter des informations publicitaires pour afficher, mesurer et protéger les publicités contre la fraude. Les achats intégrés restent non configurés et aucun paiement n'est lancé." },
           { title: "4. Mineurs et classification", body: "Ce jeu ne vise pas spécialement les enfants. Comme il contient des points de vie, des professions armées et du combat automatique, remplissez honnêtement les questionnaires des stores comme violence cartoon/fantasy légère." },
           { title: "5. Contact", body: "Développeur : {developerName}. Pour toute question de confidentialité, contactez {contactEmail}. Remplacez le nom du développeur et l'adresse par les informations réelles avant soumission." },
         ],
@@ -563,7 +563,7 @@ const translations = {
     consent: {
       subtitle: "Release-Konformität",
       title: "Vor dem Start",
-      intro: "Bitte lies und akzeptiere Datenschutzrichtlinie und Nutzungsvereinbarung. Nach Zustimmung meldet Firebase Analytics auf konfigurierten Plattformen grundlegende Spiel- und Performance-Ereignisse, und Google AdMob-Anzeigen können angezeigt werden. In-App-Käufe bleiben nicht konfiguriert.",
+      intro: "Bitte lies und akzeptiere Datenschutzrichtlinie und Nutzungsvereinbarung. Nach Zustimmung können konfigurierte Plattformen grundlegende Spiel-/Performance-Ereignisse melden und Plattformanzeigen anzeigen. Meta Instant Games nutzt Meta-Anzeigen, Android/iOS nutzen Google AdMob. In-App-Käufe bleiben nicht konfiguriert.",
       privacy: "Datenschutz",
       terms: "Nutzungsvereinbarung",
       agree: "Ich habe gelesen und stimme zu",
@@ -612,7 +612,7 @@ const translations = {
         sections: [
           { title: "1. Umgang mit Informationen", body: "Nach Zustimmung nutzt das Spiel Firebase Analytics auf konfigurierten Plattformen, um grundlegende Spiel- und Performance-Ereignisse wie erfolgreiche Initialisierung, Spielstart, Spielende, Bildraten-Snapshots und Einstellungswahl zu melden. Es sammelt keine Konten, Standorte, Kontakte, Kamera-, Mikrofon- oder andere sensible Berechtigungsdaten." },
           { title: "2. Lokaler Speicher", body: "Damit deine Auswahl beim nächsten Start erhalten bleibt, nutzt das Spiel lokalen Gerätespeicher für Richtlinienversionen, Berufsauswahl von Ball A/B und Einstellungen." },
-          { title: "3. Analyse, Werbung und Zahlung", body: "Analyse und Werbeanzeigen können in den Einstellungen deaktiviert werden; das Widerrufen der Zustimmung deaktiviert beides. Dieser Build integriert Google AdMob mit standardmäßig nicht personalisierten Anfragen und Platzierungen im Spielkontext. AdMob kann werbebezogene Informationen verarbeiten, um Anzeigen auszuliefern, zu messen und Betrug zu verhindern. In-App-Käufe bleiben nicht konfiguriert und es wird keine Zahlung gestartet." },
+          { title: "3. Analyse, Werbung und Zahlung", body: "Analyse und Werbeanzeigen können in den Einstellungen deaktiviert werden; das Widerrufen der Zustimmung deaktiviert beides. Dieser Build leitet Anzeigen je nach Plattform weiter: Meta Instant Games nutzt Meta-Anzeigen-APIs für Interstitials oder Rewarded Videos, Android/iOS nutzen Google AdMob. Die jeweilige Anzeigenplattform kann werbebezogene Informationen verarbeiten, um Anzeigen auszuliefern, zu messen und Betrug zu verhindern. In-App-Käufe bleiben nicht konfiguriert und es wird keine Zahlung gestartet." },
           { title: "4. Minderjährige und Altersfreigabe", body: "Dieses Spiel richtet sich nicht speziell an Kinder. Wegen Lebenspunkten, Waffenberufen und automatischem Kampf sollten Store-Fragebögen wahrheitsgemäß als leichte Cartoon-/Fantasy-Gewalt beantwortet werden." },
           { title: "5. Kontakt", body: "Entwickler: {developerName}. Bei Datenschutzfragen kontaktiere {contactEmail}. Entwicklername und E-Mail vor Einreichung durch echte Angaben ersetzen." },
         ],
@@ -697,7 +697,7 @@ const translations = {
     consent: {
       subtitle: "توافق النشر",
       title: "قبل البدء",
-      intro: "يرجى قراءة سياسة الخصوصية واتفاقية المستخدم والموافقة عليهما. بعد الموافقة، ترسل Firebase Analytics أحداث اللعبة والأداء الأساسية على المنصات المهيأة، وقد تظهر إعلانات Google AdMob. يبقى الشراء داخل التطبيق غير مهيأ.",
+      intro: "يرجى قراءة سياسة الخصوصية واتفاقية المستخدم والموافقة عليهما. بعد الموافقة، قد ترسل المنصات المهيأة أحداث اللعبة والأداء الأساسية وقد تعرض إعلانات المنصة. تستخدم Meta Instant Games إعلانات Meta، بينما يستخدم Android/iOS إعلانات Google AdMob. يبقى الشراء داخل التطبيق غير مهيأ.",
       privacy: "سياسة الخصوصية",
       terms: "اتفاقية المستخدم",
       agree: "قرأت وأوافق",
@@ -746,7 +746,7 @@ const translations = {
         sections: [
           { title: "1. كيف نتعامل مع المعلومات", body: "بعد الموافقة، تستخدم اللعبة Firebase Analytics على المنصات المهيأة لإرسال أحداث اللعبة والأداء الأساسية مثل نجاح التهيئة وبدء اللعبة ونهايتها ولقطات معدل الإطارات واختيار الإعدادات. لا تجمع حسابات أو موقعا أو جهات اتصال أو كاميرا أو ميكروفونا أو بيانات أذونات حساسة أخرى." },
           { title: "2. التخزين المحلي", body: "للاحتفاظ باختياراتك عند التشغيل التالي، تستخدم اللعبة تخزين الجهاز المحلي لحفظ إصدارات السياسات واختيارات مهنة الكرة A/B والإعدادات." },
-          { title: "3. الإحصاءات والإعلانات والدفع", body: "يمكن إيقاف الإحصاءات وعرض الإعلانات من الإعدادات، كما أن سحب الموافقة يوقفهما معا. يدمج هذا الإصدار Google AdMob بطلبات غير مخصصة ومواضع بسياق ألعاب افتراضيا. قد يعالج AdMob معلومات مرتبطة بالإعلانات لعرضها وقياسها ومنع الاحتيال. يبقى الشراء داخل التطبيق غير مهيأ ولا تبدأ أي عملية دفع." },
+          { title: "3. الإحصاءات والإعلانات والدفع", body: "يمكن إيقاف الإحصاءات وعرض الإعلانات من الإعدادات، كما أن سحب الموافقة يوقفهما معا. يوجه هذا الإصدار الإعلانات حسب المنصة: تستخدم Meta Instant Games واجهات إعلانات Meta للإعلانات البينية أو إعلانات الفيديو المكافأة، بينما يستخدم Android/iOS Google AdMob. قد تعالج منصة الإعلانات ذات الصلة معلومات مرتبطة بالإعلانات لعرضها وقياسها ومنع الاحتيال. يبقى الشراء داخل التطبيق غير مهيأ ولا تبدأ أي عملية دفع." },
           { title: "4. القاصرون والتصنيف العمري", body: "هذه اللعبة ليست موجهة خصيصا للأطفال. وبسبب نقاط الصحة ومهن الأسلحة والقتال التلقائي، يرجى تعبئة استبيانات المتاجر بصدق على أنها عنف كرتوني/خيالي خفيف." },
           { title: "5. التواصل", body: "المطوّر: {developerName}. لأسئلة الخصوصية تواصل عبر {contactEmail}. استبدل اسم المطوّر والبريد بمعلومات حقيقية قبل الإرسال." },
         ],
@@ -1023,7 +1023,7 @@ translations.ja = {
   consent: {
     subtitle: "公開前の確認",
     title: "始める前に",
-    intro: "プライバシーポリシーとユーザー規約を読んで同意してください。同意後、設定済みのプラットフォームでは Firebase Analytics が基本的なゲームおよびパフォーマンスイベントを送信し、Google AdMob 広告が表示される場合があります。アプリ内購入は未設定です。",
+    intro: "プライバシーポリシーとユーザー規約を読んで同意してください。同意後、設定済みのプラットフォームでは基本的なゲーム/パフォーマンスイベントを送信し、プラットフォーム広告が表示される場合があります。Meta Instant Games は Meta 広告、Android/iOS は Google AdMob を使用します。アプリ内購入は未設定です。",
     privacy: "プライバシーポリシー",
     terms: "ユーザー規約",
     agree: "上記の内容を読み、同意します",
@@ -1089,7 +1089,7 @@ translations.ja = {
       sections: [
         { title: "1. 情報の取り扱い", body: "同意後、設定済みのプラットフォームでは Firebase Analytics を使用し、初期化成功、ゲーム開始、ゲーム終了、フレームレートのスナップショット、設定選択などの基本的なゲームおよびパフォーマンスイベントを送信します。アカウント、位置情報、連絡先、カメラ、マイクなどの機微な権限データは収集しません。" },
         { title: "2. ローカル保存", body: "次回起動時に選択を保持するため、ゲームは端末のローカルストレージにポリシーバージョン、規約バージョン、ボール A/B の職業選択、設定項目を保存します。" },
-        { title: "3. 分析、広告、決済", body: "分析と広告表示は設定でオフにでき、同意を取り消すと両方が無効になります。このビルドは Google AdMob 広告機能を統合し、既定で非パーソナライズ広告リクエストとゲーム文脈の広告枠を使用します。AdMob は広告の表示、測定、不正防止のために広告関連情報を処理する場合があります。アプリ内購入は未設定で、決済フローは開始しません。" },
+        { title: "3. 分析、広告、決済", body: "分析と広告表示は設定でオフにでき、同意を取り消すと両方が無効になります。このビルドはプラットフォームごとに広告を切り替えます。Meta Instant Games では Meta 広告 API によるインタースティシャルまたはリワード動画、Android/iOS では Google AdMob を使用します。該当する広告プラットフォームは、広告の表示、測定、不正防止のために広告関連情報を処理する場合があります。アプリ内購入は未設定で、決済フローは開始しません。" },
         { title: "4. 未成年者とレーティング", body: "このゲームは子ども向け専用の製品ではありません。HP、武器職業、自動戦闘が含まれるため、Apple App Store、Google Play などのレーティング質問には、軽度のカートゥーン/ファンタジー暴力として正確に回答してください。" },
         { title: "5. お問い合わせ", body: "開発者：{developerName}。プライバシーに関するお問い合わせは {contactEmail} までご連絡ください。提出前に開発者名とメールアドレスを実際の情報へ差し替えてください。" },
       ],

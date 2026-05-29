@@ -2,7 +2,7 @@
   "name": "profession-ball-arena-official-site",
   "version": "0.1.0",
   "private": true,
-  "description": "职业球球斗技场官网与 AdMob 上线合规页面。",
+  "description": "职业球球斗技场官网与 Meta/AdMob 上线合规页面。",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",

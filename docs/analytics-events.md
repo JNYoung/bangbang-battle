@@ -68,7 +68,7 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 - `performance_snapshot` is throttled to avoid noisy analytics. Periodic samples are emitted about every 15 real seconds during active matches, and a final `sample_type=match_end` snapshot is emitted before `game_end` when enough frames were observed.
 - `long_frame_pct` uses frames at or above roughly 30 FPS frame time (`33.3ms`), while `jank_frame_pct` uses frames at or above `50ms`.
 - `memory_mb` is included only on runtimes that expose JavaScript heap usage.
-- Browser ad events use the local game-themed mock ad chain (`ad_network=mock_game_ads`). Native Capacitor builds use `ad_network=admob` when the AdMob plugin is available, or `native_game_ads` if a custom bridge supplies the placement.
+- Browser ad events use the local game-themed mock ad chain (`ad_network=mock_game_ads`). Meta Instant Games builds use `ad_network=meta_instant_games`. Native Capacitor builds use `ad_network=admob` when the AdMob plugin is available, or `native_game_ads` if a custom bridge supplies the placement.
 
 ## Additional Events To Consider
 

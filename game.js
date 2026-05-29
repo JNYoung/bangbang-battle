@@ -129,6 +129,7 @@ const AD_CHAIN_CONFIG = Object.freeze({
     compactHeight: 46,
     gap: 10,
     refreshMs: 30000,
+    failureRetryMs: 15000,
   },
 });
 const NEUTRAL_SCENE_SPAWN_CONFIG = Object.freeze({
@@ -1795,6 +1796,7 @@ function createAdSessionState() {
     battleBannerShownAtMs: 0,
     battleBannerImpressionTracked: false,
     battleBannerRequestPending: false,
+    battleBannerRetryAfterMs: 0,
   };
 }
 
@@ -1839,6 +1841,10 @@ function trackGameInitSuccess(consentSource = "boot") {
 
 function canShowAds() {
   return complianceState.hasAcceptedCurrentLegal() && Boolean(settings.adsEnabled) && ads.isAvailable();
+}
+
+function canShowBattleBannerAds() {
+  return canShowAds() && ads.supportsPlacement(AD_CHAIN_CONFIG.battleBanner.placement, "banner");
 }
 
 async function initializeAdsIfAllowed() {
@@ -1938,10 +1944,14 @@ function resetBattleBannerAd() {
   adSessionState.battleBannerShownAtMs = 0;
   adSessionState.battleBannerImpressionTracked = false;
   adSessionState.battleBannerRequestPending = false;
+  adSessionState.battleBannerRetryAfterMs = 0;
 }
 
 function ensureBattleBannerAd(timestamp) {
-  if (!canShowAds() || !layout?.battleAd || adSessionState.battleBannerRequestPending) {
+  if (!canShowBattleBannerAds() || !layout?.battleAd || adSessionState.battleBannerRequestPending) {
+    return;
+  }
+  if (timestamp < adSessionState.battleBannerRetryAfterMs) {
     return;
   }
 
@@ -1970,9 +1980,18 @@ function requestBattleBannerAd(timestamp) {
         adSessionState.battleBannerMatchId = matchTelemetry.matchId;
         adSessionState.battleBannerShownAtMs = timestamp;
         adSessionState.battleBannerImpressionTracked = false;
+        adSessionState.battleBannerRetryAfterMs = 0;
+        return;
       }
+
+      adSessionState.battleBannerRetryAfterMs = timestamp + AD_CHAIN_CONFIG.battleBanner.failureRetryMs;
+      trackAdEvent(AnalyticsEvents.adClose, placement, result || { format: "banner" }, {
+        match_id: matchTelemetry.matchId,
+        reason: result?.reason || "not_available",
+      });
     })
     .catch(() => {
+      adSessionState.battleBannerRetryAfterMs = timestamp + AD_CHAIN_CONFIG.battleBanner.failureRetryMs;
       trackAdEvent(AnalyticsEvents.adClose, placement, { format: "banner", network: ads.mode }, {
         match_id: matchTelemetry.matchId,
         reason: "request_failed",
@@ -2777,9 +2796,10 @@ function createTopHudLayout(metrics) {
   const hudHeight = titleHeight;
   const arenaControlsHeight = contentWidth < 430 ? 36 : 40;
   const arenaControlsGap = clamp(gap * 0.75, 6, 12);
-  const battleAdHeight = contentWidth < 430 ? AD_CHAIN_CONFIG.battleBanner.compactHeight : AD_CHAIN_CONFIG.battleBanner.height;
-  const battleAdGap = clamp(AD_CHAIN_CONFIG.battleBanner.gap, 8, 12);
-  const battleAdReserve = battleAdHeight + battleAdGap;
+  const showBattleAd = canShowBattleBannerAds();
+  const battleAdHeight = showBattleAd ? (contentWidth < 430 ? AD_CHAIN_CONFIG.battleBanner.compactHeight : AD_CHAIN_CONFIG.battleBanner.height) : 0;
+  const battleAdGap = showBattleAd ? clamp(AD_CHAIN_CONFIG.battleBanner.gap, 8, 12) : 0;
+  const battleAdReserve = showBattleAd ? battleAdHeight + battleAdGap : 0;
   const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap - arenaControlsGap - arenaControlsHeight - battleAdReserve);
   const arenaSize = Math.floor(Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight));
   const spareHeight = Math.max(0, arenaMaxHeight - arenaSize);
@@ -2816,12 +2836,14 @@ function createTopHudLayout(metrics) {
       width: arenaControlsWidth,
       height: arenaControlsHeightRounded,
     },
-    battleAd: {
-      x: Math.round(left + (contentWidth - battleAdWidth) / 2),
-      y: battleAdY,
-      width: battleAdWidth,
-      height: battleAdHeight,
-    },
+    battleAd: showBattleAd
+      ? {
+          x: Math.round(left + (contentWidth - battleAdWidth) / 2),
+          y: battleAdY,
+          width: battleAdWidth,
+          height: battleAdHeight,
+        }
+      : null,
   };
 }
 
@@ -2829,7 +2851,7 @@ function createLandscapeLayout(metrics) {
   const { left, top, contentWidth, contentHeight, gap } = metrics;
   const arenaControlsHeight = contentHeight < 430 ? 34 : 38;
   const arenaControlsGap = clamp(gap * 0.55, 6, 10);
-  const showBattleAd = contentHeight >= 430;
+  const showBattleAd = contentHeight >= 430 && canShowBattleBannerAds();
   const battleAdHeight = showBattleAd ? AD_CHAIN_CONFIG.battleBanner.compactHeight : 0;
   const battleAdGap = showBattleAd ? clamp(AD_CHAIN_CONFIG.battleBanner.gap, 7, 10) : 0;
   const arenaMaxHeight = Math.max(120, contentHeight - arenaControlsHeight - arenaControlsGap - battleAdHeight - battleAdGap);
@@ -6781,7 +6803,7 @@ function drawShakeGlyphLines(x, y) {
 
 function drawBattleBannerAd() {
   const rect = layout?.battleAd;
-  if (!rect || !canShowAds()) {
+  if (!rect || !canShowBattleBannerAds()) {
     return;
   }
 

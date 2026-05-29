@@ -8,21 +8,23 @@
 
 ## Android
 
-Declared app permissions:
+Release permissions to account for:
 
 - `android.permission.INTERNET`: required by the WebView shell and Firebase Analytics upload.
 - `android.permission.VIBRATE`: required for the optional vibration feedback setting.
+- `android.permission.ACCESS_NETWORK_STATE`: brought in by AdMob/Firebase dependencies in the merged manifest for network availability checks.
 
 Removed or disabled analytics-advertising identifiers:
 
 - `com.google.android.gms.permission.AD_ID` is removed from the merged manifest.
 - Android Privacy Sandbox ad-services ID, attribution, and topics permissions are removed from the merged manifest.
+- Dependency-added `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, and `FOREGROUND_SERVICE` permissions are removed from the merged manifest because the game does not use background services.
 - Firebase Analytics collection and ad ID collection default to disabled at process start.
 
 AdMob configuration:
 
 - The native AdMob plugin is configured with the production Android app ID `ca-app-pub-2481288993515154~4798979229`.
-- Android ad requests default to non-personalized mode (`VITE_ADMOB_NPA=true`) and production units for `app_open` and `battle_banner`; set `VITE_ADMOB_TESTING=true` to force Google test ad units in debug builds.
+- Android ad requests default to non-personalized mode (`VITE_ADMOB_NPA=true`). Local, debug, and internal QA builds use Google test ad units by default; set `VITE_ADMOB_MODE=real` or use `npm run android:release` for production ad units on formal release builds.
 - The app adds game-context metadata in the ad service, but final "game ads only" category filtering must be configured in the AdMob console.
 
 Runtime flow:

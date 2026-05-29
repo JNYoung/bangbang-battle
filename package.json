@@ -8,14 +8,18 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "lint:syntax": "node --check game-config.js && node --check i18n.js && node --check legal-config.js && node --check compliance-state.js && node --check services.js && node --check game.js && node --check cosmetics.js && node --check platform.js && node --check scripts/build-meta.mjs && node --check scripts/ga-release-smoke.mjs && node --check scripts/generate-android-keystore.mjs && node --check scripts/simulate-matchups.mjs && node --check scripts/verify-build-artifacts.mjs",
+    "lint:syntax": "node --check game-config.js && node --check i18n.js && node --check legal-config.js && node --check compliance-state.js && node --check services.js && node --check game.js && node --check cosmetics.js && node --check platform.js && node --check scripts/build-meta.mjs && node --check scripts/capture-aso-screenshots.mjs && node --check scripts/ga-release-smoke.mjs && node --check scripts/generate-android-keystore.mjs && node --check scripts/simulate-matchups.mjs && node --check scripts/verify-build-artifacts.mjs",
     "test": "node --test tests/*.test.js",
     "test:ci": "npm run lint:syntax && npm test && npm run test:matchups && npm run test:artifacts",
-    "test:artifacts": "npm run build && node scripts/build-meta.mjs && node scripts/verify-build-artifacts.mjs",
+    "test:artifacts": "VITE_PLATFORM_TARGET=meta npm run build && node scripts/build-meta.mjs && node scripts/verify-build-artifacts.mjs",
     "test:matchups": "node scripts/simulate-matchups.mjs",
-    "meta:bundle": "npm run build && node scripts/build-meta.mjs",
+    "meta:bundle": "VITE_PLATFORM_TARGET=meta npm run build && node scripts/build-meta.mjs",
+    "aso:screenshots": "node scripts/capture-aso-screenshots.mjs",
     "android:prepare-signing": "node scripts/generate-android-keystore.mjs",
-    "android:release": "npm run build && cap sync android && cd android && ./gradlew assembleRelease",
+    "android:debug": "VITE_ADMOB_MODE=test npm run build && cap sync android && cd android && ./gradlew assembleDebug",
+    "android:internal-test": "VITE_ADMOB_MODE=test npm run build && cap sync android && cd android && ./gradlew assembleRelease",
+    "android:gp:bundle": "VITE_ADMOB_MODE=real npm run build && cap sync android && cd android && ./gradlew :app:bundleRelease",
+    "android:release": "VITE_ADMOB_MODE=real npm run build && cap sync android && cd android && ./gradlew assembleRelease",
     "android:ga:smoke": "node scripts/ga-release-smoke.mjs",
     "ios:ipa:unsigned": "npm run build && cap sync ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -sdk iphoneos -archivePath ios/build/App.xcarchive archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO && rm -rf release/ios/Payload && mkdir -p release/ios/Payload && cp -R ios/build/App.xcarchive/Products/Applications/App.app release/ios/Payload/ && cd release/ios && /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload profession-ball-arena-unsigned.ipa",
     "mobile:release": "npm run android:release && npm run ios:ipa:unsigned",
@@ -33,6 +37,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.0.0",
     "archiver": "^7.0.1",
+    "playwright": "^1.60.0",
     "vite": "^7.0.0"
   }
 }
