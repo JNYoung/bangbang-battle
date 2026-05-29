@@ -22,6 +22,13 @@ test("analytics events stay local until consent enables collection", () => {
   assert.equal(result.reason, "analytics_collection_disabled");
 });
 
+test("analytics status reports unavailable without a native bridge", async () => {
+  const result = await analytics.getStatus();
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "analytics_not_configured");
+});
+
 test("analytics payload normalization keeps Firebase-compatible names and values", () => {
   assert.equal(normalizeAnalyticsName("google.bad-name", "event"), "event_google_bad_name");
   assert.deepEqual(normalizeAnalyticsPayload({
@@ -36,12 +43,18 @@ test("analytics payload normalization keeps Firebase-compatible names and values
   });
 });
 
-test("ads placeholder reports unavailable and no-ops safely", async () => {
-  assert.equal(ads.isAvailable(), false);
+test("ads test chain returns mock placements safely", async () => {
+  assert.equal(ads.isAvailable(), true);
 
   const result = await ads.showInterstitial("result");
-  assert.equal(result.shown, false);
-  assert.equal(result.reason, "ads_not_configured");
+  assert.equal(result.shown, true);
+  assert.equal(result.placement, "result");
+  assert.equal(result.network, "mock");
+  assert.equal(result.render, "canvas_mock");
+
+  const banner = ads.getBanner("battle_banner");
+  assert.equal(banner.available, true);
+  assert.equal(banner.format, "banner");
 });
 
 test("iap placeholder exposes empty products and restore result", async () => {

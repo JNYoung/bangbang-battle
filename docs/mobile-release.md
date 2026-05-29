@@ -14,11 +14,28 @@ npm run android:prepare-signing
 npm run android:release
 ```
 
-Capacitor Android currently compiles with Java 21. If your terminal defaults to an older JDK, point `JAVA_HOME` at Android Studio's bundled JBR 21 before running the release build.
+Capacitor Android currently compiles with Java 21. This local project uses Android Studio's bundled JBR as the Android build JDK; if the terminal defaults to an older JDK, export the Android Studio environment before running Gradle:
+
+```sh
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+```
+
+The currently observed plain terminal default is Java 17, which fails with `invalid source release: 21`; the Android Studio JBR path above satisfies the Java 21 requirement.
 
 The keystore is written to `android/keystores/bangbang-release.jks`, and its passwords are written to `android/keystore.properties`. Both paths are ignored by Git. Back them up securely; losing the release keystore means future updates cannot be signed with the same key.
 
 Release builds enable R8 minification and resource shrinking. The project-specific ProGuard rules keep Capacitor bridge and WebView plugin classes while allowing the rest of the native shell to shrink.
+
+Run the GA release smoke test before checking the next-day Google Analytics report:
+
+```sh
+npm run android:ga:smoke
+```
+
+This test rebuilds the release APK, installs it on the emulator, disables Firebase debug mode, clears stale Google Play services analytics queues on the emulator, starts a match, and fails if logcat shows an old Firebase app id, debug `_dbg` events, upload failures, or no successful Firebase upload. Use `npm run android:ga:smoke -- --skip-build` only after the APK is already current.
 
 For GitHub Actions production signing, add these repository secrets:
 

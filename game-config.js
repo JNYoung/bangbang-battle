@@ -101,7 +101,7 @@ export const ItemModeBallConfig = {
 export const ItemSpawnConfig = {
   initialCount: 2,
   maxActive: 3,
-  spawnInterval: 3.15,
+  spawnInterval: 3.35,
   pickupRadius: 28,
   edgePadding: 74,
   avoidBallRadius: 96,
@@ -124,7 +124,7 @@ export function getItemMaxActiveCount(ballCount = 2) {
 
 export function getItemSpawnInterval(ballCount = 2) {
   const safeBallCount = normalizeItemBallCount(ballCount);
-  return Math.max(1.25, ItemSpawnConfig.spawnInterval - (safeBallCount - 2) * 0.28);
+  return Math.max(1.25, ItemSpawnConfig.spawnInterval - (safeBallCount - 2) * 0.31);
 }
 
 function normalizeItemBallCount(ballCount) {
@@ -1212,9 +1212,9 @@ export const ProfessionConfig = {
   summoner: {
     id: "summoner",
     name: "召唤师",
-    maxHp: 108,
+    maxHp: 116,
     radius: 23,
-    moveSpeed: 188,
+    moveSpeed: 194,
     attackDamage: 0,
     attackCooldown: 1,
     weaponRange: 84,
@@ -1229,13 +1229,13 @@ export const ProfessionConfig = {
     attackMode: "summonBear",
     summonBear: {
       moveSpeed: 236,
-      baseDamage: 23,
-      damageGainPerOwnerHit: 3,
+      baseDamage: 24,
+      damageGainPerOwnerHit: 3.2,
       radiusGainPerCollision: 2.4,
       maxRadiusMultiplier: 1.75,
       ownerBoostCooldown: 0,
       hitCooldown: 0.5,
-      maxDamage: 58,
+      maxDamage: 60,
     },
     getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant = null) {
       return attackVariant?.damage || 0;
@@ -1279,10 +1279,10 @@ export const ProfessionConfig = {
   blade: {
     id: "blade",
     name: "大刀球",
-    maxHp: 120,
+    maxHp: 116,
     radius: 26,
     moveSpeed: 180,
-    attackDamage: 19,
+    attackDamage: 18,
     attackCooldown: 0.65,
     weaponRange: 32,
     color: "#ffbd45",
@@ -1297,7 +1297,7 @@ export const ProfessionConfig = {
       return this.attackDamage;
     },
     getKnockbackMultiplier() {
-      return 1.3;
+      return 1.2;
     },
     isSkillHit(attacker, defender, normalFromAttackerToDefender, damage) {
       return damage > 0;
@@ -1370,7 +1370,7 @@ export const ProfessionConfig = {
     radius: 23,
     moveSpeed: 188,
     attackDamage: 7,
-    attackCooldown: 1,
+    attackCooldown: 1.06,
     weaponRange: Infinity,
     color: "#7bd88f",
     accentColor: "#ecffd8",

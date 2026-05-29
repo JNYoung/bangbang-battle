@@ -5,6 +5,7 @@ import {
   ATTACK_COOLDOWN_MULTIPLIER,
   BALL_RADIUS_MULTIPLIER,
   COLORS,
+  DEFAULT_SCENE_ID,
   HERO_SCENE_ID,
   HeroConfig,
   ITEM_SCENE_ID,
@@ -103,10 +104,104 @@ const ARENA_SHAKE_COOLDOWN_SECONDS = 10;
 const ARENA_SHAKE_DURATION_SECONDS = 0.48;
 const ARENA_SHAKE_MAX_OFFSET = 10;
 const PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE = 2;
-const PLAYING_VIEWPORT_HEIGHT_JITTER_TOLERANCE = 16;
 const GAME_SPEED_OPTIONS = [1, 1.5, 2];
+const PERFORMANCE_STATS_CONFIG = Object.freeze({
+  displayWindowMs: 1600,
+  maxDisplaySamples: 180,
+  longFrameMs: 1000 / 30,
+  jankFrameMs: 50,
+  analyticsIntervalMs: 15000,
+  minAnalyticsFrames: 20,
+  memorySampleIntervalMs: 2000,
+  hudStorageKey: "bangbang.perfHud",
+});
+const AD_CHAIN_CONFIG = Object.freeze({
+  appOpen: {
+    placement: "app_open",
+    minCloseMs: 1500,
+    autoCloseMs: 4200,
+  },
+  battleBanner: {
+    placement: "battle_banner",
+    minWidth: 220,
+    maxWidth: 420,
+    height: 54,
+    compactHeight: 46,
+    gap: 10,
+    refreshMs: 30000,
+  },
+});
+const NEUTRAL_SCENE_SPAWN_CONFIG = Object.freeze({
+  initialCount: 2,
+  maxActive: 4,
+  spawnInterval: 4.2,
+  spawnChance: 0.76,
+  retryInterval: 0.8,
+  edgePadding: 82,
+  avoidBallRadius: 124,
+  avoidObjectRadius: 108,
+  recentSpawnAvoidRadius: 142,
+  recentSpawnAvoidDuration: 13,
+  spawnAttempts: 52,
+});
+const NEUTRAL_SCENE_TYPE_CONFIG = Object.freeze({
+  smallHealth: {
+    kind: "health",
+    healAmount: 12,
+    radius: 20,
+    pickupRadius: 26,
+    lifetime: 18,
+    color: "#ef4444",
+  },
+  largeHealth: {
+    kind: "health",
+    healAmount: 26,
+    radius: 36,
+    pickupRadius: 44,
+    lifetime: 20,
+    color: "#fecaca",
+  },
+  thorns: {
+    kind: "solidDamage",
+    damage: 9,
+    radius: 30,
+    hitCooldown: 0.86,
+    lifetime: 17,
+    color: "#84cc16",
+  },
+  groundFire: {
+    kind: "damageZone",
+    damage: 5,
+    radius: 34,
+    hitCooldown: 0.62,
+    lifetime: 9.5,
+    color: "#ff6b24",
+  },
+  iceTile: {
+    kind: "freezeZone",
+    freezeDuration: 1.08,
+    radius: 32,
+    lifetime: 15,
+    color: "#7dd3fc",
+  },
+  earthWall: {
+    kind: "solid",
+    radius: 34,
+    lifetime: 26,
+    color: "#a16207",
+  },
+});
+const NEUTRAL_SCENE_DROP_TABLE = Object.freeze([
+  { type: "smallHealth", weight: 16 },
+  { type: "largeHealth", weight: 7 },
+  { type: "thorns", weight: 24 },
+  { type: "groundFire", weight: 20 },
+  { type: "iceTile", weight: 18 },
+  { type: "earthWall", weight: 15 },
+]);
 const BATTLE_INTRO_DURATION_SECONDS = 2.35;
 const BATTLE_INTRO_CLASH_TIME_SECONDS = 1.08;
+const BATTLE_INTRO_SIDE_REVEAL_SECONDS = 1.24;
 const RESULT_FIREWORK_CYCLE_SECONDS = 2.7;
 const RESULT_FIREWORK_COUNT = 8;
 
@@ -118,6 +213,7 @@ let elapsedTimeSeconds = 0;
 let visualElapsedTimeSeconds = 0;
 let matchElapsedTimeSeconds = 0;
 let viewport = { width: 0, height: 0, dpr: 1 };
+let gameplayViewportLock = null;
 let pendingResizeFrame = 0;
 let layout = null;
 let screen = Screen.CONSENT;
@@ -145,6 +241,8 @@ let arenaHazards = [];
 let webLinks = [];
 let flameTrails = [];
 let damageIndicators = [];
+let neutralSceneObjects = [];
+let recentNeutralSceneSpawnZones = [];
 let droppedItems = [];
 let itemBuildings = [];
 let itemExplosions = [];
@@ -152,12 +250,17 @@ let recentItemSpawnZones = [];
 let heroEffectInstances = [];
 let nextItemSpawnTime = 0;
 let itemSpawnCounter = 0;
+let neutralSceneCounter = 0;
+let nextNeutralSceneSpawnTime = 0;
 let itemBuildingCounter = 0;
 let cryptBeetleCounter = 0;
 let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
 let matchTelemetry = createMatchTelemetryState();
+let performanceStats = createPerformanceStatsState();
+let activeAdOverlay = null;
+let adSessionState = createAdSessionState();
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
 let lastArenaShakeTime = -Infinity;
 let arenaShakeStartedAt = -Infinity;
@@ -1031,6 +1134,10 @@ function getActiveProfessionIds() {
   return getSceneProfessionIds(selectedProfessions.scene);
 }
 
+function isCurrentClassicMode() {
+  return (selectedProfessions.scene || DEFAULT_SCENE_ID) === DEFAULT_SCENE_ID;
+}
+
 function getActiveProfessionOptionIds() {
   if (isCurrentItemMode()) {
     return [];
@@ -1292,8 +1399,10 @@ function createFrostOrbitState(ball) {
     return null;
   }
 
+  const leftSide = ball.position.x < ARENA_SIZE / 2;
   return {
-    rotationAngle: ball.label === "A" ? 0 : Math.PI,
+    rotationAngle: leftSide ? 0 : Math.PI,
+    spinDirection: leftSide ? 1 : -1,
     lastHitTime: -Infinity,
   };
 }
@@ -1366,6 +1475,7 @@ function createSummonedBearState(ball) {
 
 function setScreen(nextScreen) {
   screen = nextScreen;
+  updateGameplayViewportLockForScreen();
   pointerDownElementId = null;
   legalScrollOffset = 0;
   sceneDropdownOpen = false;
@@ -1373,6 +1483,15 @@ function setScreen(nextScreen) {
   if (nextScreen !== Screen.PROFESSION_SELECT) {
     resetProfessionScroll();
   }
+}
+
+function updateGameplayViewportLockForScreen() {
+  if (isViewportJitterSensitiveScreen()) {
+    gameplayViewportLock ||= { ...viewport };
+    return;
+  }
+
+  gameplayViewportLock = null;
 }
 
 function openLegalDocument(type, returnScreen = screen) {
@@ -1396,6 +1515,7 @@ async function acceptLegalAndEnterMenu() {
   analytics.track(AnalyticsEvents.legalAccept, { version: LegalConfig.version });
   trackGameInitSuccess("legal_accept");
   setScreen(Screen.MAIN_MENU);
+  void maybeShowAppOpenAd("legal_accept");
 }
 
 function openMatchSetup() {
@@ -1465,12 +1585,16 @@ function restartGame() {
   webLinks = [];
   flameTrails = [];
   damageIndicators = [];
+  neutralSceneObjects = [];
+  recentNeutralSceneSpawnZones = [];
   droppedItems = [];
   itemBuildings = [];
   itemExplosions = [];
   recentItemSpawnZones = [];
   heroEffectInstances = [];
   itemSpawnCounter = 0;
+  neutralSceneCounter = 0;
+  nextNeutralSceneSpawnTime = 0;
   itemBuildingCounter = 0;
   cryptBeetleCounter = 0;
   nextItemSpawnTime = 0;
@@ -1479,6 +1603,8 @@ function restartGame() {
   elapsedTimeSeconds = 0;
   matchElapsedTimeSeconds = 0;
   matchTelemetry = createMatchTelemetryState();
+  resetPerformanceStats();
+  resetBattleBannerAd();
   lastArenaShakeTime = -Infinity;
   arenaShakeStartedAt = -Infinity;
   arenaShakeSeed = 0;
@@ -1490,6 +1616,8 @@ function restartGame() {
   lastFrameTime = performance.now();
   if (isCurrentItemMode()) {
     spawnInitialItems(elapsedTimeSeconds);
+  } else if (isCurrentClassicMode()) {
+    spawnInitialNeutralSceneObjects(elapsedTimeSeconds);
   }
   GamePlatform.setLoadingProgress(100);
 }
@@ -1576,6 +1704,8 @@ function returnToMenu() {
   webLinks = [];
   flameTrails = [];
   damageIndicators = [];
+  neutralSceneObjects = [];
+  recentNeutralSceneSpawnZones = [];
   droppedItems = [];
   itemBuildings = [];
   itemExplosions = [];
@@ -1583,6 +1713,8 @@ function returnToMenu() {
   heroEffectInstances = [];
   nextItemSpawnTime = 0;
   itemSpawnCounter = 0;
+  neutralSceneCounter = 0;
+  nextNeutralSceneSpawnTime = 0;
   itemBuildingCounter = 0;
   cryptBeetleCounter = 0;
   gameOver = false;
@@ -1619,6 +1751,48 @@ function createMatchTelemetryState() {
   };
 }
 
+function createPerformanceStatsState(startedAtMs = getNowMs()) {
+  return {
+    displaySamples: [],
+    reportSamples: [],
+    current: {
+      fps: 0,
+      frameMsAvg: 0,
+      frameMsP95: 0,
+      longFramePct: 0,
+      jankFramePct: 0,
+      memoryMb: null,
+    },
+    match: {
+      startedAtMs,
+      lastReportAtMs: startedAtMs,
+      totalFrames: 0,
+      totalFrameMs: 0,
+      maxFrameMs: 0,
+      longFrames: 0,
+      jankFrames: 0,
+      finalReported: false,
+    },
+    lastMemorySampleAtMs: 0,
+  };
+}
+
+function createAdSessionState() {
+  return {
+    appOpenShown: false,
+    appOpenRequestPending: false,
+    battleBanner: null,
+    battleBannerMatchId: "",
+    battleBannerShownAtMs: 0,
+    battleBannerImpressionTracked: false,
+    battleBannerRequestPending: false,
+  };
+}
+
+function resetPerformanceStats() {
+  performanceStats = createPerformanceStatsState(getNowMs());
+}
+
 function createMatchId() {
   const timestamp = Date.now().toString(36);
   const randomPart = Math.floor(Math.random() * 0xffffff).toString(36).padStart(5, "0");
@@ -1652,6 +1826,281 @@ function trackGameInitSuccess(consentSource = "boot") {
     analytics_consent: isAnalyticsConsentGranted() ? "granted" : "denied",
     consent_source: consentSource,
   });
+}
+
+function canShowAds() {
+  return complianceState.hasAcceptedCurrentLegal() && ads.isAvailable();
+}
+
+function trackAdEvent(eventName, placement, result = {}, extraPayload = {}) {
+  analytics.track(eventName, {
+    placement,
+    ad_format: result.format || extraPayload.ad_format || "unknown",
+    ad_network: result.network || ads.mode || "unknown",
+    creative_id: result.creative_id || "unknown",
+    scene: selectedProfessions.scene,
+    surface: getRuntimeSurface(),
+    locale: currentLocale,
+    ...extraPayload,
+  });
+}
+
+async function maybeShowAppOpenAd(source = "boot") {
+  if (!canShowAds() || adSessionState.appOpenShown || adSessionState.appOpenRequestPending) {
+    return;
+  }
+
+  const placement = AD_CHAIN_CONFIG.appOpen.placement;
+  adSessionState.appOpenRequestPending = true;
+  trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "interstitial" }, { source });
+
+  try {
+    const result = await ads.showInterstitial(placement);
+    if (!result?.shown) {
+      trackAdEvent(AnalyticsEvents.adClose, placement, result || {}, { source, reason: result?.reason || "not_shown" });
+      return;
+    }
+
+    adSessionState.appOpenShown = true;
+    if (result.render === "canvas_mock") {
+      activeAdOverlay = createAppOpenAdOverlay(result, source);
+      trackAdEvent(AnalyticsEvents.adShow, placement, result, { source });
+    } else {
+      trackAdEvent(AnalyticsEvents.adShow, placement, result, { source, render: result.render || "native" });
+    }
+  } catch (error) {
+    trackAdEvent(AnalyticsEvents.adClose, placement, { format: "interstitial", network: ads.mode }, { source, reason: "request_failed" });
+  } finally {
+    adSessionState.appOpenRequestPending = false;
+  }
+}
+
+function createAppOpenAdOverlay(result, source) {
+  const now = getNowMs();
+  return {
+    placement: AD_CHAIN_CONFIG.appOpen.placement,
+    result,
+    source,
+    startedAtMs: now,
+    closeAtMs: now + AD_CHAIN_CONFIG.appOpen.minCloseMs,
+    autoCloseAtMs: now + AD_CHAIN_CONFIG.appOpen.autoCloseMs,
+  };
+}
+
+function closeActiveAdOverlay(reason = "closed") {
+  if (!activeAdOverlay) {
+    return;
+  }
+
+  const overlay = activeAdOverlay;
+  activeAdOverlay = null;
+  trackAdEvent(AnalyticsEvents.adClose, overlay.placement, overlay.result, {
+    source: overlay.source,
+    reason,
+  });
+}
+
+function updateAdState(timestamp) {
+  if (activeAdOverlay && timestamp >= activeAdOverlay.autoCloseAtMs) {
+    closeActiveAdOverlay("auto_close");
+  }
+
+  if (screen === Screen.PLAYING && !gameOver) {
+    ensureBattleBannerAd(timestamp);
+  }
+}
+
+function resetBattleBannerAd() {
+  adSessionState.battleBanner = null;
+  adSessionState.battleBannerMatchId = matchTelemetry.matchId;
+  adSessionState.battleBannerShownAtMs = 0;
+  adSessionState.battleBannerImpressionTracked = false;
+  adSessionState.battleBannerRequestPending = false;
+}
+
+function ensureBattleBannerAd(timestamp) {
+  if (!canShowAds() || !layout?.battleAd || adSessionState.battleBannerRequestPending) {
+    return;
+  }
+
+  const shouldRefresh =
+    !adSessionState.battleBanner ||
+    adSessionState.battleBannerMatchId !== matchTelemetry.matchId ||
+    timestamp - adSessionState.battleBannerShownAtMs >= AD_CHAIN_CONFIG.battleBanner.refreshMs;
+  if (!shouldRefresh) {
+    return;
+  }
+
+  requestBattleBannerAd(timestamp);
+}
+
+function requestBattleBannerAd(timestamp) {
+  const placement = AD_CHAIN_CONFIG.battleBanner.placement;
+  adSessionState.battleBannerRequestPending = true;
+  trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "banner" }, {
+    match_id: matchTelemetry.matchId,
+  });
+
+  Promise.resolve(ads.getBanner(placement))
+    .then((result) => {
+      if (result?.available || result?.shown) {
+        adSessionState.battleBanner = result;
+        adSessionState.battleBannerMatchId = matchTelemetry.matchId;
+        adSessionState.battleBannerShownAtMs = timestamp;
+        adSessionState.battleBannerImpressionTracked = false;
+      }
+    })
+    .catch(() => {
+      trackAdEvent(AnalyticsEvents.adClose, placement, { format: "banner", network: ads.mode }, {
+        match_id: matchTelemetry.matchId,
+        reason: "request_failed",
+      });
+    })
+    .finally(() => {
+      adSessionState.battleBannerRequestPending = false;
+    });
+}
+
+function trackBattleBannerShown(result) {
+  if (adSessionState.battleBannerImpressionTracked) {
+    return;
+  }
+
+  adSessionState.battleBannerImpressionTracked = true;
+  trackAdEvent(AnalyticsEvents.adShow, AD_CHAIN_CONFIG.battleBanner.placement, result, {
+    match_id: matchTelemetry.matchId,
+  });
+}
+
+function recordPerformanceFrame(frameTimeMs, timestamp, isMatchActive) {
+  if (!Number.isFinite(frameTimeMs) || frameTimeMs <= 0) {
+    return;
+  }
+
+  const sample = {
+    timestamp,
+    frameTimeMs,
+  };
+  performanceStats.displaySamples.push(sample);
+  prunePerformanceDisplaySamples(timestamp);
+
+  if (isMatchActive) {
+    performanceStats.reportSamples.push(frameTimeMs);
+    performanceStats.match.totalFrames += 1;
+    performanceStats.match.totalFrameMs += frameTimeMs;
+    performanceStats.match.maxFrameMs = Math.max(performanceStats.match.maxFrameMs, frameTimeMs);
+    if (frameTimeMs >= PERFORMANCE_STATS_CONFIG.longFrameMs) {
+      performanceStats.match.longFrames += 1;
+    }
+    if (frameTimeMs >= PERFORMANCE_STATS_CONFIG.jankFrameMs) {
+      performanceStats.match.jankFrames += 1;
+    }
+  }
+
+  updateCurrentPerformanceStats(timestamp);
+}
+
+function prunePerformanceDisplaySamples(timestamp) {
+  const minTimestamp = timestamp - PERFORMANCE_STATS_CONFIG.displayWindowMs;
+  while (
+    performanceStats.displaySamples.length > PERFORMANCE_STATS_CONFIG.maxDisplaySamples ||
+    (performanceStats.displaySamples.length && performanceStats.displaySamples[0].timestamp < minTimestamp)
+  ) {
+    performanceStats.displaySamples.shift();
+  }
+}
+
+function updateCurrentPerformanceStats(timestamp) {
+  const frameTimes = performanceStats.displaySamples.map((sample) => sample.frameTimeMs);
+  if (!frameTimes.length) {
+    return;
+  }
+
+  const avgFrameMs = average(frameTimes);
+  const longFrameCount = frameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.longFrameMs).length;
+  const jankFrameCount = frameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.jankFrameMs).length;
+
+  performanceStats.current = {
+    fps: avgFrameMs > 0 ? 1000 / avgFrameMs : 0,
+    frameMsAvg: avgFrameMs,
+    frameMsP95: percentile(frameTimes, 0.95),
+    longFramePct: (longFrameCount / frameTimes.length) * 100,
+    jankFramePct: (jankFrameCount / frameTimes.length) * 100,
+    memoryMb: getCachedPerformanceMemoryMb(timestamp),
+  };
+}
+
+function maybeTrackPerformanceSnapshot(timestamp) {
+  if (timestamp - performanceStats.match.lastReportAtMs < PERFORMANCE_STATS_CONFIG.analyticsIntervalMs) {
+    return;
+  }
+
+  trackPerformanceSnapshot("periodic", timestamp);
+}
+
+function trackPerformanceSnapshot(sampleType, timestamp = getNowMs()) {
+  if (sampleType === "match_end") {
+    if (performanceStats.match.finalReported) {
+      return;
+    }
+    performanceStats.match.finalReported = true;
+  }
+
+  if (performanceStats.match.totalFrames < PERFORMANCE_STATS_CONFIG.minAnalyticsFrames) {
+    return;
+  }
+
+  const sampleFrameTimes = performanceStats.reportSamples.length
+    ? performanceStats.reportSamples
+    : performanceStats.displaySamples.map((sample) => sample.frameTimeMs);
+  if (!sampleFrameTimes.length) {
+    return;
+  }
+
+  analytics.track(AnalyticsEvents.performanceSnapshot, createPerformanceAnalyticsPayload(sampleType, timestamp, sampleFrameTimes));
+
+  performanceStats.reportSamples = [];
+  performanceStats.match.lastReportAtMs = timestamp;
+}
+
+function createPerformanceAnalyticsPayload(sampleType, timestamp, sampleFrameTimes) {
+  const avgFrameMs = average(sampleFrameTimes);
+  const longFrameCount = sampleFrameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.longFrameMs).length;
+  const jankFrameCount = sampleFrameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.jankFrameMs).length;
+  const matchAvgFrameMs = performanceStats.match.totalFrameMs / Math.max(1, performanceStats.match.totalFrames);
+  const memoryMb = getCachedPerformanceMemoryMb(timestamp);
+
+  return {
+    ...getMatchBaseAnalyticsPayload(),
+    match_id: matchTelemetry.matchId,
+    sample_type: sampleType,
+    sample_frames: sampleFrameTimes.length,
+    match_time_sec: roundAnalyticsNumber(matchElapsedTimeSeconds, 1),
+    wall_time_sec: roundAnalyticsNumber((timestamp - performanceStats.match.startedAtMs) / 1000, 1),
+    fps_avg: roundAnalyticsNumber(avgFrameMs > 0 ? 1000 / avgFrameMs : 0, 1),
+    frame_ms_avg: roundAnalyticsNumber(avgFrameMs, 1),
+    frame_ms_p95: roundAnalyticsNumber(percentile(sampleFrameTimes, 0.95), 1),
+    frame_ms_max: roundAnalyticsNumber(Math.max(...sampleFrameTimes), 1),
+    long_frame_pct: roundAnalyticsNumber((longFrameCount / sampleFrameTimes.length) * 100, 1),
+    jank_frame_pct: roundAnalyticsNumber((jankFrameCount / sampleFrameTimes.length) * 100, 1),
+    match_fps_avg: roundAnalyticsNumber(matchAvgFrameMs > 0 ? 1000 / matchAvgFrameMs : 0, 1),
+    match_jank_pct: roundAnalyticsNumber((performanceStats.match.jankFrames / Math.max(1, performanceStats.match.totalFrames)) * 100, 1),
+    memory_mb: memoryMb === null ? undefined : roundAnalyticsNumber(memoryMb, 1),
+  };
+}
+
+function getCachedPerformanceMemoryMb(timestamp) {
+  if (timestamp - performanceStats.lastMemorySampleAtMs < PERFORMANCE_STATS_CONFIG.memorySampleIntervalMs) {
+    return performanceStats.current.memoryMb;
+  }
+
+  performanceStats.lastMemorySampleAtMs = timestamp;
+  const memory = globalThis.performance?.memory;
+  if (!memory?.usedJSHeapSize) {
+    return null;
+  }
+
+  return memory.usedJSHeapSize / (1024 * 1024);
 }
 
 function createGameStartAnalyticsPayload() {
@@ -1779,9 +2228,31 @@ function sumMetric(metrics) {
   return Object.values(metrics).reduce((total, value) => total + value, 0);
 }
 
+function average(values) {
+  if (!values.length) {
+    return 0;
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function percentile(values, percentileValue) {
+  if (!values.length) {
+    return 0;
+  }
+
+  const sortedValues = [...values].sort((a, b) => a - b);
+  const index = clamp(Math.ceil(sortedValues.length * percentileValue) - 1, 0, sortedValues.length - 1);
+  return sortedValues[index];
+}
+
 function roundAnalyticsNumber(value, digits = 0) {
   const multiplier = 10 ** digits;
   return Math.round(value * multiplier) / multiplier;
+}
+
+function getNowMs() {
+  return globalThis.performance?.now?.() || Date.now();
 }
 
 function toggleFeedbackSetting(settingKey) {
@@ -2148,15 +2619,21 @@ function resizeCanvas() {
   syncCanvasCssSize(viewport);
   const backingWidth = Math.round(viewport.width * viewport.dpr);
   const backingHeight = Math.round(viewport.height * viewport.dpr);
+  let didResizeBackingStore = false;
   if (canvas.width !== backingWidth) {
     canvas.width = backingWidth;
+    didResizeBackingStore = true;
   }
   if (canvas.height !== backingHeight) {
     canvas.height = backingHeight;
+    didResizeBackingStore = true;
   }
   ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
   layout = createLayout(viewport.width, viewport.height);
+  if (didResizeBackingStore) {
+    draw();
+  }
 }
 
 function syncCanvasCssSize(size) {
@@ -2165,23 +2642,31 @@ function syncCanvasCssSize(size) {
 }
 
 function getResizeStableViewportSize(measuredViewport) {
-  if (!viewport.width || screen !== Screen.PLAYING) {
+  if (!viewport.width || !isViewportJitterSensitiveScreen()) {
     return measuredViewport;
   }
 
-  const widthDelta = Math.abs(measuredViewport.width - viewport.width);
-  const heightDelta = Math.abs(measuredViewport.height - viewport.height);
-  const sameDpr = Math.abs(measuredViewport.dpr - viewport.dpr) <= 0.001;
-  if (
-    sameDpr &&
-    widthDelta <= PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE &&
-    heightDelta > VIEWPORT_RESIZE_EPSILON &&
-    heightDelta <= PLAYING_VIEWPORT_HEIGHT_JITTER_TOLERANCE
-  ) {
-    return viewport;
+  if (!gameplayViewportLock?.width) {
+    gameplayViewportLock = { ...viewport };
   }
 
+  if (isHeightOnlyGameplayViewportChange(measuredViewport, gameplayViewportLock)) {
+    return gameplayViewportLock;
+  }
+
+  gameplayViewportLock = { ...measuredViewport };
   return measuredViewport;
+}
+
+function isViewportJitterSensitiveScreen() {
+  return screen === Screen.PLAYING || screen === Screen.PAUSED || screen === Screen.RESULT;
+}
+
+function isHeightOnlyGameplayViewportChange(measuredViewport, lockedViewport) {
+  const widthDelta = Math.abs(measuredViewport.width - lockedViewport.width);
+  const heightDelta = Math.abs(measuredViewport.height - lockedViewport.height);
+  const sameDpr = Math.abs(measuredViewport.dpr - lockedViewport.dpr) <= 0.001;
+  return sameDpr && widthDelta <= PLAYING_VIEWPORT_WIDTH_JITTER_TOLERANCE && heightDelta > VIEWPORT_RESIZE_EPSILON;
 }
 
 function scheduleCanvasResize() {
@@ -2233,13 +2718,19 @@ function createTopHudLayout(metrics) {
   const hudHeight = titleHeight;
   const arenaControlsHeight = contentWidth < 430 ? 36 : 40;
   const arenaControlsGap = clamp(gap * 0.75, 6, 12);
-  const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap - arenaControlsGap - arenaControlsHeight);
+  const battleAdHeight = contentWidth < 430 ? AD_CHAIN_CONFIG.battleBanner.compactHeight : AD_CHAIN_CONFIG.battleBanner.height;
+  const battleAdGap = clamp(AD_CHAIN_CONFIG.battleBanner.gap, 8, 12);
+  const battleAdReserve = battleAdHeight + battleAdGap;
+  const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap - arenaControlsGap - arenaControlsHeight - battleAdReserve);
   const arenaSize = Math.floor(Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight));
   const spareHeight = Math.max(0, arenaMaxHeight - arenaSize);
   const arenaX = Math.round(left + (contentWidth - arenaSize) / 2);
   const arenaY = Math.round(top + hudHeight + gap + spareHeight * 0.5);
   const arenaControlsWidth = Math.round(Math.min(Math.max(128, arenaSize * 0.54), Math.min(260, arenaSize)));
   const arenaControlsHeightRounded = Math.round(arenaControlsHeight);
+  const battleAdWidth = Math.round(Math.min(AD_CHAIN_CONFIG.battleBanner.maxWidth, Math.max(AD_CHAIN_CONFIG.battleBanner.minWidth, Math.min(contentWidth, arenaSize * 0.78))));
+  const arenaControlsY = Math.round(arenaY + arenaSize + arenaControlsGap);
+  const battleAdY = Math.round(arenaControlsY + arenaControlsHeightRounded + battleAdGap);
 
   return {
     mode: "top",
@@ -2262,9 +2753,15 @@ function createTopHudLayout(metrics) {
     },
     arenaControls: {
       x: Math.round(arenaX + (arenaSize - arenaControlsWidth) / 2),
-      y: Math.round(arenaY + arenaSize + arenaControlsGap),
+      y: arenaControlsY,
       width: arenaControlsWidth,
       height: arenaControlsHeightRounded,
+    },
+    battleAd: {
+      x: Math.round(left + (contentWidth - battleAdWidth) / 2),
+      y: battleAdY,
+      width: battleAdWidth,
+      height: battleAdHeight,
     },
   };
 }
@@ -2273,12 +2770,19 @@ function createLandscapeLayout(metrics) {
   const { left, top, contentWidth, contentHeight, gap } = metrics;
   const arenaControlsHeight = contentHeight < 430 ? 34 : 38;
   const arenaControlsGap = clamp(gap * 0.55, 6, 10);
-  const arenaMaxHeight = Math.max(120, contentHeight - arenaControlsHeight - arenaControlsGap);
+  const showBattleAd = contentHeight >= 430;
+  const battleAdHeight = showBattleAd ? AD_CHAIN_CONFIG.battleBanner.compactHeight : 0;
+  const battleAdGap = showBattleAd ? clamp(AD_CHAIN_CONFIG.battleBanner.gap, 7, 10) : 0;
+  const arenaMaxHeight = Math.max(120, contentHeight - arenaControlsHeight - arenaControlsGap - battleAdHeight - battleAdGap);
   const arenaSize = Math.floor(Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight));
   const arenaX = Math.round(left + (contentWidth - arenaSize) / 2);
-  const arenaY = Math.round(top + (contentHeight - arenaSize - arenaControlsHeight - arenaControlsGap) / 2);
+  const reservedHeight = arenaSize + arenaControlsHeight + arenaControlsGap + battleAdHeight + battleAdGap;
+  const arenaY = Math.round(top + (contentHeight - reservedHeight) / 2);
   const arenaControlsWidth = Math.round(Math.min(Math.max(126, arenaSize * 0.48), Math.min(240, arenaSize)));
   const arenaControlsHeightRounded = Math.round(arenaControlsHeight);
+  const battleAdWidth = Math.round(Math.min(AD_CHAIN_CONFIG.battleBanner.maxWidth, Math.max(AD_CHAIN_CONFIG.battleBanner.minWidth, Math.min(contentWidth, arenaSize * 0.58))));
+  const arenaControlsY = Math.round(arenaY + arenaSize + arenaControlsGap);
+  const battleAdY = Math.round(arenaControlsY + arenaControlsHeightRounded + battleAdGap);
 
   return {
     mode: "landscape",
@@ -2301,22 +2805,38 @@ function createLandscapeLayout(metrics) {
     },
     arenaControls: {
       x: Math.round(arenaX + (arenaSize - arenaControlsWidth) / 2),
-      y: Math.round(arenaY + arenaSize + arenaControlsGap),
+      y: arenaControlsY,
       width: arenaControlsWidth,
       height: arenaControlsHeightRounded,
     },
+    battleAd: showBattleAd
+      ? {
+          x: Math.round(left + (contentWidth - battleAdWidth) / 2),
+          y: battleAdY,
+          width: battleAdWidth,
+          height: battleAdHeight,
+        }
+      : null,
   };
 }
 
 function gameLoop(timestamp) {
-  const deltaTime = Math.min((timestamp - lastFrameTime) / 1000, MAX_DELTA_TIME);
+  const frameTimeMs = Math.max(0, timestamp - lastFrameTime);
+  const deltaTime = Math.min(frameTimeMs / 1000, MAX_DELTA_TIME);
   lastFrameTime = timestamp;
 
-  if (screen === Screen.PLAYING && !gameOver) {
+  const isMatchActive = screen === Screen.PLAYING && !gameOver;
+  recordPerformanceFrame(frameTimeMs, timestamp, isMatchActive);
+  updateAdState(timestamp);
+
+  if (isMatchActive) {
     const scaledDeltaTime = deltaTime * gameSpeedMultiplier;
     elapsedTimeSeconds += scaledDeltaTime;
     matchElapsedTimeSeconds += scaledDeltaTime;
     update(scaledDeltaTime, elapsedTimeSeconds);
+    if (screen === Screen.PLAYING && !gameOver) {
+      maybeTrackPerformanceSnapshot(timestamp);
+    }
   }
 
   visualElapsedTimeSeconds += deltaTime;
@@ -2358,6 +2878,11 @@ function update(deltaTime, currentTime) {
   forEachAliveCollisionCombatantPair((ballA, ballB) => {
     resolveBallCollision(ballA, ballB, currentTime);
   });
+  if (isCurrentClassicMode()) {
+    updateNeutralSceneObjects(currentTime);
+  } else {
+    neutralSceneObjects = [];
+  }
   updateEnvironmentalHazards(currentTime);
   updateItemBuildings(currentTime);
   updateProjectiles(deltaTime, currentTime);
@@ -2368,7 +2893,7 @@ function update(deltaTime, currentTime) {
       updateYoyoWeapon(ball, deltaTime, currentTime);
     }
   }
-  forEachOrderedAliveBallPair((attacker, defender) => {
+  forEachOrderedAliveBallPair(currentTime, (attacker, defender) => {
     updateChainWeaponForPair(attacker, defender, currentTime);
     updateFrostOrbitForPair(attacker, defender, currentTime);
     updateYoyoWeaponForPair(attacker, defender, currentTime);
@@ -2395,11 +2920,9 @@ function forEachAliveCollisionCombatantPair(callback) {
   }
 }
 
-function forEachOrderedAliveBallPair(callback) {
-  for (const attacker of balls) {
-    if (attacker.hp <= 0) {
-      continue;
-    }
+function forEachOrderedAliveBallPair(currentTime, callback) {
+  const orderedAttackers = getFrameOrderedAliveBalls(currentTime);
+  for (const attacker of orderedAttackers) {
 
     for (const defender of balls) {
       if (defender !== attacker && defender.hp > 0 && !areAlliedCombatants(attacker, defender)) {
@@ -2407,6 +2930,17 @@ function forEachOrderedAliveBallPair(callback) {
       }
     }
   }
+}
+
+function getFrameOrderedAliveBalls(currentTime) {
+  const aliveBalls = balls.filter((ball) => ball.hp > 0);
+  if (aliveBalls.length <= 1) {
+    return aliveBalls;
+  }
+
+  const frameIndex = Math.max(0, Math.floor(currentTime * 60 + 0.0001));
+  const firstIndex = frameIndex % aliveBalls.length;
+  return [...aliveBalls.slice(firstIndex), ...aliveBalls.slice(0, firstIndex)];
 }
 
 function updateDamageIndicators(indicators, currentTime) {
@@ -3154,6 +3688,231 @@ function resolveItemPickups(currentTime) {
     }
     return false;
   });
+}
+
+function spawnInitialNeutralSceneObjects(currentTime) {
+  neutralSceneObjects = [];
+  recentNeutralSceneSpawnZones = [];
+  for (let index = 0; index < NEUTRAL_SCENE_SPAWN_CONFIG.initialCount; index += 1) {
+    spawnNeutralSceneObject(currentTime);
+  }
+  nextNeutralSceneSpawnTime = currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.spawnInterval;
+}
+
+function updateNeutralSceneObjects(currentTime) {
+  neutralSceneObjects = neutralSceneObjects.filter((object) => object.expiresAt > currentTime && !object.consumed);
+  pruneRecentNeutralSceneSpawnZones(currentTime);
+
+  if (neutralSceneObjects.length < NEUTRAL_SCENE_SPAWN_CONFIG.maxActive && currentTime >= nextNeutralSceneSpawnTime) {
+    const roll = terrainNoise(terrainState.seed, neutralSceneCounter, Math.floor(currentTime * 3), 947);
+    if (roll <= NEUTRAL_SCENE_SPAWN_CONFIG.spawnChance) {
+      spawnNeutralSceneObject(currentTime);
+    } else {
+      neutralSceneCounter += 1;
+      nextNeutralSceneSpawnTime = currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.spawnInterval * 0.65;
+    }
+  }
+
+  resolveNeutralSceneInteractions(currentTime);
+  neutralSceneObjects = neutralSceneObjects.filter((object) => !object.consumed);
+}
+
+function spawnNeutralSceneObject(currentTime) {
+  if (neutralSceneObjects.length >= NEUTRAL_SCENE_SPAWN_CONFIG.maxActive) {
+    return false;
+  }
+
+  const spawnIndex = neutralSceneCounter;
+  const type = getNeutralSceneType(spawnIndex, currentTime);
+  const config = NEUTRAL_SCENE_TYPE_CONFIG[type];
+  const position = config ? createNeutralSceneSpawnPosition(spawnIndex, currentTime, config) : null;
+  neutralSceneCounter += 1;
+
+  if (!config || !position) {
+    nextNeutralSceneSpawnTime = currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.retryInterval;
+    return false;
+  }
+
+  neutralSceneObjects.push({
+    id: `neutral-${spawnIndex}`,
+    type,
+    kind: config.kind,
+    position,
+    radius: config.radius,
+    createdAt: currentTime,
+    expiresAt: currentTime + config.lifetime,
+    lastHitByLabel: {},
+    consumed: false,
+  });
+  rememberNeutralSceneSpawnZone(position, currentTime);
+  nextNeutralSceneSpawnTime = currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.spawnInterval;
+  return true;
+}
+
+function getNeutralSceneType(spawnIndex, currentTime) {
+  const totalWeight = NEUTRAL_SCENE_DROP_TABLE.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = terrainNoise(terrainState.seed, spawnIndex + 19, Math.floor(currentTime * 2), 953) * totalWeight;
+
+  for (const entry of NEUTRAL_SCENE_DROP_TABLE) {
+    roll -= entry.weight;
+    if (roll <= 0) {
+      return entry.type;
+    }
+  }
+
+  return NEUTRAL_SCENE_DROP_TABLE[NEUTRAL_SCENE_DROP_TABLE.length - 1].type;
+}
+
+function createNeutralSceneSpawnPosition(spawnIndex, currentTime, config) {
+  const padding = Math.max(NEUTRAL_SCENE_SPAWN_CONFIG.edgePadding, config.radius + 56);
+  const span = ARENA_SIZE - padding * 2;
+
+  for (let attempt = 0; attempt < NEUTRAL_SCENE_SPAWN_CONFIG.spawnAttempts; attempt += 1) {
+    const x = padding + terrainNoise(terrainState.seed, spawnIndex, attempt, 967) * span;
+    const y = padding + terrainNoise(terrainState.seed, spawnIndex, attempt, 971) * span;
+    const position = snapVector({ x, y }, 4);
+    if (!isNeutralSceneSpawnPositionBlocked(position, config)) {
+      return position;
+    }
+  }
+
+  return null;
+}
+
+function isNeutralSceneSpawnPositionBlocked(position, config) {
+  const tooCloseToBall = balls.some((ball) => {
+    return ball.hp > 0 && isPrimaryCombatant(ball) && length(subtract(ball.position, position)) < NEUTRAL_SCENE_SPAWN_CONFIG.avoidBallRadius + config.radius;
+  });
+  if (tooCloseToBall) {
+    return true;
+  }
+
+  const tooCloseToObject = neutralSceneObjects.some((object) => {
+    return length(subtract(object.position, position)) < NEUTRAL_SCENE_SPAWN_CONFIG.avoidObjectRadius + object.radius + config.radius;
+  });
+  if (tooCloseToObject) {
+    return true;
+  }
+
+  return recentNeutralSceneSpawnZones.some((zone) => {
+    return length(subtract(zone.position, position)) < NEUTRAL_SCENE_SPAWN_CONFIG.recentSpawnAvoidRadius + config.radius;
+  });
+}
+
+function rememberNeutralSceneSpawnZone(position, currentTime) {
+  recentNeutralSceneSpawnZones.push({
+    position: { ...position },
+    expiresAt: currentTime + NEUTRAL_SCENE_SPAWN_CONFIG.recentSpawnAvoidDuration,
+  });
+  pruneRecentNeutralSceneSpawnZones(currentTime);
+}
+
+function pruneRecentNeutralSceneSpawnZones(currentTime) {
+  recentNeutralSceneSpawnZones = recentNeutralSceneSpawnZones.filter((zone) => zone.expiresAt > currentTime);
+}
+
+function resolveNeutralSceneInteractions(currentTime) {
+  for (const object of neutralSceneObjects) {
+    for (const ball of getNeutralSceneCombatants()) {
+      if (object.consumed || ball.hp <= 0) {
+        continue;
+      }
+
+      const config = NEUTRAL_SCENE_TYPE_CONFIG[object.type];
+      if (!config) {
+        continue;
+      }
+
+      const distance = length(subtract(ball.position, object.position));
+      if (config.kind === "health") {
+        if (distance <= ball.radius + config.pickupRadius) {
+          applyNeutralHealthPack(object, ball, config, currentTime);
+        }
+        continue;
+      }
+
+      if (config.kind === "solid" || config.kind === "solidDamage") {
+        const collided = resolveNeutralSceneCollision(ball, object, currentTime);
+        if (collided && config.kind === "solidDamage") {
+          applyNeutralSceneDamage(object, ball, config, currentTime);
+        }
+        continue;
+      }
+
+      if (distance > ball.radius + object.radius) {
+        continue;
+      }
+
+      if (config.kind === "damageZone") {
+        applyNeutralSceneDamage(object, ball, config, currentTime);
+      } else if (config.kind === "freezeZone") {
+        applyNeutralIceTile(object, ball, config, currentTime);
+      }
+    }
+  }
+}
+
+function getNeutralSceneCombatants() {
+  return balls.filter((ball) => ball.hp > 0 && isPrimaryCombatant(ball));
+}
+
+function applyNeutralHealthPack(object, ball, config, currentTime) {
+  const healed = healBall(ball, config.healAmount);
+  if (healed <= 0) {
+    return;
+  }
+
+  object.consumed = true;
+  pushHeroEffect("neutralHeal", ball.position, ball.radius * 1.75, currentTime, config.color);
+  playGameSound("skill", getMusicIntensity());
+  triggerVibration([8], currentTime);
+}
+
+function applyNeutralSceneDamage(object, ball, config, currentTime) {
+  const lastHitAt = object.lastHitByLabel[ball.label] ?? -Infinity;
+  if (currentTime - lastHitAt < config.hitCooldown) {
+    return;
+  }
+
+  object.lastHitByLabel[ball.label] = currentTime;
+  const damage = damageBall(ball, config.damage);
+  if (damage > 0) {
+    playGameSound("hit", getMusicIntensity());
+    triggerVibration([10], currentTime);
+  }
+}
+
+function applyNeutralIceTile(object, ball, config, currentTime) {
+  object.consumed = true;
+  ball.frozenUntil = Math.max(ball.frozenUntil, currentTime + config.freezeDuration);
+  ball.attackState = null;
+  pushHeroEffect("neutralFreeze", ball.position, ball.radius * 1.9, currentTime, config.color);
+  playGameSound("skill", getMusicIntensity());
+  triggerVibration([8, 14], currentTime);
+}
+
+function resolveNeutralSceneCollision(ball, object, currentTime) {
+  const difference = subtract(ball.position, object.position);
+  const distance = length(difference);
+  const minDistance = ball.radius + object.radius;
+
+  if (distance > minDistance) {
+    return false;
+  }
+
+  const normal = distance === 0 ? normalize(ball.velocity) : scale(difference, 1 / Math.max(0.001, distance));
+  const overlap = minDistance - Math.max(0.001, distance);
+  ball.position = add(ball.position, scale(normal, overlap + 0.5));
+
+  const incomingSpeed = dot(ball.velocity, normal);
+  if (incomingSpeed < 0) {
+    ball.velocity = subtract(ball.velocity, scale(normal, incomingSpeed * 2));
+  } else if (incomingSpeed < 32) {
+    ball.velocity = add(ball.velocity, scale(normal, 72));
+  }
+  keepSpeed(ball);
+  playCollisionFeedback(Math.max(140, Math.abs(incomingSpeed)), currentTime);
+  return true;
 }
 
 function equipItemWeapon(ball, weaponId, currentTime) {
@@ -4257,7 +5016,7 @@ function updateFrostOrbit(ball, deltaTime) {
   }
 
   ball.frostOrbitState.rotationAngle = normalizeAngle(
-    ball.frostOrbitState.rotationAngle + ball.config.frostOrbit.spinSpeed * deltaTime,
+    ball.frostOrbitState.rotationAngle + ball.config.frostOrbit.spinSpeed * ball.frostOrbitState.spinDirection * deltaTime,
   );
 }
 
@@ -4510,10 +5269,23 @@ function resolveCollisionAbilities(ballA, ballB, normalFromAToB, currentTime) {
     return;
   }
 
-  resolveBatDrain(ballA, ballB, normalFromAToB, currentTime);
-  resolveBatDrain(ballB, ballA, scale(normalFromAToB, -1), currentTime);
-  resolveStaticCharge(ballA, ballB, normalFromAToB, currentTime);
-  resolveStaticCharge(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+  if (shouldResolveForwardCollisionAbilityFirst(currentTime)) {
+    resolveOneWayCollisionAbilities(ballA, ballB, normalFromAToB, currentTime);
+    resolveOneWayCollisionAbilities(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+  } else {
+    resolveOneWayCollisionAbilities(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+    resolveOneWayCollisionAbilities(ballA, ballB, normalFromAToB, currentTime);
+  }
+}
+
+function shouldResolveForwardCollisionAbilityFirst(currentTime) {
+  const frameIndex = Math.max(0, Math.floor(currentTime * 60 + 0.0001));
+  return frameIndex % 2 === 0;
+}
+
+function resolveOneWayCollisionAbilities(attacker, defender, normalFromAttackerToDefender, currentTime) {
+  resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime);
+  resolveStaticCharge(attacker, defender, normalFromAttackerToDefender, currentTime);
 }
 
 function resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime) {
@@ -5565,6 +6337,7 @@ function checkGameOver() {
     stopMusic();
     playGameSound("result", 1);
     triggerVibration([28, 28, 38], elapsedTimeSeconds);
+    trackPerformanceSnapshot("match_end");
     analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
     setScreen(Screen.RESULT);
     return;
@@ -5582,6 +6355,7 @@ function checkGameOver() {
   stopMusic();
   playGameSound("result", 1);
   triggerVibration([28, 28, 38], elapsedTimeSeconds);
+  trackPerformanceSnapshot("match_end");
   analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
   setScreen(Screen.RESULT);
 }
@@ -5638,6 +6412,7 @@ function draw() {
       drawHud(t("status.playing"));
       drawArenaScene();
       drawShakeArenaButton();
+      drawBattleBannerAd();
       drawBattleIntroOverlay();
       break;
     case Screen.PAUSED:
@@ -5654,6 +6429,8 @@ function draw() {
       drawMainMenuScreen();
       break;
   }
+
+  drawActiveAdOverlay();
 }
 
 function drawBackground() {
@@ -5691,9 +6468,83 @@ function drawHud(statusText) {
   ctx.fillText(statusText, layout.status.x, layout.status.y);
   ctx.restore();
 
+  if (isGameplayHudScreen() && shouldDrawPerformanceHud()) {
+    drawPerformanceHud();
+  }
+
   if (screen === Screen.PLAYING) {
     drawHudControls();
   }
+}
+
+function isGameplayHudScreen() {
+  return screen === Screen.PLAYING || screen === Screen.PAUSED || screen === Screen.RESULT;
+}
+
+function shouldDrawPerformanceHud() {
+  return Boolean(import.meta.env?.DEV) || isPerformanceHudDebugEnabled();
+}
+
+function isPerformanceHudDebugEnabled() {
+  try {
+    const params = new URLSearchParams(globalThis.location?.search || "");
+    return (
+      params.get("perfHud") === "1" ||
+      params.get("debugPerf") === "1" ||
+      globalThis.localStorage?.getItem(PERFORMANCE_STATS_CONFIG.hudStorageKey) === "1"
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
+function drawPerformanceHud() {
+  const rect = getPerformanceHudRect();
+  const stats = performanceStats.current;
+  const fps = Math.round(stats.fps);
+  const frameMs = Math.round(stats.frameMsAvg);
+  const jankPct = Math.round(stats.jankFramePct);
+  const qualityColor = getPerformanceQualityColor(stats);
+  const secondaryLabel = `${frameMs}ms  J${jankPct}%`;
+
+  ctx.save();
+  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
+    fill: "rgba(8, 16, 28, 0.82)",
+    border: qualityColor,
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.deepslate,
+  });
+  setCanvasDirection(ctx);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = qualityColor;
+  ctx.font = canvasFont(getFittedFontSize(`FPS ${fps}`, rect.width - 12, 12, 9, 900), 900);
+  ctx.fillText(`FPS ${fps}`, rect.x + 7, rect.y + rect.height * 0.34);
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize(secondaryLabel, rect.width - 12, 10, 8, 700), 700);
+  ctx.fillText(secondaryLabel, rect.x + 7, rect.y + rect.height * 0.7);
+  ctx.restore();
+}
+
+function getPerformanceHudRect() {
+  const compact = layout.content.width < 430;
+  return {
+    x: Math.round(layout.content.x + 8),
+    y: Math.round(layout.content.y + 10),
+    width: compact ? 92 : 108,
+    height: compact ? 38 : 42,
+  };
+}
+
+function getPerformanceQualityColor(stats) {
+  if (stats.jankFramePct >= 8 || stats.frameMsP95 >= 50) {
+    return "#ef4444";
+  }
+  if (stats.longFramePct >= 12 || stats.frameMsP95 >= 34) {
+    return "#fbbf24";
+  }
+  return "#8be8ff";
 }
 
 function drawHudControls() {
@@ -5869,6 +6720,180 @@ function drawShakeGlyphLines(x, y) {
   }
 }
 
+function drawBattleBannerAd() {
+  const rect = layout?.battleAd;
+  if (!rect || !canShowAds()) {
+    return;
+  }
+
+  const result = adSessionState.battleBanner;
+  if (!result) {
+    drawBattleBannerPlaceholder(rect);
+    return;
+  }
+
+  trackBattleBannerShown(result);
+
+  ctx.save();
+  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
+    fill: "#12364b",
+    border: "#fbbf24",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.glowstone,
+  });
+
+  ctx.fillStyle = "#050711";
+  ctx.globalAlpha = 0.16;
+  ctx.fillRect(rect.x + 12, rect.y + 10, rect.width - 24, rect.height - 20);
+  ctx.globalAlpha = 1;
+
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.battleTitle"), rect.width - 80, 13, 9, 900), 900);
+  ctx.fillText(t("ads.battleTitle"), rect.x + rect.width / 2, rect.y + rect.height * 0.38);
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.testLabel"), rect.width - 80, 10, 8, 700), 700);
+  ctx.fillText(t("ads.testLabel"), rect.x + rect.width / 2, rect.y + rect.height * 0.68);
+
+  ctx.fillStyle = "#fbbf24";
+  ctx.font = canvasFont(10, 900);
+  ctx.textAlign = "left";
+  ctx.fillText("AD", rect.x + 12, rect.y + 15);
+  ctx.restore();
+
+  addInteractiveElement({
+    id: "battle-banner-ad",
+    rect,
+    action: () => {
+      trackAdEvent(AnalyticsEvents.adClick, AD_CHAIN_CONFIG.battleBanner.placement, result, {
+        match_id: matchTelemetry.matchId,
+      });
+    },
+  });
+}
+
+function drawBattleBannerPlaceholder(rect) {
+  ctx.save();
+  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
+    fill: "#172033",
+    border: "#4d5575",
+    shadow: "#050711",
+    inset: "#8aa0c8",
+    texture: voxelAssets.blocks.deepslate,
+  });
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.loading"), rect.width - 24, 11, 8, 700), 700);
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(t("ads.loading"), rect.x + rect.width / 2, rect.y + rect.height / 2);
+  ctx.restore();
+}
+
+function drawActiveAdOverlay() {
+  if (!activeAdOverlay) {
+    return;
+  }
+
+  const now = getNowMs();
+  const canClose = now >= activeAdOverlay.closeAtMs;
+  const remainingSeconds = Math.max(0, Math.ceil((activeAdOverlay.closeAtMs - now) / 1000));
+  const panelWidth = Math.min(420, viewport.width - 42);
+  const panelHeight = Math.min(360, viewport.height - 100);
+  const panelX = Math.round((viewport.width - panelWidth) / 2);
+  const panelY = Math.round((viewport.height - panelHeight) / 2);
+  const closeSize = 42;
+  const closeRect = {
+    x: panelX + panelWidth - closeSize - 18,
+    y: panelY + 16,
+    width: closeSize,
+    height: closeSize,
+  };
+
+  ctx.save();
+  ctx.fillStyle = "rgba(5, 7, 17, 0.72)";
+  ctx.fillRect(0, 0, viewport.width, viewport.height);
+  drawPixelFrame(panelX, panelY, panelWidth, panelHeight, {
+    fill: "#263249",
+    border: "#fbbf24",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.stone,
+  });
+
+  ctx.fillStyle = "#050711";
+  ctx.globalAlpha = 0.22;
+  ctx.fillRect(panelX + 24, panelY + 78, panelWidth - 48, 112);
+  ctx.globalAlpha = 1;
+
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#fbbf24";
+  ctx.font = canvasFont(12, 900);
+  ctx.fillText("TEST AD", panelX + panelWidth / 2, panelY + 48);
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.appOpenTitle"), panelWidth - 72, 28, 18, 900), 900);
+  ctx.fillText(t("ads.appOpenTitle"), panelX + panelWidth / 2, panelY + 126);
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.appOpenBody"), panelWidth - 56, 14, 10, 700), 700);
+  ctx.fillText(t("ads.appOpenBody"), panelX + panelWidth / 2, panelY + 182);
+
+  const ctaRect = {
+    x: panelX + 34,
+    y: panelY + panelHeight - 92,
+    width: panelWidth - 68,
+    height: 46,
+  };
+  drawPixelFrame(ctaRect.x, ctaRect.y, ctaRect.width, ctaRect.height, {
+    fill: "#12364b",
+    border: "#8be8ff",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.glowstone,
+  });
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(t("ads.cta"), ctaRect.width - 18, 16, 10, 900), 900);
+  ctx.fillText(t("ads.cta"), ctaRect.x + ctaRect.width / 2, ctaRect.y + ctaRect.height / 2);
+
+  drawPixelFrame(closeRect.x, closeRect.y, closeRect.width, closeRect.height, {
+    fill: canClose ? COLORS.button : "#4d5575",
+    border: canClose ? "#8be8ff" : "#8aa0c8",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: canClose ? voxelAssets.blocks.plank : voxelAssets.blocks.stone,
+  });
+  ctx.fillStyle = canClose ? COLORS.buttonText : COLORS.muted;
+  ctx.font = canvasFont(12, 900);
+  ctx.fillText(canClose ? "X" : `${remainingSeconds}`, closeRect.x + closeRect.width / 2, closeRect.y + closeRect.height / 2);
+  ctx.restore();
+
+  addInteractiveElement({
+    id: "ad-overlay-blocker",
+    rect: { x: 0, y: 0, width: viewport.width, height: viewport.height },
+    action: () => {},
+  });
+  addInteractiveElement({
+    id: "app-open-ad-cta",
+    rect: ctaRect,
+    action: () => {
+      trackAdEvent(AnalyticsEvents.adClick, activeAdOverlay.placement, activeAdOverlay.result, {
+        source: activeAdOverlay.source,
+      });
+    },
+  });
+  if (canClose) {
+    addInteractiveElement({
+      id: "app-open-ad-close",
+      rect: closeRect,
+      action: () => closeActiveAdOverlay("close_button"),
+    });
+  }
+}
+
 function drawBattleIntroOverlay() {
   if (!layout?.arena || screen !== Screen.PLAYING) {
     return;
@@ -5904,11 +6929,16 @@ function drawBattleIntroOverlay() {
 
   ctx.save();
   drawBattleIntroVignette(arena, introProgress, fadeOut);
+  drawBattleSideReveal(arena, introAge, fadeOut);
   drawClashTrail(leftCenter, rightCenter, center, ballRadius, clashProgress, fadeOut);
   ctx.globalAlpha = fadeOut;
-  drawPixelClashBall(leftCenter, ballRadius, getSideVisualConfig("A"), 1, introAge);
-  drawPixelClashBall(rightCenter, ballRadius, getSideVisualConfig("B"), -1, introAge + 0.37);
+  const leftVisual = getSideVisualConfig("A");
+  const rightVisual = getSideVisualConfig("B");
+  drawPixelClashBall(leftCenter, ballRadius, leftVisual, 1, introAge);
+  drawPixelClashBall(rightCenter, ballRadius, rightVisual, -1, introAge + 0.37);
   ctx.globalAlpha = 1;
+  drawBattleSideBadge(leftCenter, "A", leftVisual, ballRadius, introAge, fadeOut);
+  drawBattleSideBadge(rightCenter, "B", rightVisual, ballRadius, introAge, fadeOut);
   drawClashSpark(center, ballRadius * (0.8 + impactPulse * 0.5), introAge, (0.65 + clashProgress * 0.55) * fadeOut);
   drawPixelHeadline(getEffectText("battle"), center.x, arena.y + arena.size * 0.18, arena.size * 0.82, clamp(arena.size * 0.08, 28, 58), "#ffd166", fadeOut);
   ctx.restore();
@@ -5924,6 +6954,99 @@ function drawBattleIntroVignette(arena, progress, fadeOut) {
   for (let y = arena.y + scanlineStep; y < arena.y + arena.size; y += scanlineStep * 2) {
     ctx.fillRect(arena.x, Math.round(y), arena.size, 2);
   }
+}
+
+function drawBattleSideReveal(arena, introAge, fadeOut) {
+  const reveal = clamp(1 - introAge / BATTLE_INTRO_SIDE_REVEAL_SECONDS, 0, 1);
+  if (reveal <= 0) {
+    return;
+  }
+
+  const alpha = easeOutCubic(reveal) * fadeOut;
+  const leftVisual = getSideVisualConfig("A");
+  const rightVisual = getSideVisualConfig("B");
+  const centerX = arena.x + arena.size / 2;
+  const cell = Math.max(4, Math.round(arena.size / 86));
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(arena.x, arena.y, arena.size, arena.size);
+  ctx.clip();
+
+  ctx.globalAlpha = alpha * 0.3;
+  ctx.fillStyle = leftVisual.color;
+  ctx.fillRect(arena.x, arena.y, arena.size / 2, arena.size);
+  ctx.fillStyle = rightVisual.color;
+  ctx.fillRect(centerX, arena.y, arena.size / 2, arena.size);
+
+  ctx.globalAlpha = alpha * 0.42;
+  drawBattleSideScanBlocks(arena.x, arena.y, arena.size / 2, arena.size, cell, leftVisual.accentColor, -1, introAge);
+  drawBattleSideScanBlocks(centerX, arena.y, arena.size / 2, arena.size, cell, rightVisual.accentColor, 1, introAge + 0.35);
+
+  ctx.globalAlpha = alpha;
+  drawPixelLine(ctx, { x: centerX - cell, y: arena.y }, { x: centerX - cell, y: arena.y + arena.size }, cell * 2, "#050711");
+  drawPixelLine(ctx, { x: centerX, y: arena.y }, { x: centerX, y: arena.y + arena.size }, cell, "#fff6d6");
+
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(centerX - cell * 4, arena.y + cell * 5, cell * 8, cell * 3);
+  ctx.fillRect(centerX - cell * 4, arena.y + arena.size - cell * 8, cell * 8, cell * 3);
+  ctx.fillStyle = "#ffd166";
+  ctx.fillRect(centerX - cell * 3, arena.y + cell * 6, cell * 6, cell);
+  ctx.fillRect(centerX - cell * 3, arena.y + arena.size - cell * 7, cell * 6, cell);
+  ctx.restore();
+}
+
+function drawBattleSideScanBlocks(x, y, width, height, cell, color, direction, time) {
+  const step = cell * 7;
+  const offset = Math.round((time * 70) % step);
+
+  ctx.fillStyle = color;
+  for (let row = 0; row < 8; row += 1) {
+    const blockY = y + cell * 5 + row * step;
+    const slide = direction < 0 ? width - offset - row * cell * 2 : offset + row * cell * 2;
+    const blockX = x + positiveModulo(slide, Math.max(step, width - cell * 10));
+    ctx.fillRect(Math.round(blockX), Math.round(blockY), cell * 7, cell);
+  }
+}
+
+function drawBattleSideBadge(center, side, visual, ballRadius, introAge, fadeOut) {
+  const reveal = clamp(1 - introAge / (BATTLE_INTRO_SIDE_REVEAL_SECONDS + 0.18), 0, 1);
+  if (reveal <= 0) {
+    return;
+  }
+
+  const alpha = easeOutCubic(reveal) * fadeOut;
+  const text = getSideLabel(side);
+  const badgeWidth = clamp(ballRadius * 2.24, 82, 138);
+  const badgeHeight = clamp(ballRadius * 0.58, 28, 40);
+  const x = center.x - badgeWidth / 2;
+  const y = center.y - ballRadius - badgeHeight * 0.72;
+  const cell = Math.max(3, Math.round(badgeHeight / 8));
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(Math.round(x + cell * 2), Math.round(y + cell * 2), Math.round(badgeWidth), Math.round(badgeHeight));
+  ctx.fillStyle = visual.color;
+  ctx.fillRect(Math.round(x), Math.round(y), Math.round(badgeWidth), Math.round(badgeHeight));
+  ctx.fillStyle = "rgba(5, 7, 17, 0.7)";
+  ctx.fillRect(Math.round(x + cell * 2), Math.round(y + cell * 2), Math.round(badgeWidth - cell * 4), Math.round(badgeHeight - cell * 4));
+  ctx.strokeStyle = "#050711";
+  ctx.lineWidth = cell;
+  ctx.strokeRect(Math.round(x + cell / 2), Math.round(y + cell / 2), Math.round(badgeWidth - cell), Math.round(badgeHeight - cell));
+  ctx.strokeStyle = visual.accentColor;
+  ctx.lineWidth = Math.max(2, cell - 1);
+  ctx.strokeRect(Math.round(x + cell * 2), Math.round(y + cell * 2), Math.round(badgeWidth - cell * 4), Math.round(badgeHeight - cell * 4));
+
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = canvasFont(getFittedFontSize(text, badgeWidth - cell * 8, badgeHeight * 0.42, 11, 900), 900);
+  ctx.fillStyle = "#050711";
+  ctx.fillText(text, x + badgeWidth / 2 + cell, y + badgeHeight / 2 + cell);
+  ctx.fillStyle = "#fff6d6";
+  ctx.fillText(text, x + badgeWidth / 2, y + badgeHeight / 2);
+  ctx.restore();
 }
 
 function drawClashTrail(leftCenter, rightCenter, center, ballRadius, progress, fadeOut) {
@@ -6354,15 +7477,27 @@ function drawResultOverlay() {
   const winnerVisual = resultWinnerSide === "draw" ? SIDE_VISUAL_CONFIG.F : getSideVisualConfig(resultWinnerSide);
 
   drawVictoryFireworks(celebrationAge, winnerVisual);
-  drawPixelHeadline(
-    getResultCelebrationHeadline(),
-    viewport.width / 2,
-    Math.max(44, panelY - 42),
-    Math.min(viewport.width - 32, 520),
-    clamp(viewport.width * 0.072, 30, 56),
-    winnerVisual.accentColor,
-    1,
-  );
+  if (resultWinnerSide === "draw") {
+    drawPixelHeadline(
+      getResultCelebrationHeadline(),
+      viewport.width / 2,
+      Math.max(44, panelY - 42),
+      Math.min(viewport.width - 32, 520),
+      clamp(viewport.width * 0.072, 30, 56),
+      winnerVisual.accentColor,
+      1,
+    );
+  } else {
+    drawVictoryPixelHeadline(
+      getResultCelebrationHeadline(),
+      viewport.width / 2,
+      Math.max(52, panelY - 42),
+      Math.min(viewport.width - 32, 520),
+      clamp(viewport.width * 0.082, 34, 64),
+      celebrationAge,
+      1,
+    );
+  }
 
   drawPanel({ x: panelX, y: panelY, width: panelWidth, height: panelHeight });
   ctx.fillStyle = COLORS.text;
@@ -6454,6 +7589,81 @@ function drawPixelFireworkBurst(center, progress, colors, seed) {
     }
   }
   ctx.restore();
+}
+
+function drawVictoryPixelHeadline(text, x, y, maxWidth, desiredFontSize, time, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const fontSize = getFittedFontSize(text, maxWidth, desiredFontSize, 22, 900);
+  ctx.font = canvasFont(fontSize, 900);
+  const textWidth = ctx.measureText(text).width;
+  const cell = Math.max(4, Math.round(fontSize / 12));
+  const plateWidth = Math.min(maxWidth, Math.max(textWidth + cell * 14, fontSize * 3.35));
+  const plateHeight = Math.round(fontSize * 1.35);
+
+  drawVictoryHeadlinePlate(x, y, plateWidth, plateHeight, cell, time);
+
+  ctx.font = canvasFont(fontSize, 900);
+  ctx.lineJoin = "miter";
+  ctx.miterLimit = 2;
+  ctx.lineWidth = Math.max(10, Math.round(fontSize * 0.22));
+  ctx.strokeStyle = "#050711";
+  ctx.strokeText(text, x + cell * 1.2, y + cell * 1.2);
+  ctx.lineWidth = Math.max(5, Math.round(fontSize * 0.11));
+  ctx.strokeStyle = "#fff6d6";
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = "#ffb3a6";
+  ctx.fillText(text, x - cell * 0.7, y - cell * 0.7);
+  ctx.fillStyle = "#e11d2e";
+  ctx.fillText(text, x, y);
+  ctx.fillStyle = "rgba(127, 16, 24, 0.72)";
+  ctx.fillText(text, x + cell * 0.75, y + cell * 0.75);
+  ctx.fillStyle = "#ef233c";
+  ctx.fillText(text, x, y);
+
+  drawVictoryHeadlineShards(x, y, plateWidth, plateHeight, cell, time);
+  ctx.restore();
+}
+
+function drawVictoryHeadlinePlate(x, y, width, height, cell, time) {
+  const left = Math.round(x - width / 2);
+  const top = Math.round(y - height / 2);
+  const pulse = 0.55 + Math.sin(time * 8) * 0.12;
+
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(left + cell * 2, top + cell * 3, width, height);
+  ctx.fillStyle = "rgba(55, 8, 16, 0.92)";
+  ctx.fillRect(left, top + cell, width, height - cell * 2);
+  ctx.fillStyle = "rgba(127, 16, 24, 0.95)";
+  ctx.fillRect(left + cell * 2, top, width - cell * 4, height);
+  ctx.fillStyle = `rgba(255, 209, 102, ${pulse})`;
+  ctx.fillRect(left + cell * 3, top + cell * 2, width - cell * 6, cell);
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(left - cell * 3, top + cell * 4, cell * 7, cell * 3);
+  ctx.fillRect(left + width - cell * 4, top + height - cell * 7, cell * 7, cell * 3);
+  ctx.fillStyle = "#ff2d3f";
+  ctx.fillRect(left - cell * 2, top + cell * 5, cell * 5, cell);
+  ctx.fillRect(left + width - cell * 3, top + height - cell * 6, cell * 5, cell);
+}
+
+function drawVictoryHeadlineShards(x, y, width, height, cell, time) {
+  const colors = ["#ef233c", "#ff6b24", "#ffd166", "#fff6d6"];
+
+  for (let index = 0; index < 12; index += 1) {
+    const side = index % 2 === 0 ? -1 : 1;
+    const orbit = time * 1.7 + index * 1.13;
+    const px = x + side * (width * 0.45 + Math.sin(orbit) * cell * 5);
+    const py = y - height * 0.2 + Math.cos(orbit * 1.4) * height * 0.55;
+    const size = cell + (index % 3) * 2;
+    ctx.fillStyle = "#050711";
+    ctx.fillRect(Math.round(px - size / 2 - 2), Math.round(py - size / 2 - 2), size + 4, size + 4);
+    ctx.fillStyle = colors[index % colors.length];
+    ctx.fillRect(Math.round(px - size / 2), Math.round(py - size / 2), size, size);
+  }
 }
 
 function drawPixelHeadline(text, x, y, maxWidth, desiredFontSize, color, alpha = 1) {
@@ -8309,6 +9519,18 @@ function drawBallBody(ctx, ball) {
     ctx.fillRect(x + cell * 7, y + cell, cell, cell * 10);
     ctx.globalAlpha = 1;
   }
+  if (isBallFrozen(ball, elapsedTimeSeconds)) {
+    ctx.globalAlpha = 0.42 + Math.sin(elapsedTimeSeconds * 10) * 0.06;
+    ctx.fillStyle = "#bae6fd";
+    ctx.fillRect(x + cell * 2, y + cell * 2, cell * 8, cell);
+    ctx.fillRect(x + cell * 2, y + cell * 9, cell * 8, cell);
+    ctx.fillRect(x + cell * 2, y + cell * 2, cell, cell * 8);
+    ctx.fillRect(x + cell * 9, y + cell * 2, cell, cell * 8);
+    ctx.fillStyle = "#e0f2fe";
+    ctx.fillRect(x + cell * 4, y + cell * 4, cell * 4, cell);
+    ctx.fillRect(x + cell * 5, y + cell * 6, cell * 3, cell);
+    ctx.globalAlpha = 1;
+  }
   if (getActiveHeroSkillEffect(ball, "divineDescent")) {
     ctx.globalAlpha = 0.42 + Math.sin(elapsedTimeSeconds * 9) * 0.08;
     ctx.strokeStyle = "#fde68a";
@@ -9568,6 +10790,130 @@ function drawImpaleTrajectory(ctx, trajectory, currentTime) {
   ctx.restore();
 }
 
+function drawNeutralSceneObjects(context, currentTime) {
+  if (!isCurrentClassicMode()) {
+    return;
+  }
+
+  for (const object of neutralSceneObjects) {
+    const config = NEUTRAL_SCENE_TYPE_CONFIG[object.type];
+    if (!config) {
+      continue;
+    }
+
+    const life = clamp((object.expiresAt - currentTime) / Math.max(0.001, object.expiresAt - object.createdAt), 0, 1);
+    context.save();
+    context.globalAlpha = 0.22 + life * 0.78;
+    if (object.type === "smallHealth" || object.type === "largeHealth") {
+      drawNeutralHealthPack(context, object, config, currentTime);
+    } else if (object.type === "thorns") {
+      drawNeutralThorns(context, object, currentTime);
+    } else if (object.type === "groundFire") {
+      drawTorchGroundFire(context, object, currentTime, life);
+    } else if (object.type === "iceTile") {
+      drawNeutralIceTile(context, object, currentTime);
+    } else if (object.type === "earthWall") {
+      drawNeutralEarthWall(context, object, life);
+    }
+    context.restore();
+  }
+}
+
+function drawNeutralHealthPack(context, object, config, currentTime) {
+  const bob = Math.sin((currentTime - object.createdAt) * 5.4) * 3;
+  const center = snapVector({ x: object.position.x, y: object.position.y + bob }, 4);
+  const size = object.type === "largeHealth" ? 56 : 34;
+  const x = center.x - size / 2;
+  const y = center.y - size / 2;
+  const plusWidth = Math.max(6, Math.round(size * 0.18));
+
+  drawPixelFrame(x, y, size, size, {
+    fill: object.type === "largeHealth" ? "#991b1b" : "#b91c1c",
+    border: config.color,
+    shadow: "#050711",
+    texture: voxelAssets.blocks.glowstone,
+    inset: "rgba(254, 202, 202, 0.34)",
+  });
+  context.fillStyle = "#450a0a";
+  context.fillRect(center.x - plusWidth * 1.5 + 2, center.y - plusWidth / 2 + 2, plusWidth * 3, plusWidth);
+  context.fillRect(center.x - plusWidth / 2 + 2, center.y - plusWidth * 1.5 + 2, plusWidth, plusWidth * 3);
+  context.fillStyle = "#fff7ed";
+  context.fillRect(center.x - plusWidth * 1.5, center.y - plusWidth / 2, plusWidth * 3, plusWidth);
+  context.fillRect(center.x - plusWidth / 2, center.y - plusWidth * 1.5, plusWidth, plusWidth * 3);
+}
+
+function drawNeutralThorns(context, object, currentTime) {
+  const center = snapVector(object.position, 4);
+  const pulse = 0.92 + Math.sin(currentTime * 7 + object.createdAt) * 0.06;
+  const radius = object.radius * pulse;
+
+  context.fillStyle = "#052e16";
+  context.fillRect(center.x - radius * 0.62, center.y - radius * 0.62, radius * 1.24, radius * 1.24);
+  context.fillStyle = "#166534";
+  context.fillRect(center.x - radius * 0.42, center.y - radius * 0.42, radius * 0.84, radius * 0.84);
+
+  for (let index = 0; index < 8; index += 1) {
+    const angle = (index * Math.PI * 2) / 8 + Math.sin(currentTime * 2.4) * 0.08;
+    const direction = vectorFromAngle(angle);
+    const side = vectorFromAngle(angle + Math.PI / 2);
+    const base = add(center, scale(direction, radius * 0.22));
+    const tip = add(center, scale(direction, radius * 1.04));
+    drawPixelLine(context, add(base, scale(side, -5)), tip, 10, "#050711");
+    drawPixelLine(context, add(base, scale(side, 5)), tip, 10, "#050711");
+    drawPixelLine(context, base, tip, 5, index % 2 === 0 ? "#84cc16" : "#bef264");
+  }
+
+  context.fillStyle = "#dcfce7";
+  context.fillRect(center.x - 4, center.y - 4, 8, 8);
+}
+
+function drawNeutralIceTile(context, object, currentTime) {
+  const center = snapVector(object.position, 4);
+  const size = object.radius * 1.55;
+  const x = center.x - size / 2;
+  const y = center.y - size / 2;
+  const shimmer = 0.45 + Math.sin(currentTime * 8 + object.createdAt) * 0.08;
+
+  drawPixelFrame(x, y, size, size, {
+    fill: "#075985",
+    border: "#bae6fd",
+    shadow: "#050711",
+    texture: voxelAssets.blocks.glowstone,
+    inset: "rgba(224, 242, 254, 0.38)",
+  });
+  context.globalAlpha *= 0.62 + shimmer;
+  context.fillStyle = "#e0f2fe";
+  context.fillRect(center.x - size * 0.32, center.y - 3, size * 0.64, 6);
+  context.fillRect(center.x - 3, center.y - size * 0.32, 6, size * 0.64);
+  drawPixelLine(context, { x: x + 10, y: y + size - 12 }, { x: x + size - 12, y: y + 10 }, 3, "#7dd3fc");
+  drawPixelLine(context, { x: x + 12, y: y + 12 }, { x: x + size - 14, y: y + size - 16 }, 3, "#dff7ff");
+}
+
+function drawNeutralEarthWall(context, object, life) {
+  const center = snapVector(object.position, 4);
+  const size = object.radius * 1.56;
+  const x = center.x - size / 2;
+  const y = center.y - size / 2;
+
+  drawPixelFrame(x, y, size, size, {
+    fill: "#713f12",
+    border: life < 0.24 ? "#d97706" : "#a16207",
+    shadow: "#050711",
+    texture: voxelAssets.blocks.dirt,
+    inset: "rgba(254, 240, 138, 0.2)",
+  });
+
+  const block = size / 3;
+  context.fillStyle = "rgba(5, 7, 17, 0.24)";
+  context.fillRect(x + block, y + 5, 3, size - 10);
+  context.fillRect(x + block * 2, y + 5, 3, size - 10);
+  context.fillRect(x + 5, y + block, size - 10, 3);
+  context.fillRect(x + 5, y + block * 2, size - 10, 3);
+  context.fillStyle = "#facc15";
+  context.fillRect(x + 10, y + 9, 7, 4);
+  context.fillRect(x + size - 18, y + size - 13, 8, 4);
+}
+
 function drawArenaHazards(ctx, currentTime) {
   for (const hazard of arenaHazards) {
     const life = clamp((hazard.expiresAt - currentTime) / Math.max(0.001, hazard.expiresAt - hazard.createdAt), 0, 1);
@@ -10045,6 +11391,7 @@ function drawArenaScene() {
   ctx.translate(layout.arena.x + shakeOffset.x, layout.arena.y + shakeOffset.y);
   ctx.scale(layout.arena.scale, layout.arena.scale);
   drawArena();
+  drawNeutralSceneObjects(ctx, elapsedTimeSeconds);
   drawDroppedItems(ctx, elapsedTimeSeconds);
   drawFlameTrails(ctx, elapsedTimeSeconds);
   drawWebLinks(ctx, elapsedTimeSeconds);
@@ -10231,6 +11578,13 @@ function scrollProfessionGridBy(deltaY) {
 }
 
 function handleKeyDown(event) {
+  if (activeAdOverlay) {
+    if (event.key === "Escape" && getNowMs() >= activeAdOverlay.closeAtMs) {
+      closeActiveAdOverlay("escape");
+    }
+    return;
+  }
+
   if (event.key === "Escape") {
     if (screen === Screen.LEGAL_DOCUMENT) {
       setScreen(previousScreen);
@@ -10563,6 +11917,9 @@ async function bootGame() {
   await syncAnalyticsCollection();
   trackGameInitSuccess();
   screen = complianceState.hasAcceptedCurrentLegal() ? Screen.MAIN_MENU : Screen.CONSENT;
+  if (screen === Screen.MAIN_MENU) {
+    void maybeShowAppOpenAd("boot");
+  }
   lastFrameTime = performance.now();
   requestAnimationFrame(gameLoop);
 }

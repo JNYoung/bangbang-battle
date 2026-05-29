@@ -20,11 +20,13 @@ const TARGET_MIN_SECONDS = 18;
 const TARGET_MAX_SECONDS = 75;
 const SIMULATION_LIMIT_SECONDS = 120;
 const STEP_SECONDS = 1 / 60;
-const MATCHUP_SEEDS = Array.from({ length: 24 }, (_, index) => index + 1);
+const MATCHUP_SEEDS = Array.from({ length: 48 }, (_, index) => index + 1);
 const PROFESSION_MIN_WIN_RATE = 0.25;
 const PROFESSION_MAX_WIN_RATE = 0.75;
+const MIRROR_MATCHUP_MIN_SIDE_WIN_RATE = 0.3;
+const MIRROR_MATCHUP_MAX_SIDE_WIN_RATE = 0.7;
 const ITEM_MODE_BALL_COUNTS = [2, 3, 4, 5, 6];
-const ITEM_MODE_SEEDS = Array.from({ length: 32 }, (_, index) => index + 1);
+const ITEM_MODE_SEEDS = Array.from({ length: 48 }, (_, index) => index + 1);
 const ITEM_MODE_MAX_WINNER_SHARE = 0.75;
 
 const DUEL_STARTS = [
@@ -293,8 +295,10 @@ function createFrostOrbitState(ball) {
     return null;
   }
 
+  const leftSide = ball.position.x < ARENA_SIZE / 2;
   return {
-    rotationAngle: ball.position.x < ARENA_SIZE / 2 ? 0 : Math.PI,
+    rotationAngle: leftSide ? 0 : Math.PI,
+    spinDirection: leftSide ? 1 : -1,
     lastHitTime: -Infinity,
   };
 }
@@ -441,18 +445,16 @@ function simulateMatch(sceneId, aProfession, bProfession, seed = 1) {
     projectiles = updateProjectiles(projectiles, STEP_SECONDS, elapsedSeconds, balls);
     updateChainWeapon(ballA, STEP_SECONDS);
     updateChainWeapon(ballB, STEP_SECONDS);
-    updateChainWeaponForPair(ballA, ballB, elapsedSeconds);
-    updateChainWeaponForPair(ballB, ballA, elapsedSeconds);
     updateFrostOrbit(ballA, STEP_SECONDS);
     updateFrostOrbit(ballB, STEP_SECONDS);
-    updateFrostOrbitForPair(ballA, ballB, elapsedSeconds);
-    updateFrostOrbitForPair(ballB, ballA, elapsedSeconds);
     updateYoyoWeapon(ballA, STEP_SECONDS, elapsedSeconds);
     updateYoyoWeapon(ballB, STEP_SECONDS, elapsedSeconds);
-    updateYoyoWeaponForPair(ballA, ballB, elapsedSeconds);
-    updateYoyoWeaponForPair(ballB, ballA, elapsedSeconds);
-    updateAttackForPair(ballA, ballB, elapsedSeconds, projectiles);
-    updateAttackForPair(ballB, ballA, elapsedSeconds, projectiles);
+    forEachOrderedBallPair(balls, elapsedSeconds, (attacker, defender) => {
+      updateChainWeaponForPair(attacker, defender, elapsedSeconds);
+      updateFrostOrbitForPair(attacker, defender, elapsedSeconds);
+      updateYoyoWeaponForPair(attacker, defender, elapsedSeconds);
+      updateAttackForPair(attacker, defender, elapsedSeconds, projectiles);
+    });
 
     if (ballA.hp <= 0 || ballB.hp <= 0) {
       return getResult(sceneId, aProfession, bProfession, seed, elapsedSeconds, ballA, ballB);
@@ -553,7 +555,7 @@ function simulateItemMode(seed, ballCount = 2) {
     updateEnvironmentalHazards([], [], itemFlames, balls, elapsedSeconds);
     updateSimulatedBuildings(itemBuildings, balls, elapsedSeconds, stats);
     droppedItems = updateSimulatedItems(seed, elapsedSeconds, balls, droppedItems, spawnState, stats, itemBuildings);
-    forEachOrderedBallPair(balls, (attacker, defender) => {
+    forEachOrderedBallPair(balls, elapsedSeconds, (attacker, defender) => {
       updateItemAttackForPair(attacker, defender, elapsedSeconds, seed, stats, itemFlames);
     });
 
@@ -624,11 +626,9 @@ function forEachBallPair(balls, callback) {
   }
 }
 
-function forEachOrderedBallPair(balls, callback) {
-  for (const attacker of balls) {
-    if (attacker.hp <= 0) {
-      continue;
-    }
+function forEachOrderedBallPair(balls, currentTime, callback) {
+  const orderedAttackers = getFrameOrderedAliveBalls(balls, currentTime);
+  for (const attacker of orderedAttackers) {
 
     for (const defender of balls) {
       if (defender !== attacker && defender.hp > 0) {
@@ -636,6 +636,17 @@ function forEachOrderedBallPair(balls, callback) {
       }
     }
   }
+}
+
+function getFrameOrderedAliveBalls(balls, currentTime) {
+  const aliveBalls = balls.filter((ball) => ball.hp > 0);
+  if (aliveBalls.length <= 1) {
+    return aliveBalls;
+  }
+
+  const frameIndex = Math.max(0, Math.floor(currentTime / STEP_SECONDS + 0.0001));
+  const firstIndex = frameIndex % aliveBalls.length;
+  return [...aliveBalls.slice(firstIndex), ...aliveBalls.slice(0, firstIndex)];
 }
 
 function createItemModeStats() {
@@ -1189,7 +1200,9 @@ function updateFrostOrbit(ball, deltaTime) {
     return;
   }
 
-  ball.frostOrbitState.rotationAngle = normalizeAngle(ball.frostOrbitState.rotationAngle + ball.config.frostOrbit.spinSpeed * deltaTime);
+  ball.frostOrbitState.rotationAngle = normalizeAngle(
+    ball.frostOrbitState.rotationAngle + ball.config.frostOrbit.spinSpeed * ball.frostOrbitState.spinDirection * deltaTime,
+  );
 }
 
 function updateFrostOrbitForPair(attacker, defender, currentTime) {
@@ -1422,10 +1435,23 @@ function resolveCollisionAbilities(ballA, ballB, normalFromAToB, currentTime) {
     return;
   }
 
-  resolveBatDrain(ballA, ballB, normalFromAToB, currentTime);
-  resolveBatDrain(ballB, ballA, scale(normalFromAToB, -1), currentTime);
-  resolveStaticCharge(ballA, ballB, normalFromAToB, currentTime);
-  resolveStaticCharge(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+  if (shouldResolveForwardCollisionAbilityFirst(currentTime)) {
+    resolveOneWayCollisionAbilities(ballA, ballB, normalFromAToB, currentTime);
+    resolveOneWayCollisionAbilities(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+  } else {
+    resolveOneWayCollisionAbilities(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+    resolveOneWayCollisionAbilities(ballA, ballB, normalFromAToB, currentTime);
+  }
+}
+
+function shouldResolveForwardCollisionAbilityFirst(currentTime) {
+  const frameIndex = Math.max(0, Math.floor(currentTime / STEP_SECONDS + 0.0001));
+  return frameIndex % 2 === 0;
+}
+
+function resolveOneWayCollisionAbilities(attacker, defender, normalFromAttackerToDefender, currentTime) {
+  resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime);
+  resolveStaticCharge(attacker, defender, normalFromAttackerToDefender, currentTime);
 }
 
 function resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime) {
@@ -2075,7 +2101,19 @@ function addProfessionResult(summariesByKey, sceneId, profession, result) {
 function isMatchupSummaryWithinCurve(summary) {
   return (
     summary.averageSeconds >= TARGET_MIN_SECONDS &&
-    summary.averageSeconds <= TARGET_MAX_SECONDS
+    summary.averageSeconds <= TARGET_MAX_SECONDS &&
+    isMirrorMatchupSideBalanceWithinCurve(summary)
+  );
+}
+
+function isMirrorMatchupSideBalanceWithinCurve(summary) {
+  if (summary.aProfession !== summary.bProfession) {
+    return true;
+  }
+
+  return (
+    summary.aWinRate >= MIRROR_MATCHUP_MIN_SIDE_WIN_RATE &&
+    summary.aWinRate <= MIRROR_MATCHUP_MAX_SIDE_WIN_RATE
   );
 }
 
@@ -2089,6 +2127,11 @@ function isProfessionSummaryWithinCurve(summary) {
 function printResults(matchupSummaries, professionSummaries) {
   console.log(`Target curve: ${TARGET_MIN_SECONDS}-${TARGET_MAX_SECONDS}s`);
   console.log(`Profession matchup seeds per pair: ${MATCHUP_SEEDS.length}`);
+  console.log(
+    `Mirror side-balance target: ${(MIRROR_MATCHUP_MIN_SIDE_WIN_RATE * 100).toFixed(0)}%-${(
+      MIRROR_MATCHUP_MAX_SIDE_WIN_RATE * 100
+    ).toFixed(0)}% A-side wins`,
+  );
   console.log("matchup          avg    min/max      A/B     status");
 
   for (const summary of matchupSummaries) {

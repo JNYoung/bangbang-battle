@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "886878711329",
-    "project_id": "funnylook-aeba3",
-    "storage_bucket": "funnylook-aeba3.firebasestorage.app"
+    "project_number": "933439959875",
+    "project_id": "profession-ball-arena",
+    "storage_bucket": "profession-ball-arena.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:886878711329:android:db34cfd335c4e9fd08bd60",
+        "mobilesdk_app_id": "1:933439959875:android:76d88a27e9123f538d35f6",
         "android_client_info": {
           "package_name": "com.professionballarena.game"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDTRrjiBv58oZEawkn3EFmAlh0-rLArvdE"
+          "current_key": "AIzaSyCMwQ7C_DZ1ffFNvlJFJ0nvN8JgZkb9k4g"
         }
       ],
       "services": {

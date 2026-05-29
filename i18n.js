@@ -21,6 +21,14 @@ const translations = {
     hud: {
       shake: "Shake",
     },
+    ads: {
+      appOpenTitle: "职业球球补给站",
+      appOpenBody: "测试开屏广告链路",
+      battleTitle: "战斗补给广告位",
+      cta: "继续体验",
+      loading: "广告加载中",
+      testLabel: "测试广告，不产生扣费",
+    },
     messages: {
       checkAgreement: "请先勾选同意协议",
       consentWithdrawn: "已撤回同意，请重新阅读并确认",
@@ -32,7 +40,7 @@ const translations = {
     consent: {
       subtitle: "上架合规确认",
       title: "开始之前",
-      intro: "请先阅读并同意《隐私政策》和《用户协议》。同意后会在已配置平台启用 Firebase Analytics 上报基础游戏事件；广告和支付仍未接入。",
+      intro: "请先阅读并同意《隐私政策》和《用户协议》。同意后会在已配置平台启用 Firebase Analytics 上报基础游戏与性能事件；当前仅显示测试广告位，真实广告和支付仍未接入。",
       privacy: "查看隐私政策",
       terms: "查看用户协议",
       agree: "我已阅读并同意上述协议",
@@ -46,7 +54,7 @@ const translations = {
       itemSummary: "模式：{scene}  /  无职业，随机拾取道具自动对战",
       start: "开始游戏",
       settings: "设置与协议",
-      notice: "统计仅在同意后启用；当前版本不接入真实广告或 IAP SDK。上架时请按轻微卡通/幻想对战填写内容评级问卷。",
+      notice: "统计仅在同意后启用；当前版本仅显示测试广告位，不接入真实广告或 IAP SDK。上架时请按轻微卡通/幻想对战填写内容评级问卷。",
     },
     setup: {
       subtitle: "开战设置",
@@ -83,7 +91,7 @@ const translations = {
       terms: "查看用户协议",
       restore: "恢复购买",
       withdraw: "撤回同意",
-      statsInfo: "统计：{analytics}。广告：{ads}。{iap}：未配置真实商品。统计仅上报基础游戏事件，不展示广告或发起扣费。",
+      statsInfo: "统计：{analytics}。广告：{ads}。{iap}：未配置真实商品。统计仅上报基础游戏与性能事件；广告为测试链路，不产生扣费。",
       sdkNotice: "你可以关闭数据统计，或撤回同意后重新确认协议。",
       backMain: "返回主菜单",
     },
@@ -97,15 +105,15 @@ const translations = {
         sections: [
           {
             title: "一、我们如何处理信息",
-            body: "同意后，本游戏会在已配置平台通过 Firebase Analytics 上报基础游戏事件，例如初始化成功、开始游戏、游戏结束和设置选择。不收集账号、定位、通讯录、相机、麦克风等敏感权限数据。",
+            body: "同意后，本游戏会在已配置平台通过 Firebase Analytics 上报基础游戏与性能事件，例如初始化成功、开始游戏、游戏结束、帧率快照和设置选择。不收集账号、定位、通讯录、相机、麦克风等敏感权限数据。",
           },
           {
             title: "二、本地保存",
             body: "为了让你下次打开游戏时保留选择，本游戏会使用设备本地存储保存隐私政策版本、用户协议版本、球 A/球 B 的职业选择和设置项。",
           },
           {
-            title: "三、统计、广告与支付",
-            body: "数据统计可在设置中关闭，撤回同意会同时关闭统计。当前版本不接入真实广告或应用内购买，不会展示广告或发起支付；若未来接入，我们会先更新本政策并重新获取必要同意。",
+            title: "三、统计、测试广告与支付",
+            body: "数据统计可在设置中关闭，撤回同意会同时关闭统计。当前版本仅展示本地测试广告位，不接入真实广告 SDK 或应用内购买，不会基于广告标识投放、跳转真实广告或发起支付；若未来接入真实广告或付费内容，我们会先更新本政策并重新获取必要同意。",
           },
           {
             title: "四、未成年人和内容分级",
@@ -220,6 +228,14 @@ const translations = {
     common: { enabled: "Enabled", unavailable: "Not configured", iap: "IAP" },
     status: { playing: "Auto battle", paused: "Paused" },
     hud: { shake: "Shake" },
+    ads: {
+      appOpenTitle: "Arena Supply",
+      appOpenBody: "Testing app-open ad flow",
+      battleTitle: "Battle Ad Slot",
+      cta: "Continue",
+      loading: "Loading ad",
+      testLabel: "Test ad, no charge",
+    },
     messages: {
       checkAgreement: "Please agree to the terms first",
       consentWithdrawn: "Consent withdrawn. Please review and confirm again",
@@ -231,7 +247,7 @@ const translations = {
     consent: {
       subtitle: "Release compliance",
       title: "Before You Start",
-      intro: "Please read and accept the Privacy Policy and User Agreement. After consent, Firebase Analytics reports basic game events on configured platforms. Ads and payments remain unconfigured.",
+      intro: "Please read and accept the Privacy Policy and User Agreement. After consent, Firebase Analytics reports basic gameplay and performance events on configured platforms. This build only displays test ad slots; real ads and payments remain unconfigured.",
       privacy: "Privacy Policy",
       terms: "User Agreement",
       agree: "I have read and agree",
@@ -245,7 +261,7 @@ const translations = {
       itemSummary: "Mode: {scene}  /  no professions, random item pickups",
       start: "Start Game",
       settings: "Settings & Terms",
-      notice: "Analytics only runs after consent. This build has no real ads or IAP SDK. For store submission, answer content-rating questions as mild cartoon/fantasy combat.",
+      notice: "Analytics only runs after consent. This build shows test ad slots but has no real ads or IAP SDK. For store submission, answer content-rating questions as mild cartoon/fantasy combat.",
     },
     setup: {
       subtitle: "Battle Setup",
@@ -282,7 +298,7 @@ const translations = {
       terms: "User Agreement",
       restore: "Restore",
       withdraw: "Withdraw Consent",
-      statsInfo: "Analytics: {analytics}. Ads: {ads}. {iap}: no real products. Analytics reports basic game events only, with no ads or charges.",
+      statsInfo: "Analytics: {analytics}. Ads: {ads}. {iap}: no real products. Analytics reports basic gameplay and performance events; ads are test flow only and do not charge.",
       sdkNotice: "You can turn analytics off here or withdraw consent to review the terms again.",
       backMain: "Back to Menu",
     },
@@ -296,7 +312,7 @@ const translations = {
         sections: [
           {
             title: "1. How We Handle Information",
-            body: "After consent, this game uses Firebase Analytics on configured platforms to report basic game events such as initialization success, game start, game end, and setting selection. It does not collect account, location, contacts, camera, microphone, or other sensitive permission data.",
+            body: "After consent, this game uses Firebase Analytics on configured platforms to report basic gameplay and performance events such as initialization success, game start, game end, frame-rate snapshots, and setting selection. It does not collect account, location, contacts, camera, microphone, or other sensitive permission data.",
           },
           {
             title: "2. Local Storage",
@@ -304,7 +320,7 @@ const translations = {
           },
           {
             title: "3. Analytics, Ads, and Payments",
-            body: "Analytics can be turned off in Settings, and withdrawing consent also disables it. This build does not integrate real ads or in-app purchases, show ads, or start payments. If those SDKs are added later, this policy will be updated and consent will be requested again.",
+            body: "Analytics can be turned off in Settings, and withdrawing consent also disables it. This build only displays local test ad slots and does not integrate a real ad SDK or in-app purchases, serve targeted ads, open real ad destinations, or start payments. If real ads or paid content are added later, this policy will be updated and consent will be requested again.",
           },
           {
             title: "4. Minors and Ratings",
@@ -411,7 +427,7 @@ const translations = {
     consent: {
       subtitle: "Conformité de publication",
       title: "Avant de commencer",
-      intro: "Veuillez lire et accepter la Politique de confidentialité et le Contrat utilisateur. Après accord, Firebase Analytics envoie des événements de jeu de base sur les plateformes configurées. La publicité et le paiement restent non configurés.",
+      intro: "Veuillez lire et accepter la Politique de confidentialité et le Contrat utilisateur. Après accord, Firebase Analytics envoie des événements de jeu et de performance de base sur les plateformes configurées. La publicité et le paiement restent non configurés.",
       privacy: "Confidentialité",
       terms: "Contrat utilisateur",
       agree: "J'ai lu et j'accepte",
@@ -445,7 +461,7 @@ const translations = {
       terms: "Contrat utilisateur",
       restore: "Restaurer",
       withdraw: "Retirer accord",
-      statsInfo: "Statistiques : {analytics}. Publicité : {ads}. {iap} : aucun produit réel. Les statistiques couvrent seulement les événements de jeu de base, sans publicité ni paiement.",
+      statsInfo: "Statistiques : {analytics}. Publicité : {ads}. {iap} : aucun produit réel. Les statistiques couvrent seulement les événements de jeu et de performance de base, sans publicité ni paiement.",
       sdkNotice: "Vous pouvez désactiver les statistiques ici ou retirer l'accord pour relire les conditions.",
       backMain: "Retour au menu",
     },
@@ -457,7 +473,7 @@ const translations = {
       privacy: {
         title: "Politique de confidentialité",
         sections: [
-          { title: "1. Traitement des informations", body: "Après accord, le jeu utilise Firebase Analytics sur les plateformes configurées pour envoyer des événements de base comme l'initialisation réussie, le début et la fin de partie, et les choix de réglages. Il ne collecte pas de compte, position, contacts, caméra, micro ni données issues de permissions sensibles." },
+          { title: "1. Traitement des informations", body: "Après accord, le jeu utilise Firebase Analytics sur les plateformes configurées pour envoyer des événements de jeu et de performance de base comme l'initialisation réussie, le début et la fin de partie, des instantanés de fréquence d'images et les choix de réglages. Il ne collecte pas de compte, position, contacts, caméra, micro ni données issues de permissions sensibles." },
           { title: "2. Stockage local", body: "Pour garder vos choix au prochain lancement, le jeu utilise le stockage local de l'appareil pour les versions des politiques, les choix de profession des balles A/B et les réglages." },
           { title: "3. Statistiques, publicités et paiements", body: "Les statistiques peuvent être désactivées dans les réglages, et le retrait de l'accord les désactive aussi. Cette version n'intègre pas de publicité ni d'achat intégré réels, n'affiche pas de publicité et ne lance aucun paiement. Si ces SDK sont ajoutés plus tard, la politique sera mise à jour et l'accord redemandé." },
           { title: "4. Mineurs et classification", body: "Ce jeu ne vise pas spécialement les enfants. Comme il contient des points de vie, des professions armées et du combat automatique, remplissez honnêtement les questionnaires des stores comme violence cartoon/fantasy légère." },
@@ -544,7 +560,7 @@ const translations = {
     consent: {
       subtitle: "Release-Konformität",
       title: "Vor dem Start",
-      intro: "Bitte lies und akzeptiere Datenschutzrichtlinie und Nutzungsvereinbarung. Nach Zustimmung meldet Firebase Analytics auf konfigurierten Plattformen grundlegende Spielereignisse. Werbung und Zahlungen bleiben nicht konfiguriert.",
+      intro: "Bitte lies und akzeptiere Datenschutzrichtlinie und Nutzungsvereinbarung. Nach Zustimmung meldet Firebase Analytics auf konfigurierten Plattformen grundlegende Spiel- und Performance-Ereignisse. Werbung und Zahlungen bleiben nicht konfiguriert.",
       privacy: "Datenschutz",
       terms: "Nutzungsvereinbarung",
       agree: "Ich habe gelesen und stimme zu",
@@ -578,7 +594,7 @@ const translations = {
       terms: "Nutzungsvereinbarung",
       restore: "Wiederherstellen",
       withdraw: "Zustimmung widerrufen",
-      statsInfo: "Analyse: {analytics}. Werbung: {ads}. {iap}: keine echten Produkte. Analyse meldet nur grundlegende Spielereignisse, ohne Werbung oder Zahlungen.",
+      statsInfo: "Analyse: {analytics}. Werbung: {ads}. {iap}: keine echten Produkte. Analyse meldet nur grundlegende Spiel- und Performance-Ereignisse, ohne Werbung oder Zahlungen.",
       sdkNotice: "Du kannst Analyse hier deaktivieren oder die Zustimmung widerrufen, um die Bedingungen erneut zu prüfen.",
       backMain: "Zurück zum Menü",
     },
@@ -590,7 +606,7 @@ const translations = {
       privacy: {
         title: "Datenschutzrichtlinie",
         sections: [
-          { title: "1. Umgang mit Informationen", body: "Nach Zustimmung nutzt das Spiel Firebase Analytics auf konfigurierten Plattformen, um grundlegende Ereignisse wie erfolgreiche Initialisierung, Spielstart, Spielende und Einstellungswahl zu melden. Es sammelt keine Konten, Standorte, Kontakte, Kamera-, Mikrofon- oder andere sensible Berechtigungsdaten." },
+          { title: "1. Umgang mit Informationen", body: "Nach Zustimmung nutzt das Spiel Firebase Analytics auf konfigurierten Plattformen, um grundlegende Spiel- und Performance-Ereignisse wie erfolgreiche Initialisierung, Spielstart, Spielende, Bildraten-Snapshots und Einstellungswahl zu melden. Es sammelt keine Konten, Standorte, Kontakte, Kamera-, Mikrofon- oder andere sensible Berechtigungsdaten." },
           { title: "2. Lokaler Speicher", body: "Damit deine Auswahl beim nächsten Start erhalten bleibt, nutzt das Spiel lokalen Gerätespeicher für Richtlinienversionen, Berufsauswahl von Ball A/B und Einstellungen." },
           { title: "3. Analyse, Werbung und Zahlung", body: "Analyse kann in den Einstellungen deaktiviert werden; das Widerrufen der Zustimmung deaktiviert sie ebenfalls. Dieser Build integriert keine echte Werbung oder In-App-Käufe, zeigt keine Werbung und startet keine Zahlung. Wenn solche SDKs später hinzugefügt werden, wird diese Richtlinie aktualisiert und Zustimmung erneut angefragt." },
           { title: "4. Minderjährige und Altersfreigabe", body: "Dieses Spiel richtet sich nicht speziell an Kinder. Wegen Lebenspunkten, Waffenberufen und automatischem Kampf sollten Store-Fragebögen wahrheitsgemäß als leichte Cartoon-/Fantasy-Gewalt beantwortet werden." },
@@ -677,7 +693,7 @@ const translations = {
     consent: {
       subtitle: "توافق النشر",
       title: "قبل البدء",
-      intro: "يرجى قراءة سياسة الخصوصية واتفاقية المستخدم والموافقة عليهما. بعد الموافقة، ترسل Firebase Analytics أحداث اللعبة الأساسية على المنصات المهيأة. تبقى الإعلانات والدفع غير مهيئين.",
+      intro: "يرجى قراءة سياسة الخصوصية واتفاقية المستخدم والموافقة عليهما. بعد الموافقة، ترسل Firebase Analytics أحداث اللعبة والأداء الأساسية على المنصات المهيأة. تبقى الإعلانات والدفع غير مهيئين.",
       privacy: "سياسة الخصوصية",
       terms: "اتفاقية المستخدم",
       agree: "قرأت وأوافق",
@@ -711,7 +727,7 @@ const translations = {
       terms: "اتفاقية المستخدم",
       restore: "استعادة",
       withdraw: "سحب الموافقة",
-      statsInfo: "الإحصاءات: {analytics}. الإعلانات: {ads}. {iap}: لا منتجات حقيقية. تسجل الإحصاءات أحداث اللعبة الأساسية فقط، بلا إعلانات أو مدفوعات.",
+      statsInfo: "الإحصاءات: {analytics}. الإعلانات: {ads}. {iap}: لا منتجات حقيقية. تسجل الإحصاءات أحداث اللعبة والأداء الأساسية فقط، بلا إعلانات أو مدفوعات.",
       sdkNotice: "يمكنك إيقاف الإحصاءات هنا أو سحب الموافقة لمراجعة الشروط من جديد.",
       backMain: "العودة للقائمة",
     },
@@ -723,7 +739,7 @@ const translations = {
       privacy: {
         title: "سياسة الخصوصية",
         sections: [
-          { title: "1. كيف نتعامل مع المعلومات", body: "بعد الموافقة، تستخدم اللعبة Firebase Analytics على المنصات المهيأة لإرسال أحداث أساسية مثل نجاح التهيئة وبدء اللعبة ونهايتها واختيار الإعدادات. لا تجمع حسابات أو موقعا أو جهات اتصال أو كاميرا أو ميكروفونا أو بيانات أذونات حساسة أخرى." },
+          { title: "1. كيف نتعامل مع المعلومات", body: "بعد الموافقة، تستخدم اللعبة Firebase Analytics على المنصات المهيأة لإرسال أحداث اللعبة والأداء الأساسية مثل نجاح التهيئة وبدء اللعبة ونهايتها ولقطات معدل الإطارات واختيار الإعدادات. لا تجمع حسابات أو موقعا أو جهات اتصال أو كاميرا أو ميكروفونا أو بيانات أذونات حساسة أخرى." },
           { title: "2. التخزين المحلي", body: "للاحتفاظ باختياراتك عند التشغيل التالي، تستخدم اللعبة تخزين الجهاز المحلي لحفظ إصدارات السياسات واختيارات مهنة الكرة A/B والإعدادات." },
           { title: "3. الإحصاءات والإعلانات والدفع", body: "يمكن إيقاف الإحصاءات من الإعدادات، كما أن سحب الموافقة يوقفها أيضا. لا يحتوي هذا الإصدار على إعلانات أو شراء داخل التطبيق حقيقي، ولا يعرض إعلانات أو يبدأ عمليات دفع. إذا أضيفت هذه الحزم لاحقا فسيتم تحديث السياسة وطلب الموافقة مجددا." },
           { title: "4. القاصرون والتصنيف العمري", body: "هذه اللعبة ليست موجهة خصيصا للأطفال. وبسبب نقاط الصحة ومهن الأسلحة والقتال التلقائي، يرجى تعبئة استبيانات المتاجر بصدق على أنها عنف كرتوني/خيالي خفيف." },
@@ -1002,7 +1018,7 @@ translations.ja = {
   consent: {
     subtitle: "公開前の確認",
     title: "始める前に",
-    intro: "プライバシーポリシーとユーザー規約を読んで同意してください。同意後、設定済みのプラットフォームでは Firebase Analytics が基本的なゲームイベントを送信します。広告と決済は未設定です。",
+    intro: "プライバシーポリシーとユーザー規約を読んで同意してください。同意後、設定済みのプラットフォームでは Firebase Analytics が基本的なゲームおよびパフォーマンスイベントを送信します。広告と決済は未設定です。",
     privacy: "プライバシーポリシー",
     terms: "ユーザー規約",
     agree: "上記の内容を読み、同意します",
@@ -1053,7 +1069,7 @@ translations.ja = {
     terms: "ユーザー規約",
     restore: "購入を復元",
     withdraw: "同意を取り消す",
-    statsInfo: "分析：{analytics}。広告：{ads}。{iap}：実際の商品は未設定です。分析は基本的なゲームイベントのみを送信し、広告表示や課金は行いません。",
+    statsInfo: "分析：{analytics}。広告：{ads}。{iap}：実際の商品は未設定です。分析は基本的なゲームおよびパフォーマンスイベントのみを送信し、広告表示や課金は行いません。",
     sdkNotice: "ここで分析をオフにするか、同意を取り消して規約を再確認できます。",
     backMain: "メインメニューへ",
   },
@@ -1065,7 +1081,7 @@ translations.ja = {
     privacy: {
       title: "プライバシーポリシー",
       sections: [
-        { title: "1. 情報の取り扱い", body: "同意後、設定済みのプラットフォームでは Firebase Analytics を使用し、初期化成功、ゲーム開始、ゲーム終了、設定選択などの基本イベントを送信します。アカウント、位置情報、連絡先、カメラ、マイクなどの機微な権限データは収集しません。" },
+        { title: "1. 情報の取り扱い", body: "同意後、設定済みのプラットフォームでは Firebase Analytics を使用し、初期化成功、ゲーム開始、ゲーム終了、フレームレートのスナップショット、設定選択などの基本的なゲームおよびパフォーマンスイベントを送信します。アカウント、位置情報、連絡先、カメラ、マイクなどの機微な権限データは収集しません。" },
         { title: "2. ローカル保存", body: "次回起動時に選択を保持するため、ゲームは端末のローカルストレージにポリシーバージョン、規約バージョン、ボール A/B の職業選択、設定項目を保存します。" },
         { title: "3. 分析、広告、決済", body: "分析は設定でオフにでき、同意を取り消すと分析も無効になります。このビルドには実際の広告やアプリ内購入はなく、広告表示や決済フローは開始しません。将来これらの SDK を導入する場合は、本ポリシーを更新し、必要な同意を再取得します。" },
         { title: "4. 未成年者とレーティング", body: "このゲームは子ども向け専用の製品ではありません。HP、武器職業、自動戦闘が含まれるため、Apple App Store、Google Play などのレーティング質問には、軽度のカートゥーン/ファンタジー暴力として正確に回答してください。" },
