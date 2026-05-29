@@ -16,9 +16,19 @@ const GOOGLE_TEST_AD_UNITS = Object.freeze({
     battleBanner: "mock-game-battle-banner",
   },
 });
+const REAL_AD_UNITS = Object.freeze({
+  android: {
+    appOpen: "ca-app-pub-2481288993515154/2687290972",
+    battleBanner: "ca-app-pub-2481288993515154/6818107670",
+  },
+});
 const AD_UNIT_ENV_KEYS = Object.freeze({
   app_open: "APP_OPEN",
   battle_banner: "BATTLE_BANNER",
+});
+const AD_FALLBACK_ENV_KEYS = Object.freeze({
+  appOpen: "APP_OPEN",
+  battleBanner: "BATTLE_BANNER",
 });
 const GAME_AD_CONTEXT = Object.freeze({
   category: "games",
@@ -325,6 +335,7 @@ export const ads = {
       admobInitializationError: adMobState.initializationError?.message || null,
       activeBannerPlacement: adMobState.activeBannerPlacement,
       testing: isAdMobTestingEnabled(),
+      realAdUnitsConfigured: hasRealAdUnitsConfigured(getNativePlatform()),
       non_personalized_ads: shouldRequestNonPersonalizedAds(),
       game_ad_context: GAME_AD_CONTEXT,
     };
@@ -479,22 +490,43 @@ function getNativePlatform() {
 
 function getAdUnitId(placement, fallbackKey) {
   const platform = getNativePlatform();
-  const placementKey = AD_UNIT_ENV_KEYS[placement] || String(placement || fallbackKey).toUpperCase();
-  const platformPrefix = platform.toUpperCase();
+  const placementKey = getPlacementEnvKey(placement, fallbackKey);
   return (
-    getBuildEnvValue(`VITE_ADMOB_${platformPrefix}_${placementKey}_AD_UNIT_ID`) ||
-    getBuildEnvValue(`VITE_ADMOB_${placementKey}_AD_UNIT_ID`) ||
+    getEnvAdUnitId(platform, placementKey) ||
+    (!isAdMobTestingEnabled() ? REAL_AD_UNITS[platform]?.[fallbackKey] : null) ||
     GOOGLE_TEST_AD_UNITS[platform]?.[fallbackKey] ||
     GOOGLE_TEST_AD_UNITS.web[fallbackKey]
   );
 }
 
 function isAdMobTestingEnabled() {
-  return getBooleanBuildEnvValue("VITE_ADMOB_TESTING", true);
+  return getBooleanBuildEnvValue("VITE_ADMOB_TESTING", !hasRealAdUnitsConfigured(getNativePlatform()));
 }
 
 function shouldRequestNonPersonalizedAds() {
   return getBooleanBuildEnvValue("VITE_ADMOB_NPA", true);
+}
+
+function hasRealAdUnitsConfigured(platform) {
+  return Boolean(
+    getEnvAdUnitId(platform, AD_FALLBACK_ENV_KEYS.appOpen) ||
+    REAL_AD_UNITS[platform]?.appOpen
+  ) && Boolean(
+    getEnvAdUnitId(platform, AD_FALLBACK_ENV_KEYS.battleBanner) ||
+    REAL_AD_UNITS[platform]?.battleBanner
+  );
+}
+
+function getPlacementEnvKey(placement, fallbackKey) {
+  return AD_UNIT_ENV_KEYS[placement] || AD_FALLBACK_ENV_KEYS[fallbackKey] || String(placement || fallbackKey).toUpperCase();
+}
+
+function getEnvAdUnitId(platform, placementKey) {
+  const platformPrefix = platform.toUpperCase();
+  return (
+    getBuildEnvValue(`VITE_ADMOB_${platformPrefix}_${placementKey}_AD_UNIT_ID`) ||
+    getBuildEnvValue(`VITE_ADMOB_${placementKey}_AD_UNIT_ID`)
+  );
 }
 
 function getBooleanBuildEnvValue(key, fallback) {

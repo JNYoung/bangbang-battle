@@ -16,13 +16,13 @@ Declared app permissions:
 Removed or disabled analytics-advertising identifiers:
 
 - `com.google.android.gms.permission.AD_ID` is removed from the merged manifest.
-- Android Privacy Sandbox ad-services ID and attribution permissions are removed from the merged manifest.
+- Android Privacy Sandbox ad-services ID, attribution, and topics permissions are removed from the merged manifest.
 - Firebase Analytics collection and ad ID collection default to disabled at process start.
 
 AdMob configuration:
 
-- The native AdMob plugin is configured with the Google sample Android app ID for debug builds.
-- Ad requests default to non-personalized mode (`VITE_ADMOB_NPA=true`) and Google test ad units (`VITE_ADMOB_TESTING=true`) unless release env vars provide real ad units.
+- The native AdMob plugin is configured with the production Android app ID `ca-app-pub-2481288993515154~4798979229`.
+- Android ad requests default to non-personalized mode (`VITE_ADMOB_NPA=true`) and production units for `app_open` and `battle_banner`; set `VITE_ADMOB_TESTING=true` to force Google test ad units in debug builds.
 - The app adds game-context metadata in the ad service, but final "game ads only" category filtering must be configured in the AdMob console.
 
 Runtime flow:
@@ -41,7 +41,7 @@ The iOS target does not request camera, microphone, location, contacts, calendar
 
 AdMob configuration:
 
-- `GADApplicationIdentifier` currently uses the Google sample iOS app ID for debug builds.
+- `GADApplicationIdentifier` currently uses the Google sample iOS app ID until an iOS AdMob app and production ad units are created.
 - `SKAdNetworkItems` includes Google's SKAdNetwork identifier for install attribution support.
 - The app does not call the ATT prompt in the current runtime flow; ad requests default to non-personalized mode.
 

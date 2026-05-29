@@ -98,6 +98,28 @@ test("ads delegates to native game ad bridge with game context", async () => {
   }
 });
 
+test("native AdMob status uses production units only for configured platforms", () => {
+  const previousCapacitor = globalThis.Capacitor;
+
+  try {
+    globalThis.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => "android",
+    };
+    assert.equal(ads.getStatus().testing, false);
+    assert.equal(ads.getStatus().realAdUnitsConfigured, true);
+
+    globalThis.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => "ios",
+    };
+    assert.equal(ads.getStatus().testing, true);
+    assert.equal(ads.getStatus().realAdUnitsConfigured, false);
+  } finally {
+    globalThis.Capacitor = previousCapacitor;
+  }
+});
+
 test("iap placeholder exposes empty products and restore result", async () => {
   assert.deepEqual(await iap.getProducts(), []);
 
