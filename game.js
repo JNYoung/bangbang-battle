@@ -1390,8 +1390,10 @@ function createFrostOrbitState(ball) {
     return null;
   }
 
+  const leftSide = ball.position.x < ARENA_SIZE / 2;
   return {
-    rotationAngle: ball.label === "A" ? 0 : Math.PI,
+    rotationAngle: leftSide ? 0 : Math.PI,
+    spinDirection: leftSide ? 1 : -1,
     lastHitTime: -Infinity,
   };
 }
@@ -2878,7 +2880,7 @@ function update(deltaTime, currentTime) {
       updateYoyoWeapon(ball, deltaTime, currentTime);
     }
   }
-  forEachOrderedAliveBallPair((attacker, defender) => {
+  forEachOrderedAliveBallPair(currentTime, (attacker, defender) => {
     updateChainWeaponForPair(attacker, defender, currentTime);
     updateFrostOrbitForPair(attacker, defender, currentTime);
     updateYoyoWeaponForPair(attacker, defender, currentTime);
@@ -2905,11 +2907,9 @@ function forEachAliveCollisionCombatantPair(callback) {
   }
 }
 
-function forEachOrderedAliveBallPair(callback) {
-  for (const attacker of balls) {
-    if (attacker.hp <= 0) {
-      continue;
-    }
+function forEachOrderedAliveBallPair(currentTime, callback) {
+  const orderedAttackers = getFrameOrderedAliveBalls(currentTime);
+  for (const attacker of orderedAttackers) {
 
     for (const defender of balls) {
       if (defender !== attacker && defender.hp > 0 && !areAlliedCombatants(attacker, defender)) {
@@ -2917,6 +2917,17 @@ function forEachOrderedAliveBallPair(callback) {
       }
     }
   }
+}
+
+function getFrameOrderedAliveBalls(currentTime) {
+  const aliveBalls = balls.filter((ball) => ball.hp > 0);
+  if (aliveBalls.length <= 1) {
+    return aliveBalls;
+  }
+
+  const frameIndex = Math.max(0, Math.floor(currentTime * 60 + 0.0001));
+  const firstIndex = frameIndex % aliveBalls.length;
+  return [...aliveBalls.slice(firstIndex), ...aliveBalls.slice(0, firstIndex)];
 }
 
 function updateDamageIndicators(indicators, currentTime) {
@@ -4992,7 +5003,7 @@ function updateFrostOrbit(ball, deltaTime) {
   }
 
   ball.frostOrbitState.rotationAngle = normalizeAngle(
-    ball.frostOrbitState.rotationAngle + ball.config.frostOrbit.spinSpeed * deltaTime,
+    ball.frostOrbitState.rotationAngle + ball.config.frostOrbit.spinSpeed * ball.frostOrbitState.spinDirection * deltaTime,
   );
 }
 
@@ -5245,10 +5256,23 @@ function resolveCollisionAbilities(ballA, ballB, normalFromAToB, currentTime) {
     return;
   }
 
-  resolveBatDrain(ballA, ballB, normalFromAToB, currentTime);
-  resolveBatDrain(ballB, ballA, scale(normalFromAToB, -1), currentTime);
-  resolveStaticCharge(ballA, ballB, normalFromAToB, currentTime);
-  resolveStaticCharge(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+  if (shouldResolveForwardCollisionAbilityFirst(currentTime)) {
+    resolveOneWayCollisionAbilities(ballA, ballB, normalFromAToB, currentTime);
+    resolveOneWayCollisionAbilities(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+  } else {
+    resolveOneWayCollisionAbilities(ballB, ballA, scale(normalFromAToB, -1), currentTime);
+    resolveOneWayCollisionAbilities(ballA, ballB, normalFromAToB, currentTime);
+  }
+}
+
+function shouldResolveForwardCollisionAbilityFirst(currentTime) {
+  const frameIndex = Math.max(0, Math.floor(currentTime * 60 + 0.0001));
+  return frameIndex % 2 === 0;
+}
+
+function resolveOneWayCollisionAbilities(attacker, defender, normalFromAttackerToDefender, currentTime) {
+  resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime);
+  resolveStaticCharge(attacker, defender, normalFromAttackerToDefender, currentTime);
 }
 
 function resolveBatDrain(attacker, defender, normalFromAttackerToDefender, currentTime) {
