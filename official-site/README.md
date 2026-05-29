@@ -10,9 +10,9 @@ npm run build
 npm run preview
 ```
 
-## 上线前必须替换
+## 当前线上配置
 
-- `public/app-ads.txt`：将 `pub-0000000000000000` 替换为 AdMob 后台提供的真实发布商 ID。
+- `public/app-ads.txt`：已配置 AdMob 发布商 ID `pub-2481288993515154`。
 - 页面中的官网域名已配置为 `professionballarena.top`，请确保该域名和商店后台填写的开发者网站一致。
 
 已配置：
@@ -26,4 +26,4 @@ npm run preview
 - `/app-ads.txt` 必须位于域名根路径，并返回 HTTP 200。
 - 隐私政策 URL 建议填写 `https://professionballarena.top/privacy/`。
 - 支持 URL 建议填写 `https://professionballarena.top/support/`。
-- 如启用 AdMob SDK，应同步更新应用内同意流程、隐私政策、商店数据安全表单和内容分级信息。
+- AdMob SDK 已在游戏主体工程接入；发布前应确认应用内同意流程、隐私政策、商店数据安全表单、广告单元 ID 和内容分级信息一致。

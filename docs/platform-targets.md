@@ -37,6 +37,8 @@ Meta 上传包需要在 ZIP 根目录包含 `index.html` 和 `fbapp-config.json`
 release/meta-instant/profession-ball-arena-meta.zip
 ```
 
+提审和后台上传推进清单见 `docs/meta-launch-plan.md`。
+
 `platform.js` 会在检测到 `window.FBInstant` 时执行：
 
 ```text
@@ -65,7 +67,7 @@ npm run cap:sync
 ## 上架合规默认
 
 - 首次启动必须同意内置《隐私政策》和《用户协议》后才能进入主菜单。
-- 同意前禁用 Firebase Analytics；同意后仅上报基础游戏事件，设置中可以关闭统计，撤回同意会同时关闭统计。
-- 当前版本不接入真实广告或 IAP SDK，仅预留接口。
+- 同意前禁用 Firebase Analytics 和广告；同意后仅上报基础游戏事件并允许展示 AdMob 广告，设置中可以分别关闭统计和广告，撤回同意会同时关闭二者。
+- 当前版本接入 Google AdMob 广告能力，调试构建默认使用 Google 测试广告单元；IAP SDK 仍仅预留接口。
 - 协议同意状态、职业选择和设置保存在本地。
 - 游戏包含轻微卡通/幻想对战元素，不按儿童定向应用设计；提审时按对应商店问卷如实填写内容评级。

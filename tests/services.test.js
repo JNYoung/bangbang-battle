@@ -49,12 +49,53 @@ test("ads test chain returns mock placements safely", async () => {
   const result = await ads.showInterstitial("result");
   assert.equal(result.shown, true);
   assert.equal(result.placement, "result");
-  assert.equal(result.network, "mock");
+  assert.equal(result.network, "mock_game_ads");
   assert.equal(result.render, "canvas_mock");
+  assert.equal(result.game_ad_context, "games");
 
   const banner = ads.getBanner("battle_banner");
   assert.equal(banner.available, true);
   assert.equal(banner.format, "banner");
+});
+
+test("ads delegates to native game ad bridge with game context", async () => {
+  const previousCapacitor = globalThis.Capacitor;
+  const calls = [];
+  globalThis.Capacitor = {
+    Plugins: {
+      GameAds: {
+        initialize(options) {
+          calls.push(["initialize", options]);
+          return { available: true, transport: "native_game_ads" };
+        },
+        getBanner(options) {
+          calls.push(["getBanner", options]);
+          return { available: true, shown: true, placement: options.placement, format: "banner", network: "native_game_ads" };
+        },
+        showInterstitial(options) {
+          calls.push(["showInterstitial", options]);
+          return { shown: true, placement: options.placement, format: "interstitial", network: "native_game_ads" };
+        },
+        hideBanner(options) {
+          calls.push(["hideBanner", options]);
+          return { hidden: true, placement: options.placement };
+        },
+      },
+    },
+  };
+
+  try {
+    assert.equal(ads.mode, "native");
+    assert.equal((await ads.initialize()).transport, "native_game_ads");
+    assert.equal((await ads.showInterstitial("app_open")).network, "native_game_ads");
+    assert.equal((await ads.getBanner("battle_banner", { marginBottom: 24 })).network, "native_game_ads");
+    assert.equal((await ads.hideBanner("battle_banner")).hidden, true);
+    assert.deepEqual(calls.map(([name]) => name), ["initialize", "showInterstitial", "getBanner", "hideBanner"]);
+    assert.equal(calls[1][1].context.category, "games");
+    assert.deepEqual(calls[2][1].context.keywords, ["arcade game", "mobile game", "battle game", "pixel game"]);
+  } finally {
+    globalThis.Capacitor = previousCapacitor;
+  }
 });
 
 test("iap placeholder exposes empty products and restore result", async () => {

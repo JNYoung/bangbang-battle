@@ -1474,12 +1474,16 @@ function createSummonedBearState(ball) {
 }
 
 function setScreen(nextScreen) {
+  const fromScreen = screen;
   screen = nextScreen;
   updateGameplayViewportLockForScreen();
   pointerDownElementId = null;
   legalScrollOffset = 0;
   sceneDropdownOpen = false;
   sceneDropdownLayout = null;
+  if (fromScreen === Screen.PLAYING && nextScreen !== Screen.PLAYING) {
+    void ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
+  }
   if (nextScreen !== Screen.PROFESSION_SELECT) {
     resetProfessionScroll();
   }
@@ -1510,8 +1514,10 @@ async function acceptLegalAndEnterMenu() {
   settings = complianceState.saveSettings({
     ...settings,
     analyticsEnabled: true,
+    adsEnabled: true,
   });
   await syncAnalyticsCollection();
+  await initializeAdsIfAllowed();
   analytics.track(AnalyticsEvents.legalAccept, { version: LegalConfig.version });
   trackGameInitSuccess("legal_accept");
   setScreen(Screen.MAIN_MENU);
@@ -1727,8 +1733,11 @@ function withdrawConsent() {
   settings = complianceState.saveSettings({
     ...settings,
     analyticsEnabled: false,
+    adsEnabled: false,
   });
   void syncAnalyticsCollection();
+  void ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
+  closeActiveAdOverlay("consent_withdrawn");
   hasCheckedLegalConsent = false;
   serviceMessage = t("messages.consentWithdrawn");
   setScreen(Screen.CONSENT);
@@ -1829,7 +1838,19 @@ function trackGameInitSuccess(consentSource = "boot") {
 }
 
 function canShowAds() {
-  return complianceState.hasAcceptedCurrentLegal() && ads.isAvailable();
+  return complianceState.hasAcceptedCurrentLegal() && Boolean(settings.adsEnabled) && ads.isAvailable();
+}
+
+async function initializeAdsIfAllowed() {
+  if (!canShowAds()) {
+    await ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
+    return {
+      available: false,
+      reason: "ads_disabled_or_no_consent",
+    };
+  }
+
+  return ads.initialize();
 }
 
 function trackAdEvent(eventName, placement, result = {}, extraPayload = {}) {
@@ -1855,6 +1876,7 @@ async function maybeShowAppOpenAd(source = "boot") {
   trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "interstitial" }, { source });
 
   try {
+    await initializeAdsIfAllowed();
     const result = await ads.showInterstitial(placement);
     if (!result?.shown) {
       trackAdEvent(AnalyticsEvents.adClose, placement, result || {}, { source, reason: result?.reason || "not_shown" });
@@ -1941,7 +1963,7 @@ function requestBattleBannerAd(timestamp) {
     match_id: matchTelemetry.matchId,
   });
 
-  Promise.resolve(ads.getBanner(placement))
+  Promise.resolve(ads.getBanner(placement, getBattleBannerAdOptions()))
     .then((result) => {
       if (result?.available || result?.shown) {
         adSessionState.battleBanner = result;
@@ -1959,6 +1981,19 @@ function requestBattleBannerAd(timestamp) {
     .finally(() => {
       adSessionState.battleBannerRequestPending = false;
     });
+}
+
+function getBattleBannerAdOptions() {
+  const rect = layout?.battleAd;
+  if (!rect) {
+    return {};
+  }
+
+  return {
+    width: rect.width,
+    height: rect.height,
+    marginBottom: Math.max(0, viewport.height - rect.y - rect.height),
+  };
 }
 
 function trackBattleBannerShown(result) {
@@ -2298,6 +2333,30 @@ async function toggleAnalyticsSetting() {
       previous_value: "off",
     });
     trackGameInitSuccess("analytics_toggle");
+  }
+}
+
+async function toggleAdsSetting() {
+  const previousValue = Boolean(settings.adsEnabled);
+  const nextValue = !previousValue;
+
+  settings = complianceState.saveSettings({
+    ...settings,
+    adsEnabled: nextValue,
+  });
+  trackSettingSelect("ads", nextValue ? "on" : "off", {
+    previous_value: previousValue ? "on" : "off",
+  });
+
+  if (!nextValue) {
+    closeActiveAdOverlay("settings_disabled");
+    await ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
+    return;
+  }
+
+  await initializeAdsIfAllowed();
+  if (screen === Screen.PLAYING) {
+    resetBattleBannerAd();
   }
 }
 
@@ -6734,6 +6793,11 @@ function drawBattleBannerAd() {
 
   trackBattleBannerShown(result);
 
+  if (result.render === "native_banner") {
+    drawNativeBattleBannerSlot(rect);
+    return;
+  }
+
   ctx.save();
   drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
     fill: "#12364b",
@@ -6773,6 +6837,24 @@ function drawBattleBannerAd() {
       });
     },
   });
+}
+
+function drawNativeBattleBannerSlot(rect) {
+  ctx.save();
+  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
+    fill: "#0f1e2c",
+    border: "#37d7ff",
+    shadow: "#050711",
+    inset: "#fff6d6",
+    texture: voxelAssets.blocks.deepslate,
+  });
+  ctx.fillStyle = COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize("AdMob", rect.width - 24, 11, 8, 900), 900);
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("AdMob", rect.x + rect.width / 2, rect.y + rect.height / 2);
+  ctx.restore();
 }
 
 function drawBattleBannerPlaceholder(rect) {
@@ -7369,16 +7451,30 @@ function drawSettingsScreen() {
   y += 14;
 
   const analyticsEnabled = Boolean(settings.analyticsEnabled);
+  const adsEnabled = Boolean(settings.adsEnabled);
+  const settingToggleWidth = (panel.width - 68) / 2;
   drawButton(
     `${t("settings.analytics")}: ${analyticsEnabled ? t("settings.on") : t("settings.off")}`,
     panel.x + 28,
     y,
-    panel.width - 56,
+    settingToggleWidth,
     40,
     toggleAnalyticsSetting,
     {
       active: analyticsEnabled,
       id: "settings-analytics",
+    },
+  );
+  drawButton(
+    `${t("settings.ads")}: ${adsEnabled ? t("settings.on") : t("settings.off")}`,
+    panel.x + 40 + settingToggleWidth,
+    y,
+    settingToggleWidth,
+    40,
+    toggleAdsSetting,
+    {
+      active: adsEnabled,
+      id: "settings-ads",
     },
   );
   y += 52;
@@ -7406,7 +7502,7 @@ function drawSettingsScreen() {
   y = drawWrappedText(
     t("settings.statsInfo", {
       analytics: getAnalyticsStatusText(),
-      ads: ads.isAvailable() ? t("common.enabled") : t("common.unavailable"),
+      ads: getAdsStatusText(),
       iap: t("common.iap"),
     }),
     panel.x + 28,
@@ -7431,6 +7527,14 @@ function getAnalyticsStatusText() {
   }
 
   return analytics.available ? t("common.enabled") : t("common.unavailable");
+}
+
+function getAdsStatusText() {
+  if (!settings.adsEnabled) {
+    return t("settings.off");
+  }
+
+  return ads.isAvailable() ? t("common.enabled") : t("common.unavailable");
 }
 
 function drawLegalDocumentScreen() {
@@ -11915,6 +12019,7 @@ async function bootGame() {
   await initializePlatform();
   GamePlatform.setLoadingProgress(80);
   await syncAnalyticsCollection();
+  await initializeAdsIfAllowed();
   trackGameInitSuccess();
   screen = complianceState.hasAcceptedCurrentLegal() ? Screen.MAIN_MENU : Screen.CONSENT;
   if (screen === Screen.MAIN_MENU) {
