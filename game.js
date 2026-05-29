@@ -201,6 +201,7 @@ const NEUTRAL_SCENE_DROP_TABLE = Object.freeze([
 ]);
 const BATTLE_INTRO_DURATION_SECONDS = 2.35;
 const BATTLE_INTRO_CLASH_TIME_SECONDS = 1.08;
+const BATTLE_INTRO_SIDE_REVEAL_SECONDS = 1.24;
 const RESULT_FIREWORK_CYCLE_SECONDS = 2.7;
 const RESULT_FIREWORK_COUNT = 8;
 
@@ -6928,11 +6929,16 @@ function drawBattleIntroOverlay() {
 
   ctx.save();
   drawBattleIntroVignette(arena, introProgress, fadeOut);
+  drawBattleSideReveal(arena, introAge, fadeOut);
   drawClashTrail(leftCenter, rightCenter, center, ballRadius, clashProgress, fadeOut);
   ctx.globalAlpha = fadeOut;
-  drawPixelClashBall(leftCenter, ballRadius, getSideVisualConfig("A"), 1, introAge);
-  drawPixelClashBall(rightCenter, ballRadius, getSideVisualConfig("B"), -1, introAge + 0.37);
+  const leftVisual = getSideVisualConfig("A");
+  const rightVisual = getSideVisualConfig("B");
+  drawPixelClashBall(leftCenter, ballRadius, leftVisual, 1, introAge);
+  drawPixelClashBall(rightCenter, ballRadius, rightVisual, -1, introAge + 0.37);
   ctx.globalAlpha = 1;
+  drawBattleSideBadge(leftCenter, "A", leftVisual, ballRadius, introAge, fadeOut);
+  drawBattleSideBadge(rightCenter, "B", rightVisual, ballRadius, introAge, fadeOut);
   drawClashSpark(center, ballRadius * (0.8 + impactPulse * 0.5), introAge, (0.65 + clashProgress * 0.55) * fadeOut);
   drawPixelHeadline(getEffectText("battle"), center.x, arena.y + arena.size * 0.18, arena.size * 0.82, clamp(arena.size * 0.08, 28, 58), "#ffd166", fadeOut);
   ctx.restore();
@@ -6948,6 +6954,99 @@ function drawBattleIntroVignette(arena, progress, fadeOut) {
   for (let y = arena.y + scanlineStep; y < arena.y + arena.size; y += scanlineStep * 2) {
     ctx.fillRect(arena.x, Math.round(y), arena.size, 2);
   }
+}
+
+function drawBattleSideReveal(arena, introAge, fadeOut) {
+  const reveal = clamp(1 - introAge / BATTLE_INTRO_SIDE_REVEAL_SECONDS, 0, 1);
+  if (reveal <= 0) {
+    return;
+  }
+
+  const alpha = easeOutCubic(reveal) * fadeOut;
+  const leftVisual = getSideVisualConfig("A");
+  const rightVisual = getSideVisualConfig("B");
+  const centerX = arena.x + arena.size / 2;
+  const cell = Math.max(4, Math.round(arena.size / 86));
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(arena.x, arena.y, arena.size, arena.size);
+  ctx.clip();
+
+  ctx.globalAlpha = alpha * 0.3;
+  ctx.fillStyle = leftVisual.color;
+  ctx.fillRect(arena.x, arena.y, arena.size / 2, arena.size);
+  ctx.fillStyle = rightVisual.color;
+  ctx.fillRect(centerX, arena.y, arena.size / 2, arena.size);
+
+  ctx.globalAlpha = alpha * 0.42;
+  drawBattleSideScanBlocks(arena.x, arena.y, arena.size / 2, arena.size, cell, leftVisual.accentColor, -1, introAge);
+  drawBattleSideScanBlocks(centerX, arena.y, arena.size / 2, arena.size, cell, rightVisual.accentColor, 1, introAge + 0.35);
+
+  ctx.globalAlpha = alpha;
+  drawPixelLine(ctx, { x: centerX - cell, y: arena.y }, { x: centerX - cell, y: arena.y + arena.size }, cell * 2, "#050711");
+  drawPixelLine(ctx, { x: centerX, y: arena.y }, { x: centerX, y: arena.y + arena.size }, cell, "#fff6d6");
+
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(centerX - cell * 4, arena.y + cell * 5, cell * 8, cell * 3);
+  ctx.fillRect(centerX - cell * 4, arena.y + arena.size - cell * 8, cell * 8, cell * 3);
+  ctx.fillStyle = "#ffd166";
+  ctx.fillRect(centerX - cell * 3, arena.y + cell * 6, cell * 6, cell);
+  ctx.fillRect(centerX - cell * 3, arena.y + arena.size - cell * 7, cell * 6, cell);
+  ctx.restore();
+}
+
+function drawBattleSideScanBlocks(x, y, width, height, cell, color, direction, time) {
+  const step = cell * 7;
+  const offset = Math.round((time * 70) % step);
+
+  ctx.fillStyle = color;
+  for (let row = 0; row < 8; row += 1) {
+    const blockY = y + cell * 5 + row * step;
+    const slide = direction < 0 ? width - offset - row * cell * 2 : offset + row * cell * 2;
+    const blockX = x + positiveModulo(slide, Math.max(step, width - cell * 10));
+    ctx.fillRect(Math.round(blockX), Math.round(blockY), cell * 7, cell);
+  }
+}
+
+function drawBattleSideBadge(center, side, visual, ballRadius, introAge, fadeOut) {
+  const reveal = clamp(1 - introAge / (BATTLE_INTRO_SIDE_REVEAL_SECONDS + 0.18), 0, 1);
+  if (reveal <= 0) {
+    return;
+  }
+
+  const alpha = easeOutCubic(reveal) * fadeOut;
+  const text = getSideLabel(side);
+  const badgeWidth = clamp(ballRadius * 2.24, 82, 138);
+  const badgeHeight = clamp(ballRadius * 0.58, 28, 40);
+  const x = center.x - badgeWidth / 2;
+  const y = center.y - ballRadius - badgeHeight * 0.72;
+  const cell = Math.max(3, Math.round(badgeHeight / 8));
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(Math.round(x + cell * 2), Math.round(y + cell * 2), Math.round(badgeWidth), Math.round(badgeHeight));
+  ctx.fillStyle = visual.color;
+  ctx.fillRect(Math.round(x), Math.round(y), Math.round(badgeWidth), Math.round(badgeHeight));
+  ctx.fillStyle = "rgba(5, 7, 17, 0.7)";
+  ctx.fillRect(Math.round(x + cell * 2), Math.round(y + cell * 2), Math.round(badgeWidth - cell * 4), Math.round(badgeHeight - cell * 4));
+  ctx.strokeStyle = "#050711";
+  ctx.lineWidth = cell;
+  ctx.strokeRect(Math.round(x + cell / 2), Math.round(y + cell / 2), Math.round(badgeWidth - cell), Math.round(badgeHeight - cell));
+  ctx.strokeStyle = visual.accentColor;
+  ctx.lineWidth = Math.max(2, cell - 1);
+  ctx.strokeRect(Math.round(x + cell * 2), Math.round(y + cell * 2), Math.round(badgeWidth - cell * 4), Math.round(badgeHeight - cell * 4));
+
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = canvasFont(getFittedFontSize(text, badgeWidth - cell * 8, badgeHeight * 0.42, 11, 900), 900);
+  ctx.fillStyle = "#050711";
+  ctx.fillText(text, x + badgeWidth / 2 + cell, y + badgeHeight / 2 + cell);
+  ctx.fillStyle = "#fff6d6";
+  ctx.fillText(text, x + badgeWidth / 2, y + badgeHeight / 2);
+  ctx.restore();
 }
 
 function drawClashTrail(leftCenter, rightCenter, center, ballRadius, progress, fadeOut) {
@@ -7378,15 +7477,27 @@ function drawResultOverlay() {
   const winnerVisual = resultWinnerSide === "draw" ? SIDE_VISUAL_CONFIG.F : getSideVisualConfig(resultWinnerSide);
 
   drawVictoryFireworks(celebrationAge, winnerVisual);
-  drawPixelHeadline(
-    getResultCelebrationHeadline(),
-    viewport.width / 2,
-    Math.max(44, panelY - 42),
-    Math.min(viewport.width - 32, 520),
-    clamp(viewport.width * 0.072, 30, 56),
-    winnerVisual.accentColor,
-    1,
-  );
+  if (resultWinnerSide === "draw") {
+    drawPixelHeadline(
+      getResultCelebrationHeadline(),
+      viewport.width / 2,
+      Math.max(44, panelY - 42),
+      Math.min(viewport.width - 32, 520),
+      clamp(viewport.width * 0.072, 30, 56),
+      winnerVisual.accentColor,
+      1,
+    );
+  } else {
+    drawVictoryPixelHeadline(
+      getResultCelebrationHeadline(),
+      viewport.width / 2,
+      Math.max(52, panelY - 42),
+      Math.min(viewport.width - 32, 520),
+      clamp(viewport.width * 0.082, 34, 64),
+      celebrationAge,
+      1,
+    );
+  }
 
   drawPanel({ x: panelX, y: panelY, width: panelWidth, height: panelHeight });
   ctx.fillStyle = COLORS.text;
@@ -7478,6 +7589,81 @@ function drawPixelFireworkBurst(center, progress, colors, seed) {
     }
   }
   ctx.restore();
+}
+
+function drawVictoryPixelHeadline(text, x, y, maxWidth, desiredFontSize, time, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const fontSize = getFittedFontSize(text, maxWidth, desiredFontSize, 22, 900);
+  ctx.font = canvasFont(fontSize, 900);
+  const textWidth = ctx.measureText(text).width;
+  const cell = Math.max(4, Math.round(fontSize / 12));
+  const plateWidth = Math.min(maxWidth, Math.max(textWidth + cell * 14, fontSize * 3.35));
+  const plateHeight = Math.round(fontSize * 1.35);
+
+  drawVictoryHeadlinePlate(x, y, plateWidth, plateHeight, cell, time);
+
+  ctx.font = canvasFont(fontSize, 900);
+  ctx.lineJoin = "miter";
+  ctx.miterLimit = 2;
+  ctx.lineWidth = Math.max(10, Math.round(fontSize * 0.22));
+  ctx.strokeStyle = "#050711";
+  ctx.strokeText(text, x + cell * 1.2, y + cell * 1.2);
+  ctx.lineWidth = Math.max(5, Math.round(fontSize * 0.11));
+  ctx.strokeStyle = "#fff6d6";
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = "#ffb3a6";
+  ctx.fillText(text, x - cell * 0.7, y - cell * 0.7);
+  ctx.fillStyle = "#e11d2e";
+  ctx.fillText(text, x, y);
+  ctx.fillStyle = "rgba(127, 16, 24, 0.72)";
+  ctx.fillText(text, x + cell * 0.75, y + cell * 0.75);
+  ctx.fillStyle = "#ef233c";
+  ctx.fillText(text, x, y);
+
+  drawVictoryHeadlineShards(x, y, plateWidth, plateHeight, cell, time);
+  ctx.restore();
+}
+
+function drawVictoryHeadlinePlate(x, y, width, height, cell, time) {
+  const left = Math.round(x - width / 2);
+  const top = Math.round(y - height / 2);
+  const pulse = 0.55 + Math.sin(time * 8) * 0.12;
+
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(left + cell * 2, top + cell * 3, width, height);
+  ctx.fillStyle = "rgba(55, 8, 16, 0.92)";
+  ctx.fillRect(left, top + cell, width, height - cell * 2);
+  ctx.fillStyle = "rgba(127, 16, 24, 0.95)";
+  ctx.fillRect(left + cell * 2, top, width - cell * 4, height);
+  ctx.fillStyle = `rgba(255, 209, 102, ${pulse})`;
+  ctx.fillRect(left + cell * 3, top + cell * 2, width - cell * 6, cell);
+  ctx.fillStyle = "#050711";
+  ctx.fillRect(left - cell * 3, top + cell * 4, cell * 7, cell * 3);
+  ctx.fillRect(left + width - cell * 4, top + height - cell * 7, cell * 7, cell * 3);
+  ctx.fillStyle = "#ff2d3f";
+  ctx.fillRect(left - cell * 2, top + cell * 5, cell * 5, cell);
+  ctx.fillRect(left + width - cell * 3, top + height - cell * 6, cell * 5, cell);
+}
+
+function drawVictoryHeadlineShards(x, y, width, height, cell, time) {
+  const colors = ["#ef233c", "#ff6b24", "#ffd166", "#fff6d6"];
+
+  for (let index = 0; index < 12; index += 1) {
+    const side = index % 2 === 0 ? -1 : 1;
+    const orbit = time * 1.7 + index * 1.13;
+    const px = x + side * (width * 0.45 + Math.sin(orbit) * cell * 5);
+    const py = y - height * 0.2 + Math.cos(orbit * 1.4) * height * 0.55;
+    const size = cell + (index % 3) * 2;
+    ctx.fillStyle = "#050711";
+    ctx.fillRect(Math.round(px - size / 2 - 2), Math.round(py - size / 2 - 2), size + 4, size + 4);
+    ctx.fillStyle = colors[index % colors.length];
+    ctx.fillRect(Math.round(px - size / 2), Math.round(py - size / 2), size, size);
+  }
 }
 
 function drawPixelHeadline(text, x, y, maxWidth, desiredFontSize, color, alpha = 1) {
