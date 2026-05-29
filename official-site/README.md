@@ -13,7 +13,7 @@ npm run preview
 ## 上线前必须替换
 
 - `public/app-ads.txt`：将 `pub-0000000000000000` 替换为 AdMob 后台提供的真实发布商 ID。
-- 页面中的 `待配置官网域名`：替换为实际官网域名，并确保该域名和商店后台填写的开发者网站一致。
+- 页面中的官网域名已配置为 `professionballarena.top`，请确保该域名和商店后台填写的开发者网站一致。
 
 已配置：
 
@@ -24,6 +24,6 @@ npm run preview
 
 - 官网使用 HTTPS 部署。
 - `/app-ads.txt` 必须位于域名根路径，并返回 HTTP 200。
-- 隐私政策 URL 建议填写 `https://你的域名/privacy/`。
-- 支持 URL 建议填写 `https://你的域名/support/`。
+- 隐私政策 URL 建议填写 `https://professionballarena.top/privacy/`。
+- 支持 URL 建议填写 `https://professionballarena.top/support/`。
 - 如启用 AdMob SDK，应同步更新应用内同意流程、隐私政策、商店数据安全表单和内容分级信息。
