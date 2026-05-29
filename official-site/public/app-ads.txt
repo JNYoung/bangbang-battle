@@ -1,3 +1,1 @@
-# Replace this placeholder with the exact line from your AdMob account before production deployment.
-# AdMob path: Apps > View all apps > app-ads.txt.
-google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0
+google.com, pub-2481288993515154, DIRECT, f08c47fec0942fa0
