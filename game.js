@@ -206,6 +206,15 @@ const BATTLE_INTRO_CLASH_TIME_SECONDS = 1.08;
 const BATTLE_INTRO_SIDE_REVEAL_SECONDS = 1.24;
 const RESULT_FIREWORK_CYCLE_SECONDS = 2.7;
 const RESULT_FIREWORK_COUNT = 8;
+const PLAYER_PROGRESS_STORAGE_KEY = "bangbang.playerProgress";
+const DAILY_WIN_GOAL = 3;
+const DAILY_MATCH_GOAL = 5;
+const MASTERY_MATCHES_PER_LEVEL = 3;
+const QUICK_START_MATCHUPS = Object.freeze([
+  { scene: DEFAULT_SCENE_ID, a: "spear", b: "blade" },
+  { scene: DEFAULT_SCENE_ID, a: "shield", b: "assassin" },
+  { scene: DEFAULT_SCENE_ID, a: "archer", b: "chain" },
+]);
 
 let balls = [];
 let gameOver = false;
@@ -261,6 +270,8 @@ let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
 let matchTelemetry = createMatchTelemetryState();
 let performanceStats = createPerformanceStatsState();
+let playerProgress = loadPlayerProgress();
+let resultInsight = null;
 let activeAdOverlay = null;
 let adSessionState = createAdSessionState();
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
@@ -1326,6 +1337,25 @@ function randomizeAndStartGame(mode) {
   startGame();
 }
 
+function quickStartGame() {
+  const matchup = getQuickStartMatchup();
+  selectedProfessions = normalizeSelectedProfessions(matchup, ProfessionConfig);
+  activeProfessionSide = "a";
+  resetProfessionScroll();
+  sceneDropdownOpen = false;
+  serviceMessage = t("messages.quickStart", {
+    professionA: getProfessionName(selectedProfessions.a),
+    professionB: getProfessionName(selectedProfessions.b),
+  });
+  startGame();
+}
+
+function getQuickStartMatchup() {
+  const progress = getCurrentPlayerProgress();
+  const totalMatches = progress.daily.matches + getTotalMasteryMatches(progress);
+  return QUICK_START_MATCHUPS[totalMatches % QUICK_START_MATCHUPS.length] || QUICK_START_MATCHUPS[0];
+}
+
 function getSceneName(sceneId) {
   return t(SceneConfig[sceneId]?.nameKey || SceneConfig.classic.nameKey);
 }
@@ -1628,6 +1658,7 @@ function restartGame() {
   nextItemSpawnTime = 0;
   gameOver = false;
   resultMessage = "";
+  resultInsight = null;
   elapsedTimeSeconds = 0;
   matchElapsedTimeSeconds = 0;
   matchTelemetry = createMatchTelemetryState();
@@ -1747,6 +1778,7 @@ function returnToMenu() {
   cryptBeetleCounter = 0;
   gameOver = false;
   resultMessage = "";
+  resultInsight = null;
   setScreen(Screen.MAIN_MENU);
 }
 
@@ -1771,6 +1803,119 @@ async function restorePurchases() {
   analytics.track(AnalyticsEvents.restorePurchases, result);
 }
 
+function getCurrentPlayerProgress() {
+  playerProgress = normalizePlayerProgress(playerProgress);
+  return playerProgress;
+}
+
+function loadPlayerProgress() {
+  return normalizePlayerProgress(safeParseStorageJson(PLAYER_PROGRESS_STORAGE_KEY, {}));
+}
+
+function savePlayerProgress() {
+  safeSetStorageJson(PLAYER_PROGRESS_STORAGE_KEY, getCurrentPlayerProgress());
+}
+
+function normalizePlayerProgress(progress = {}) {
+  const todayKey = getLocalDateKey();
+  const savedDaily = progress.dateKey === todayKey && progress.daily ? progress.daily : {};
+  const mastery = progress.mastery && typeof progress.mastery === "object" ? progress.mastery : {};
+
+  return {
+    dateKey: todayKey,
+    daily: {
+      matches: Math.max(0, Number.parseInt(savedDaily.matches, 10) || 0),
+      wins: Math.max(0, Number.parseInt(savedDaily.wins, 10) || 0),
+    },
+    mastery: normalizeMasteryProgress(mastery),
+    lastResult: progress.lastResult && typeof progress.lastResult === "object" ? progress.lastResult : null,
+  };
+}
+
+function normalizeMasteryProgress(mastery) {
+  return Object.fromEntries(
+    Object.entries(mastery)
+      .filter(([roleId]) => Boolean(getCombatantConfig(roleId)))
+      .map(([roleId, roleProgress]) => [
+        roleId,
+        {
+          matches: Math.max(0, Number.parseInt(roleProgress?.matches, 10) || 0),
+          wins: Math.max(0, Number.parseInt(roleProgress?.wins, 10) || 0),
+        },
+      ]),
+  );
+}
+
+function recordPlayerProgress(winnerSide, insight) {
+  const progress = getCurrentPlayerProgress();
+  progress.daily.matches += 1;
+  if (winnerSide === "A") {
+    progress.daily.wins += 1;
+  }
+
+  const ownRole = getAnalyticsRoleForSide("A");
+  if (ownRole !== "none" && ownRole !== "item_ball" && getCombatantConfig(ownRole)) {
+    const roleProgress = progress.mastery[ownRole] || { matches: 0, wins: 0 };
+    roleProgress.matches += 1;
+    if (winnerSide === "A") {
+      roleProgress.wins += 1;
+    }
+    progress.mastery[ownRole] = roleProgress;
+  }
+
+  progress.lastResult = {
+    winnerSide,
+    ownRole,
+    opponentRole: getAnalyticsRoleForSide("B"),
+    reason: insight?.reason || "",
+    dateKey: progress.dateKey,
+  };
+  savePlayerProgress();
+}
+
+function getLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getTotalMasteryMatches(progress = getCurrentPlayerProgress()) {
+  return Object.values(progress.mastery).reduce((total, roleProgress) => total + (roleProgress.matches || 0), 0);
+}
+
+function getFeaturedMasteryEntry(progress = getCurrentPlayerProgress()) {
+  return Object.entries(progress.mastery)
+    .map(([roleId, roleProgress]) => ({
+      roleId,
+      matches: roleProgress.matches || 0,
+      wins: roleProgress.wins || 0,
+      level: getMasteryLevel(roleProgress.matches || 0),
+    }))
+    .sort((entryA, entryB) => entryB.matches - entryA.matches || entryB.wins - entryA.wins || entryA.roleId.localeCompare(entryB.roleId))[0] || null;
+}
+
+function getMasteryLevel(matches) {
+  return Math.max(1, Math.floor(matches / MASTERY_MATCHES_PER_LEVEL) + 1);
+}
+
+function safeParseStorageJson(key, fallback) {
+  try {
+    const value = globalThis.localStorage?.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeSetStorageJson(key, value) {
+  try {
+    globalThis.localStorage?.setItem(key, JSON.stringify(value));
+  } catch {
+    // Local storage can be unavailable in private browsing or embedded contexts.
+  }
+}
+
 function createMatchTelemetryState() {
   return {
     matchId: createMatchId(),
@@ -1779,6 +1924,8 @@ function createMatchTelemetryState() {
     damageDealtBySide: {},
     damageTakenBySide: {},
     hitSourceCounts: {},
+    hitSourceCountsBySide: {},
+    hitSourceDamageBySide: {},
   };
 }
 
@@ -2265,6 +2412,8 @@ function recordCombatHit(attacker, defender, damage, source = "attack") {
   incrementSideMetric(matchTelemetry.damageDealtBySide, attackerSide, damage);
   incrementSideMetric(matchTelemetry.damageTakenBySide, defenderSide, damage);
   matchTelemetry.hitSourceCounts[source] = (matchTelemetry.hitSourceCounts[source] || 0) + 1;
+  incrementNestedMetric(matchTelemetry.hitSourceCountsBySide, attackerSide, source, 1);
+  incrementNestedMetric(matchTelemetry.hitSourceDamageBySide, attackerSide, source, damage);
 }
 
 function getCombatantTelemetrySide(combatant) {
@@ -2293,6 +2442,11 @@ function getAttackTelemetrySource(attacker, attackVariant = null) {
 
 function incrementSideMetric(metrics, side, value) {
   metrics[side] = (metrics[side] || 0) + value;
+}
+
+function incrementNestedMetric(metrics, side, key, value) {
+  metrics[side] ||= {};
+  metrics[side][key] = (metrics[side][key] || 0) + value;
 }
 
 function getSideMetric(metrics, side) {
@@ -6484,16 +6638,9 @@ function checkGameOver() {
       return;
     }
 
-    gameOver = true;
     const winnerSide = aliveBalls.length === 0 ? "draw" : aliveBalls[0].label;
     resultMessage = aliveBalls.length === 0 ? t("result.draw") : t("result.winnerNoProfession", { side: getSideLabel(aliveBalls[0].label) });
-    startResultCelebration(winnerSide);
-    stopMusic();
-    playGameSound("result", 1);
-    triggerVibration([28, 28, 38], elapsedTimeSeconds);
-    trackPerformanceSnapshot("match_end");
-    analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
-    setScreen(Screen.RESULT);
+    finishMatch(winnerSide);
     return;
   }
 
@@ -6502,9 +6649,15 @@ function checkGameOver() {
     return;
   }
 
-  gameOver = true;
   const winnerSide = getWinnerSide(ballA, ballB);
   resultMessage = getResultText(ballA, ballB);
+  finishMatch(winnerSide);
+}
+
+function finishMatch(winnerSide) {
+  gameOver = true;
+  resultInsight = createMatchResultInsight(winnerSide);
+  recordPlayerProgress(winnerSide, resultInsight);
   startResultCelebration(winnerSide);
   stopMusic();
   playGameSound("result", 1);
@@ -6537,6 +6690,147 @@ function getResultText(ballA, ballB) {
   }
 
   return t("result.winner", { side: getSideLabel("a"), profession: getProfessionName(ballA.profession) });
+}
+
+function createMatchResultInsight(winnerSide) {
+  const sideA = "A";
+  const sideB = "B";
+  const sideADamage = Math.round(getSideMetric(matchTelemetry.damageDealtBySide, sideA));
+  const sideBDamage = Math.round(getSideMetric(matchTelemetry.damageDealtBySide, sideB));
+  const sideAAttacks = getSideMetric(matchTelemetry.attackCountsBySide, sideA);
+  const sideBAttacks = getSideMetric(matchTelemetry.attackCountsBySide, sideB);
+  const winnerDamage = winnerSide === sideB ? sideBDamage : sideADamage;
+  const loserDamage = winnerSide === sideB ? sideADamage : sideBDamage;
+  const winnerAttacks = winnerSide === sideB ? sideBAttacks : sideAAttacks;
+  const loserAttacks = winnerSide === sideB ? sideAAttacks : sideBAttacks;
+  const topSource = winnerSide === "draw" ? null : getTopDamageSourceForSide(winnerSide);
+  const topSourceLabel = topSource ? getHitSourceLabel(topSource.source) : "";
+  const reason = getMatchResultReason({
+    winnerSide,
+    winnerDamage,
+    loserDamage,
+    winnerAttacks,
+    loserAttacks,
+    topSource,
+    topSourceLabel,
+  });
+
+  return {
+    reason,
+    stats: t("result.stats", {
+      sideADamage,
+      sideBDamage,
+      sideAAttacks,
+      sideBAttacks,
+    }),
+    topSourceLabel,
+  };
+}
+
+function getMatchResultReason({ winnerSide, winnerDamage, loserDamage, winnerAttacks, loserAttacks, topSource, topSourceLabel }) {
+  if (winnerSide === "draw") {
+    return getResultReasonLine("reasonDraw");
+  }
+
+  const side = getSideLabel(winnerSide);
+  if (topSource?.damage >= Math.max(12, winnerDamage * 0.36) && topSourceLabel) {
+    return getResultReasonLine(isSpecialHitSource(topSource.source) ? "reasonSpecial" : "reasonSource", {
+      side,
+      source: topSourceLabel,
+    });
+  }
+
+  if (winnerDamage >= loserDamage + 18) {
+    return getResultReasonLine("reasonDamage", { side, damage: winnerDamage });
+  }
+
+  if (winnerAttacks >= loserAttacks + 3) {
+    return getResultReasonLine("reasonAttack", { side, count: winnerAttacks });
+  }
+
+  if (matchElapsedTimeSeconds >= 42) {
+    return getResultReasonLine("reasonEndurance", { side });
+  }
+
+  return getResultReasonLine("reasonClose", { side });
+}
+
+function getResultReasonLine(reasonKey, replacements = {}) {
+  const variantCount = 3;
+  const index = getResultReasonVariantIndex(reasonKey, variantCount);
+  const variantKey = `result.${reasonKey}.${index}`;
+  const variant = t(variantKey, replacements);
+  return variant === variantKey ? t(`result.${reasonKey}`, replacements) : variant;
+}
+
+function getResultReasonVariantIndex(reasonKey, variantCount) {
+  const seed = `${matchTelemetry?.matchId || "match"}:${reasonKey}:${resultWinnerSide}:${Math.round(matchElapsedTimeSeconds)}`;
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0) % variantCount;
+}
+
+function getTopDamageSourceForSide(side) {
+  const sourceDamage = matchTelemetry.hitSourceDamageBySide?.[side] || {};
+  return Object.entries(sourceDamage)
+    .map(([source, damage]) => ({
+      source,
+      damage,
+      count: matchTelemetry.hitSourceCountsBySide?.[side]?.[source] || 0,
+    }))
+    .sort((sourceA, sourceB) => sourceB.damage - sourceA.damage || sourceB.count - sourceA.count)[0] || null;
+}
+
+function isSpecialHitSource(source) {
+  return source.startsWith("hero_") || source.startsWith("item_") || source.includes("spell") || source.includes("explosion");
+}
+
+function getHitSourceLabel(source) {
+  if (source === "hero_attack") {
+    return t("result.sourceHeroAttack");
+  }
+  if (source.startsWith("hero_")) {
+    return getHeroSkillName(source.slice("hero_".length)) || t("result.sourceSkill");
+  }
+  if (source.startsWith("item_building_")) {
+    const buildingId = source.slice("item_building_".length);
+    return t(ItemBuildingConfig[buildingId]?.nameKey || "result.sourceItem");
+  }
+  if (source.startsWith("item_")) {
+    const itemId = source.slice("item_".length);
+    return t(ItemWeaponConfig[itemId]?.nameKey || "result.sourceItem");
+  }
+  if (Object.hasOwn(ProfessionConfig, source) || Object.hasOwn(HeroConfig, source)) {
+    return t("result.sourceRoleAttack", { role: getProfessionName(source) });
+  }
+
+  const sourceLabels = {
+    projectile_explosion: t("result.sourceExplosion"),
+    frost_orbit: t("result.sourceFrost"),
+    collision_drain: t("result.sourceCollision"),
+    poison_tick: t("result.sourcePoison"),
+    static_shock_tick: t("result.sourceStatic"),
+    web_line: t("result.sourceWeb"),
+    flame_trail: t("result.sourceFlame"),
+    venom_spike: t("result.sourcePoison"),
+    summon_bear: getProfessionName("summoner"),
+  };
+  return sourceLabels[source] || t("result.sourceAttack");
+}
+
+function getHeroSkillName(skillId) {
+  for (const hero of Object.values(HeroConfig)) {
+    const skill = hero.skills?.find((candidate) => candidate.id === skillId);
+    if (skill?.nameKey) {
+      return t(skill.nameKey);
+    }
+  }
+
+  return "";
 }
 
 function draw() {
@@ -7394,13 +7688,91 @@ function drawConsentScreen() {
 }
 
 function drawMainMenuScreen() {
-  const panel = getPanelRect(620, 210);
+  const panel = getPanelRect(620, 440);
+  drawAppTitle(panel.y - 22, t("main.subtitle"));
   drawPanel(panel);
 
-  let y = panel.y + 38;
-  drawButton(t("main.start"), panel.x + 28, y, panel.width - 56, 52, openMatchSetup, { id: "main-start" });
-  y += 70;
-  drawButton(t("main.settings"), panel.x + 28, y, panel.width - 56, 46, openMainSettings, { id: "main-settings" });
+  let y = panel.y + 26;
+  drawPanelTitle(t("main.title"), panel.x + 28, y, panel.width - 56);
+  y += 34;
+  y = drawWrappedText(getMainMenuSummary(), panel.x + 28, y, panel.width - 56, 18, COLORS.muted, 13);
+  y += 14;
+
+  drawButton(t("main.quickStart"), panel.x + 28, y, panel.width - 56, 52, quickStartGame, { id: "main-quick-start" });
+  y += 64;
+
+  const halfButtonWidth = (panel.width - 68) / 2;
+  drawButton(t("main.start"), panel.x + 28, y, halfButtonWidth, 44, openMatchSetup, { id: "main-start" });
+  drawButton(t("main.settings"), panel.x + 40 + halfButtonWidth, y, halfButtonWidth, 44, openMainSettings, { id: "main-settings" });
+  y += 62;
+
+  y = drawMainMenuProgress(panel.x + 28, y, panel.width - 56);
+  drawSmallNotice(panel.x + 28, Math.min(panel.y + panel.height - 48, y + 6), panel.width - 56, serviceMessage || t("main.notice"));
+}
+
+function getMainMenuSummary() {
+  if (isCurrentItemMode()) {
+    return t("main.itemSummary", {
+      scene: getSceneName(selectedProfessions.scene),
+    });
+  }
+
+  return t("main.summary", {
+    scene: getSceneName(selectedProfessions.scene),
+    sideA: getSideLabel("a"),
+    professionA: getProfessionName(selectedProfessions.a),
+    sideB: getSideLabel("b"),
+    professionB: getProfessionName(selectedProfessions.b),
+  });
+}
+
+function drawMainMenuProgress(x, y, width) {
+  const progress = getCurrentPlayerProgress();
+  const titleText = t("main.dailyProgressTitle");
+  drawListHeader(titleText, x, y, width);
+  y += 26;
+  y = drawProgressMeter(t("main.dailyWins"), progress.daily.wins, DAILY_WIN_GOAL, x, y, width);
+  y = drawProgressMeter(t("main.dailyMatches"), progress.daily.matches, DAILY_MATCH_GOAL, x, y, width);
+
+  const masteryEntry = getFeaturedMasteryEntry(progress);
+  const masteryText = masteryEntry
+    ? t("main.masteryLine", {
+        role: getProfessionName(masteryEntry.roleId),
+        level: masteryEntry.level,
+        matches: masteryEntry.matches,
+      })
+    : t("main.masteryEmpty");
+  y = drawWrappedText(`${t("main.masteryTitle")}: ${masteryText}`, x, y + 2, width, 18, COLORS.text, 13);
+
+  if (progress.lastResult?.reason) {
+    y = drawWrappedText(`${t("main.lastResultTitle")}: ${progress.lastResult.reason}`, x, y + 4, width, 18, COLORS.muted, 12);
+  }
+
+  return y;
+}
+
+function drawProgressMeter(label, value, goal, x, y, width) {
+  const clampedValue = clamp(value, 0, goal);
+  const progress = goal > 0 ? clampedValue / goal : 0;
+  const labelText = `${label} ${clampedValue}/${goal}`;
+  ctx.save();
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "top";
+  ctx.font = canvasFont(getFittedFontSize(labelText, width, 13, 10, 800), 800);
+  ctx.fillStyle = COLORS.text;
+  ctx.fillText(labelText, getTextStartX(x, width), y);
+
+  const barY = y + 19;
+  const barHeight = 9;
+  ctx.fillStyle = "rgba(5, 7, 17, 0.56)";
+  ctx.fillRect(x, barY, width, barHeight);
+  ctx.fillStyle = "#d9aa55";
+  ctx.fillRect(x, barY, progress > 0 ? Math.max(6, width * progress) : 0, barHeight);
+  ctx.strokeStyle = "rgba(255, 246, 214, 0.24)";
+  ctx.strokeRect(x + 0.5, barY + 0.5, width - 1, barHeight - 1);
+  ctx.restore();
+  return y + 36;
 }
 
 function drawProfessionSelectScreen() {
@@ -7668,21 +8040,35 @@ function drawResultOverlay() {
   ctx.fillStyle = "rgba(8, 11, 15, 0.44)";
   ctx.fillRect(0, 0, viewport.width, viewport.height);
 
-  const panelWidth = Math.min(390, viewport.width - 36);
-  const panelHeight = 220;
-  const panelX = (viewport.width - panelWidth) / 2;
-  const panelY = (viewport.height - panelHeight) / 2;
+  const resultLayout = getResultOverlayLayout();
+  const {
+    panelX,
+    panelY,
+    panelWidth,
+    panelHeight,
+    padding,
+    titleY,
+    infoY,
+    infoBottom,
+    buttonY,
+    buttonHeight,
+    buttonGap,
+    compact,
+  } = resultLayout;
   const celebrationAge = visualElapsedTimeSeconds - resultCelebrationStartedAt;
   const winnerVisual = resultWinnerSide === "draw" ? SIDE_VISUAL_CONFIG.F : getSideVisualConfig(resultWinnerSide);
 
   drawVictoryFireworks(celebrationAge, winnerVisual);
+  const headlineY = compact ? Math.max(30, panelY - 18) : Math.max(52, panelY - 42);
+  const headlineWidth = Math.min(viewport.width - 32, compact ? 360 : 520);
+  const headlineFontSize = compact ? clamp(viewport.width * 0.068, 26, 42) : clamp(viewport.width * 0.082, 34, 64);
   if (resultWinnerSide === "draw") {
     drawPixelHeadline(
       getResultCelebrationHeadline(),
       viewport.width / 2,
-      Math.max(44, panelY - 42),
-      Math.min(viewport.width - 32, 520),
-      clamp(viewport.width * 0.072, 30, 56),
+      headlineY,
+      headlineWidth,
+      compact ? Math.max(24, headlineFontSize - 4) : clamp(viewport.width * 0.072, 30, 56),
       winnerVisual.accentColor,
       1,
     );
@@ -7690,9 +8076,9 @@ function drawResultOverlay() {
     drawVictoryPixelHeadline(
       getResultCelebrationHeadline(),
       viewport.width / 2,
-      Math.max(52, panelY - 42),
-      Math.min(viewport.width - 32, 520),
-      clamp(viewport.width * 0.082, 34, 64),
+      headlineY,
+      headlineWidth,
+      headlineFontSize,
       celebrationAge,
       1,
     );
@@ -7703,16 +8089,127 @@ function drawResultOverlay() {
   setCanvasDirection(ctx);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = canvasFont(getFittedFontSize(resultMessage, panelWidth - 56, 24, 14, 900), 900);
-  ctx.fillText(resultMessage, panelX + panelWidth / 2, panelY + 48);
+  ctx.font = canvasFont(getFittedFontSize(resultMessage, panelWidth - padding * 2, compact ? 21 : 24, 13, 900), 900);
+  ctx.fillText(resultMessage, panelX + panelWidth / 2, titleY);
 
-  const buttonX = panelX + 28;
-  let buttonY = panelY + 84;
-  drawButton(t("result.again"), buttonX, buttonY, panelWidth - 56, 42, startGame, { id: "result-again" });
-  buttonY += 54;
-  drawButton(t("result.setup"), buttonX, buttonY, panelWidth - 56, 42, openMatchSetup, { id: "result-setup" });
-  buttonY += 54;
-  drawButton(t("result.backMain"), buttonX, buttonY, panelWidth - 56, 42, returnToMenu, { id: "result-back-main" });
+  const buttonX = panelX + padding;
+  drawResultInsight(panelX + padding, infoY, panelWidth - padding * 2, Math.max(54, infoBottom - infoY), { compact });
+
+  let currentButtonY = buttonY;
+  drawButton(t("result.again"), buttonX, currentButtonY, panelWidth - padding * 2, buttonHeight, startGame, { id: "result-again" });
+  currentButtonY += buttonHeight + buttonGap;
+  drawButton(t("result.setup"), buttonX, currentButtonY, panelWidth - padding * 2, buttonHeight, openMatchSetup, { id: "result-setup" });
+  currentButtonY += buttonHeight + buttonGap;
+  drawButton(t("result.backMain"), buttonX, currentButtonY, panelWidth - padding * 2, buttonHeight, returnToMenu, { id: "result-back-main" });
+  ctx.restore();
+}
+
+function getResultOverlayLayout() {
+  const safe = getSafeAreaInsets();
+  const visibleHeight = Math.max(260, Math.min(viewport.height, Math.round(window.visualViewport?.height || viewport.height)));
+  const visibleWidth = Math.max(300, Math.min(viewport.width, Math.round(window.visualViewport?.width || viewport.width)));
+  const availableWidth = Math.max(280, visibleWidth - safe.left - safe.right - 28);
+  const availableHeight = Math.max(248, visibleHeight - safe.top - safe.bottom - 28);
+  const panelWidth = Math.min(390, availableWidth);
+  const panelHeight = clamp(Math.min(350, availableHeight), 248, 350);
+  const panelX = safe.left + (availableWidth - panelWidth) / 2 + 14;
+  const panelY = safe.top + (availableHeight - panelHeight) / 2 + 14;
+  const compact = panelHeight < 318 || panelWidth < 360;
+  const padding = compact ? 20 : 28;
+  const buttonHeight = compact ? 36 : 42;
+  const buttonGap = compact ? 9 : 12;
+  const buttonBlockHeight = buttonHeight * 3 + buttonGap * 2;
+  const bottomPadding = compact ? 18 : 24;
+  const buttonY = panelY + panelHeight - bottomPadding - buttonBlockHeight;
+
+  return {
+    panelX,
+    panelY,
+    panelWidth,
+    panelHeight,
+    padding,
+    compact,
+    titleY: panelY + (compact ? 42 : 48),
+    infoY: panelY + (compact ? 70 : 82),
+    infoBottom: buttonY - (compact ? 8 : 12),
+    buttonY,
+    buttonHeight,
+    buttonGap,
+  };
+}
+
+function drawResultInsight(x, y, width, maxHeight = Infinity, options = {}) {
+  const insight = resultInsight || createMatchResultInsight(resultWinnerSide);
+  const compact = Boolean(options.compact);
+  const titleFontSize = compact ? 15 : 17;
+  const reasonFontSize = compact ? 12 : 13;
+  const statsFontSize = compact ? 11 : 12;
+  const reasonLineHeight = compact ? 16 : 18;
+  const statsLineHeight = compact ? 15 : 17;
+  const titleHeight = compact ? 20 : 24;
+  const maxReasonLines = Math.max(1, Math.min(compact ? 2 : 3, Math.floor((maxHeight - titleHeight - statsLineHeight - 4) / reasonLineHeight)));
+
+  drawResultSectionHeader(t("result.analysisTitle"), x, y, width, titleFontSize);
+  y += titleHeight;
+  y = drawWrappedTextLinesLimited(insight.reason, x, y, width, reasonLineHeight, COLORS.text, reasonFontSize, maxReasonLines);
+  y += compact ? 2 : 4;
+  drawSingleLineNotice(insight.stats, x, y, width, statsFontSize, COLORS.muted);
+  return y;
+}
+
+function drawResultSectionHeader(text, x, y, width, fontSize) {
+  ctx.save();
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(text, width, fontSize, 11, 900), 900);
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "top";
+  ctx.fillText(text, getTextStartX(x, width), y);
+  ctx.restore();
+}
+
+function drawWrappedTextLinesLimited(text, x, y, maxWidth, lineHeight, color, fontSize, maxLines) {
+  const lines = wrapTextLines(text, maxWidth, canvasFont(fontSize, 700));
+  const visibleLines = lines.slice(0, Math.max(1, maxLines));
+  if (lines.length > visibleLines.length) {
+    visibleLines[visibleLines.length - 1] = fitTextWithEllipsis(visibleLines[visibleLines.length - 1], maxWidth, canvasFont(fontSize, 700));
+  }
+
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.font = canvasFont(fontSize, 700);
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "top";
+  for (const line of visibleLines) {
+    ctx.fillText(line, getTextStartX(x, maxWidth), y);
+    y += lineHeight;
+  }
+  ctx.restore();
+
+  return y;
+}
+
+function fitTextWithEllipsis(text, maxWidth, font) {
+  const ellipsis = "...";
+  let fittedText = String(text).trimEnd();
+  ctx.save();
+  ctx.font = font;
+  while (fittedText.length > 0 && ctx.measureText(`${fittedText}${ellipsis}`).width > maxWidth) {
+    fittedText = fittedText.slice(0, -1).trimEnd();
+  }
+  ctx.restore();
+  return `${fittedText}${ellipsis}`;
+}
+
+function drawSingleLineNotice(text, x, y, width, fontSize, color) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.font = canvasFont(getFittedFontSize(text, width, fontSize, 9, 800), 800);
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "top";
+  drawSingleLineText(text, x, y, width);
   ctx.restore();
 }
 
