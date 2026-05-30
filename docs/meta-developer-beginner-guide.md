@@ -202,7 +202,7 @@ VITE_META_REWARDED_VIDEO_PLACEMENT_ID=你的_Meta_激励视频广告位_ID npm r
   - `store-assets/screenshots/apple-iphone-69/03-item-mode.png`
   - `store-assets/screenshots/apple-iphone-69/04-hero-battle.png`
   - `store-assets/screenshots/apple-iphone-69/05-settings-privacy.png`
-- 15-30 秒试玩录屏。
+- 15-30 秒试玩录屏：可用 `store-assets/review-videos/profession-ball-arena-meta-review.mp4`，约 25 秒，竖屏 `540 x 960`。
 - 一段审核说明：
 
 ```text
