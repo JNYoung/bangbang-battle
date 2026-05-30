@@ -57,6 +57,7 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "items.bow.name"), "items.bow.name");
     assert.notEqual(translate(locale, "items.pistol.name"), "items.pistol.name");
     assert.notEqual(translate(locale, "items.rocket.name"), "items.rocket.name");
+    assert.notEqual(translate(locale, "items.flamethrower.name"), "items.flamethrower.name");
     assert.notEqual(translate(locale, "items.torch.name"), "items.torch.name");
     assert.notEqual(translate(locale, "items.staff.name"), "items.staff.name");
     assert.notEqual(translate(locale, "items.category.building"), "items.category.building");

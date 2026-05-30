@@ -82,7 +82,7 @@ test("scene config keeps classic and super profession pools separate", () => {
   assert.deepEqual(SceneConfig.super.professionIds, ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo", "static"]);
   assert.equal(SceneConfig[ITEM_SCENE_ID].type, "items");
   assert.deepEqual(getSceneProfessionIds(ITEM_SCENE_ID), []);
-  assert.equal(SceneConfig[ITEM_SCENE_ID].ballHp, 100);
+  assert.equal(SceneConfig[ITEM_SCENE_ID].ballHp, 112);
   assert.equal(SceneConfig[HERO_SCENE_ID].type, "heroes");
   assert.deepEqual(SceneConfig[HERO_SCENE_ID].professionIds, ["demon", "dwarfKing", "minotaur", "elfKing", "wukong", "cryptLord", "zeus"]);
   assert.equal(isHeroScene(HERO_SCENE_ID), true);
@@ -149,7 +149,7 @@ test("hero mode config exposes health, mana, weapons, and skill contracts", () =
 });
 
 test("item mode config is data-driven and numerically valid", () => {
-  assert.equal(ItemModeBallConfig.maxHp, 100);
+  assert.equal(ItemModeBallConfig.maxHp, 112);
   assert.equal(ItemModeBallConfig.attackDamage, 0);
   assert.equal(ItemModeBallConfig.radius > 0, true);
   assert.equal(ItemModeBallConfig.moveSpeed > 0, true);
@@ -168,13 +168,13 @@ test("item mode config is data-driven and numerically valid", () => {
   assert.equal(getItemSpawnInterval(6) < getItemSpawnInterval(2), true);
 
   const weaponIds = Object.keys(ItemWeaponConfig).sort();
-  assert.deepEqual(weaponIds, ["bow", "pistol", "rocket", "spear", "staff", "sword", "torch"]);
+  assert.deepEqual(weaponIds, ["bow", "flamethrower", "pistol", "rocket", "spear", "staff", "sword", "torch"]);
 
   for (const [id, weapon] of Object.entries(ItemWeaponConfig)) {
     assert.equal(weapon.id, id);
     assert.equal(typeof weapon.nameKey, "string");
     assert.equal(weapon.nameKey.startsWith("items."), true);
-    assert.equal(["melee", "projectile", "rocket", "spell"].includes(weapon.kind), true);
+    assert.equal(["melee", "projectile", "rocket", "spell", "cone"].includes(weapon.kind), true);
     assert.equal(weapon.damage > 0, true);
     assert.equal(weapon.cooldown > 0, true);
     assert.equal(weapon.range > 0, true);
@@ -191,6 +191,9 @@ test("item mode config is data-driven and numerically valid", () => {
 
   assert.equal(ItemWeaponConfig.rocket.explosionDamage > 0, true);
   assert.equal(ItemWeaponConfig.rocket.explosionRadius > 0, true);
+  assert.equal(ItemWeaponConfig.flamethrower.kind, "cone");
+  assert.equal(ItemWeaponConfig.flamethrower.minDamage < ItemWeaponConfig.flamethrower.damage, true);
+  assert.equal(ItemWeaponConfig.flamethrower.coneAngle > 0 && ItemWeaponConfig.flamethrower.coneAngle < Math.PI, true);
   assert.equal(ItemWeaponConfig.staff.spellBook.length, 3);
   assert.equal(ItemWeaponConfig.torch.durability, 1);
   assert.equal(ItemWeaponConfig.torch.projectileKind, "torch");

@@ -2,6 +2,7 @@ import {
   ARENA_SIZE,
   ATTACK_COOLDOWN_MULTIPLIER,
   BALL_RADIUS_MULTIPLIER,
+  HeroConfig,
   ITEM_SCENE_ID,
   ItemBuildingConfig,
   ItemModeBallConfig,
@@ -20,14 +21,18 @@ const TARGET_MIN_SECONDS = 18;
 const TARGET_MAX_SECONDS = 75;
 const SIMULATION_LIMIT_SECONDS = 120;
 const STEP_SECONDS = 1 / 60;
-const MATCHUP_SEEDS = Array.from({ length: 48 }, (_, index) => index + 1);
+const MATCHUP_SEED_COUNT = getPositiveIntegerEnv("MATCHUP_SEED_COUNT", 64);
+const ITEM_MODE_SEED_COUNT = getPositiveIntegerEnv("ITEM_MODE_SEED_COUNT", MATCHUP_SEED_COUNT);
+const MATCHUP_SEEDS = Array.from({ length: MATCHUP_SEED_COUNT }, (_, index) => index + 1);
 const PROFESSION_MIN_WIN_RATE = 0.25;
 const PROFESSION_MAX_WIN_RATE = 0.75;
 const MIRROR_MATCHUP_MIN_SIDE_WIN_RATE = 0.3;
 const MIRROR_MATCHUP_MAX_SIDE_WIN_RATE = 0.7;
 const ITEM_MODE_BALL_COUNTS = [2, 3, 4, 5, 6];
-const ITEM_MODE_SEEDS = Array.from({ length: 48 }, (_, index) => index + 1);
+const ITEM_MODE_SEEDS = Array.from({ length: ITEM_MODE_SEED_COUNT }, (_, index) => index + 1);
 const ITEM_MODE_MAX_WINNER_SHARE = 0.75;
+let simulationElapsedSeconds = 0;
+let cryptBeetleCounter = 0;
 
 const DUEL_STARTS = [
   {
@@ -80,23 +85,38 @@ const DUEL_STARTS = [
   },
 ];
 
+function getPositiveIntegerEnv(name, fallback) {
+  const value = Number.parseInt(process.env[name] || "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 class SimulatedBall {
-  constructor({ label, profession, x, y, direction }) {
+  constructor({ label, profession, x, y, direction, config = null }) {
     this.kind = "ball";
     this.label = label;
     this.teamId = label;
     this.owner = null;
     this.isPrimaryCombatant = true;
     this.profession = profession;
-    this.config = ProfessionConfig[profession];
+    this.config = config || getCombatantConfig(profession);
+    this.isHero = isHeroId(profession);
     this.position = { x, y };
     this.velocity = scale(normalize(direction), this.config.moveSpeed);
     this.radius = this.config.radius * BALL_RADIUS_MULTIPLIER;
-    this.hp = this.config.maxHp;
+    this.baseRadius = this.radius;
+    this.maxHp = this.config.maxHp;
+    this.hp = this.maxHp;
+    this.attackDamage = this.config.attackDamage || 0;
     this.attackCooldown = this.config.attackCooldown * ATTACK_COOLDOWN_MULTIPLIER;
     this.weaponRange = this.config.weaponRange;
+    this.maxMp = this.config.maxMp || 0;
+    this.mp = this.maxMp;
+    this.manaRegen = this.config.manaRegen || 0;
     this.lastAttackTime = -Infinity;
     this.attackState = null;
+    this.heroSkillCooldowns = {};
+    this.heroSkillEffects = {};
+    this.rebirthUsed = false;
     this.chainWeaponState = createChainWeaponState(this);
     this.frostOrbitState = createFrostOrbitState(this);
     this.yoyoWeaponState = createYoyoWeaponState(this);
@@ -110,6 +130,8 @@ class SimulatedBall {
     this.shockOwner = null;
     this.poisonUntil = 0;
     this.poisonDamagePerSecond = 0;
+    this.slowMultiplier = 1;
+    this.slowUntil = 0;
     this.lastCollisionAbilityTime = -Infinity;
     this.stationHealState = null;
     this.lastHazardHitTime = -Infinity;
@@ -121,6 +143,7 @@ class SimulatedBall {
   }
 
   update(deltaTime, elapsedSeconds) {
+    regenerateHeroMana(this, deltaTime);
     this.velocity = scale(normalize(this.velocity), getCurrentMoveSpeed(this, elapsedSeconds));
     if (!isBallMovementLocked(this, elapsedSeconds)) {
       this.position.x += this.velocity.x * deltaTime;
@@ -169,14 +192,14 @@ class SimulatedBall {
       return;
     }
 
-    const attackConfig = getAttackAnimationConfig(this.profession);
+    const attackConfig = getBallAttackAnimationConfig(this);
     this.attackState = {
       defender,
       startTime: currentTime,
       duration: attackConfig.duration,
       hitFrame: attackConfig.hitFrame,
       direction: getAttackDirection(this, defender),
-      variant: this.config.getAttackVariant?.(this, defender, currentTime) || null,
+      variant: getHeroAttackVariant(this, defender, currentTime) || this.config.getAttackVariant?.(this, defender, currentTime) || null,
       didDealDamage: false,
     };
     this.lastAttackTime = currentTime;
@@ -184,6 +207,10 @@ class SimulatedBall {
 
   dealAttackDamageTo(defender, normalFromAttackerToDefender, attackVariant = null) {
     if (this.hp <= 0 || defender.hp <= 0) {
+      return 0;
+    }
+
+    if (isHeroSkillDamageBlocked(defender, attackVariant)) {
       return 0;
     }
 
@@ -208,6 +235,8 @@ class SimulatedItemBall {
     this.attackDisabledUntil = 0;
     this.frozenUntil = 0;
     this.paralyzedUntil = 0;
+    this.slowMultiplier = 1;
+    this.slowUntil = 0;
     this.lastHazardHitTime = -Infinity;
     this.lastWebHitTime = -Infinity;
     this.lastFlameHitTime = -Infinity;
@@ -245,7 +274,7 @@ class SimulatedItemBall {
 const matchupSummaries = [];
 const matchupRuns = [];
 for (const scene of Object.values(SceneConfig)) {
-  if (scene.type !== "professions") {
+  if (scene.type !== "professions" && scene.type !== "heroes") {
     continue;
   }
 
@@ -403,10 +432,13 @@ function getAliveCollisionCombatants(balls) {
 
 function simulateMatch(sceneId, aProfession, bProfession, seed = 1) {
   let elapsedSeconds = 0;
+  cryptBeetleCounter = 0;
   let projectiles = [];
   let hazards = [];
   let webLinks = [];
   let flames = [];
+  let spellTrajectories = [];
+  let lightningStrikes = [];
   const start = getDuelStart(seed);
   const ballA = new SimulatedBall({
     label: "A",
@@ -418,19 +450,30 @@ function simulateMatch(sceneId, aProfession, bProfession, seed = 1) {
     profession: bProfession,
     ...start.b,
   });
-  const balls = [ballA, ballB];
+  let balls = [ballA, ballB];
 
   for (let step = 0; step < SIMULATION_LIMIT_SECONDS / STEP_SECONDS; step += 1) {
     elapsedSeconds += STEP_SECONDS;
-    for (const contact of ballA.update(STEP_SECONDS, elapsedSeconds)) {
-      ({ hazards, webLinks } = handleWallAbility(ballA, contact, elapsedSeconds, hazards, webLinks));
-    }
-    for (const contact of ballB.update(STEP_SECONDS, elapsedSeconds)) {
-      ({ hazards, webLinks } = handleWallAbility(ballB, contact, elapsedSeconds, hazards, webLinks));
+    simulationElapsedSeconds = elapsedSeconds;
+    balls = balls.filter((ball) => isPrimaryCombatant(ball) || (ball.hp > 0 && (!ball.expiresAt || ball.expiresAt > elapsedSeconds)));
+    for (const ball of balls) {
+      if (ball.hp <= 0) {
+        continue;
+      }
+      for (const contact of ball.update(STEP_SECONDS, elapsedSeconds)) {
+        ({ hazards, webLinks } = handleWallAbility(ball, contact, elapsedSeconds, hazards, webLinks));
+      }
     }
     flames = updateFlameTrail(ballA, elapsedSeconds, flames);
     flames = updateFlameTrail(ballB, elapsedSeconds, flames);
     updateStatusEffects(balls, STEP_SECONDS, elapsedSeconds);
+    ({ projectiles, spellTrajectories, lightningStrikes } = updateHeroMode(
+      balls,
+      elapsedSeconds,
+      projectiles,
+      spellTrajectories,
+      lightningStrikes,
+    ));
     updateSummonedBear(ballA, STEP_SECONDS, elapsedSeconds);
     updateSummonedBear(ballB, STEP_SECONDS, elapsedSeconds);
     updateStaticCharge(ballA, STEP_SECONDS);
@@ -442,6 +485,8 @@ function simulateMatch(sceneId, aProfession, bProfession, seed = 1) {
     webLinks = webLinks.filter((web) => web.expiresAt > elapsedSeconds);
     flames = flames.filter((flame) => flame.expiresAt > elapsedSeconds);
     updateEnvironmentalHazards(hazards, webLinks, flames, balls, elapsedSeconds);
+    spellTrajectories = updateSpellTrajectories(spellTrajectories, elapsedSeconds, balls);
+    lightningStrikes = updateLightningStrikes(lightningStrikes, elapsedSeconds);
     projectiles = updateProjectiles(projectiles, STEP_SECONDS, elapsedSeconds, balls);
     updateChainWeapon(ballA, STEP_SECONDS);
     updateChainWeapon(ballB, STEP_SECONDS);
@@ -450,6 +495,9 @@ function simulateMatch(sceneId, aProfession, bProfession, seed = 1) {
     updateYoyoWeapon(ballA, STEP_SECONDS, elapsedSeconds);
     updateYoyoWeapon(ballB, STEP_SECONDS, elapsedSeconds);
     forEachOrderedBallPair(balls, elapsedSeconds, (attacker, defender) => {
+      if (areAlliedCombatants(attacker, defender)) {
+        return;
+      }
       updateChainWeaponForPair(attacker, defender, elapsedSeconds);
       updateFrostOrbitForPair(attacker, defender, elapsedSeconds);
       updateYoyoWeaponForPair(attacker, defender, elapsedSeconds);
@@ -967,8 +1015,10 @@ function updateItemAttackForPair(attacker, defender, currentTime, seed, stats, i
   if (weapon.projectileKind === "torch" && weapon.groundFire) {
     spawnSimulatedTorchFire(attacker, defender, weapon, normal, currentTime, itemFlames);
   } else {
-    const damage = damageBall(defender, attackVariant.damage);
-    applySimulatedItemKnockback(attacker, defender, normal, damage, attackVariant, currentTime);
+    const coneHit = weapon.kind === "cone" ? getSimulatedItemConeHit(attacker, defender, weapon) : null;
+    const resolvedVariant = coneHit ? { ...attackVariant, damage: coneHit.damage, knockbackMultiplier: coneHit.knockbackMultiplier } : attackVariant;
+    const damage = damageBall(defender, resolvedVariant.damage);
+    applySimulatedItemKnockback(attacker, defender, normal, damage, resolvedVariant, currentTime);
 
     if (weapon.kind === "rocket" && weapon.explosionDamage > 0) {
       const explosionDamage = damageBall(defender, weapon.explosionDamage * 0.45);
@@ -1015,6 +1065,18 @@ function getSimulatedItemAttackVariant(weapon, attacker, defender, currentTime, 
   return spell;
 }
 
+function getSimulatedItemConeHit(attacker, defender, weapon) {
+  const centerDistance = length(subtract(defender.position, attacker.position));
+  const edgeDistance = Math.max(0, centerDistance - attacker.radius - defender.radius);
+  const distanceProgress = clamp(edgeDistance / Math.max(1, weapon.range), 0, 1);
+  const closeDamage = weapon.damage || 1;
+  const farDamage = weapon.minDamage || Math.max(1, Math.round(closeDamage * 0.42));
+  return {
+    damage: Math.max(1, Math.round(lerp(closeDamage, farDamage, distanceProgress))),
+    knockbackMultiplier: lerp(weapon.knockbackMultiplier || 0.58, (weapon.knockbackMultiplier || 0.58) * 0.72, distanceProgress),
+  };
+}
+
 function applySimulatedItemKnockback(attacker, defender, normalFromAttackerToDefender, damage, attackVariant, elapsedSeconds) {
   if (damage <= 0) {
     return;
@@ -1048,7 +1110,603 @@ function getRemainingHpByLabel(balls) {
   return Object.fromEntries(balls.map((ball) => [ball.label, Math.ceil(ball.hp)]));
 }
 
+function updateHeroMode(balls, currentTime, projectiles, spellTrajectories, lightningStrikes) {
+  for (const hero of getFrameOrderedAliveBalls(balls, currentTime)) {
+    expireHeroSkillEffects(hero, currentTime);
+    useHeroAutoSkills(hero, balls, currentTime, projectiles, spellTrajectories, lightningStrikes);
+  }
+
+  return { projectiles, spellTrajectories, lightningStrikes };
+}
+
+function useHeroAutoSkills(hero, balls, currentTime, projectiles, spellTrajectories, lightningStrikes) {
+  if (!hero.isHero || hero.hp <= 0 || isBallControlLocked(hero, currentTime)) {
+    return false;
+  }
+
+  const skills = [...(hero.config.skills || [])].sort(getHeroAutoSkillPriority);
+  for (const skill of skills) {
+    const handler = getHeroAutoSkillHandler(skill);
+    if (handler && handler(hero, skill, balls, currentTime, projectiles, spellTrajectories, lightningStrikes)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getHeroAutoSkillPriority(skillA, skillB) {
+  return (skillA.autoPriority ?? 99) - (skillB.autoPriority ?? 99);
+}
+
+function getHeroAutoSkillHandler(skill) {
+  if (skill.type === "aoeBurn") {
+    return useHeroManaBurn;
+  }
+  if (skill.type === "homingProjectile") {
+    return useHeroThunderHammer;
+  }
+  if (skill.type === "groundSlam" || skill.type === "warStomp") {
+    return useHeroAreaControlSkill;
+  }
+  if (skill.type === "impale") {
+    return useCryptLordImpale;
+  }
+  if (skill.type === "summonBeetle") {
+    return useCryptLordSummonBeetle;
+  }
+  if (skill.type === "heal") {
+    return useHeroForestBlessing;
+  }
+  if (skill.type === "staffBuff") {
+    return useHeroStaffBuff;
+  }
+  if (skill.type === "delayedLightning") {
+    return useHeroDelayedLightning;
+  }
+  if (skill.type === "divineDescent") {
+    return useHeroDivineDescent;
+  }
+  return null;
+}
+
+function regenerateHeroMana(ball, deltaTime) {
+  if (!ball.maxMp || ball.hp <= 0) {
+    return;
+  }
+
+  ball.mp = Math.min(ball.maxMp, ball.mp + ball.manaRegen * deltaTime);
+}
+
+function useHeroManaBurn(hero, skill, balls, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestHeroSkillTargetInRange(hero, balls, skill);
+  if (!enemy) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  const manaBurned = drainMana(enemy, skill.manaDamage);
+  resolveAttackHit(
+    hero,
+    enemy,
+    getDirectionBetween(hero, enemy),
+    currentTime,
+    createHeroSkillVariant(hero, skill, {
+      damage: skill.damage + Math.floor(manaBurned * 0.25),
+      knockbackMultiplier: skill.knockbackMultiplier,
+    }),
+  );
+  return true;
+}
+
+function useHeroThunderHammer(hero, skill, balls, currentTime, projectiles) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestAliveOpponent(hero, balls);
+  if (!enemy) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  const direction = getProjectileAimDirection(hero, enemy, skill.speed);
+  const position = add(hero.position, scale(direction, hero.radius + skill.spawnOffset));
+  projectiles.push({
+    owner: hero,
+    target: enemy,
+    kind: "thunderHammer",
+    position,
+    previousPosition: { ...position },
+    direction,
+    speed: skill.speed,
+    headRadius: skill.headRadius,
+    collisionRadius: skill.headRadius,
+    shaftLength: skill.shaftLength,
+    shaftRadius: 12,
+    homingStrength: 0.12,
+    variant: createHeroSkillVariant(hero, skill, {
+      damage: skill.damage,
+      stunDuration: skill.stunDuration,
+      knockbackMultiplier: skill.knockbackMultiplier,
+    }),
+  });
+  return true;
+}
+
+function useHeroAreaControlSkill(hero, skill, balls, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const targets = getHeroSkillTargetsInRange(hero, balls, skill);
+  if (targets.length === 0) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  for (const enemy of targets) {
+    resolveAttackHit(
+      hero,
+      enemy,
+      getDirectionBetween(hero, enemy),
+      currentTime,
+      createHeroSkillVariant(hero, skill, {
+        damage: skill.damage,
+        slowMultiplier: skill.slowMultiplier,
+        slowDuration: skill.slowDuration,
+        stunDuration: skill.stunDuration,
+        knockbackMultiplier: skill.knockbackMultiplier,
+      }),
+    );
+  }
+  return true;
+}
+
+function useCryptLordImpale(hero, skill, balls, currentTime, projectiles, spellTrajectories) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestHeroSkillTargetInRange(hero, balls, skill);
+  if (!enemy) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  const direction = getDirectionBetween(hero, enemy);
+  const start = add(hero.position, scale(direction, hero.radius * 0.92));
+  const maxDistance = Math.min(skill.range, getArenaRayDistance(start, direction));
+  spellTrajectories.push({
+    owner: hero,
+    kind: "impale",
+    start,
+    direction,
+    maxDistance,
+    activeLength: skill.activeLength || 120,
+    speed: skill.speed,
+    collisionRadius: skill.collisionRadius,
+    createdAt: currentTime,
+    expiresAt: currentTime + maxDistance / Math.max(1, skill.speed) + 0.28,
+    hitLabels: {},
+    variant: createHeroSkillVariant(hero, skill, {
+      damage: skill.damage,
+      stunDuration: skill.stunDuration,
+      knockbackMultiplier: skill.knockbackMultiplier,
+    }),
+  });
+  hero.lastAttackTime = Math.min(hero.lastAttackTime, currentTime - getBallAttackCooldown(hero) * 0.42);
+  return true;
+}
+
+function useCryptLordSummonBeetle(hero, skill, balls, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestAliveOpponent(hero, balls);
+  if (!enemy || getActiveCryptBeetles(hero, balls, currentTime).length >= skill.maxCount) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  balls.push(createCryptBeetle(hero, skill, enemy, currentTime));
+  return true;
+}
+
+function createCryptBeetle(owner, skill, enemy, currentTime) {
+  cryptBeetleCounter += 1;
+  const enemyDirection = normalize(subtract(enemy.position, owner.position));
+  const side = vectorFromAngle(angleOf(enemyDirection) + Math.PI / 2);
+  const sideSign = cryptBeetleCounter % 2 === 0 ? 1 : -1;
+  const spawnDirection = normalize(add(enemyDirection, scale(side, 0.42 * sideSign)));
+  const radius = skill.radius * BALL_RADIUS_MULTIPLIER;
+  const spawnDistance = owner.radius + radius + 18;
+  const position = clampPointToArena(add(owner.position, scale(spawnDirection, spawnDistance)), radius);
+  const config = createCryptBeetleConfig(skill);
+  const beetle = new SimulatedBall({
+    label: `${owner.label}-beetle-${cryptBeetleCounter}`,
+    profession: "cryptBeetle",
+    x: position.x,
+    y: position.y,
+    direction: spawnDirection,
+    config,
+  });
+
+  beetle.kind = "cryptBeetle";
+  beetle.owner = owner;
+  beetle.teamId = owner.teamId;
+  beetle.isPrimaryCombatant = false;
+  beetle.radius = radius;
+  beetle.baseRadius = radius;
+  beetle.hp = skill.maxHp;
+  beetle.maxHp = skill.maxHp;
+  beetle.expiresAt = currentTime + skill.duration;
+  return beetle;
+}
+
+function createCryptBeetleConfig(skill) {
+  return {
+    id: "cryptBeetle",
+    name: "小甲虫",
+    maxHp: skill.maxHp,
+    radius: skill.radius,
+    moveSpeed: skill.moveSpeed,
+    attackDamage: skill.damage,
+    attackCooldown: skill.attackCooldown,
+    weaponRange: skill.weaponRange,
+    attackMode: "beetle",
+    item: {
+      name: "小甲虫利齿",
+      type: "mandibles",
+      animation: "啃咬",
+    },
+    getDamage() {
+      return this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || skill.knockbackMultiplier || 0.28;
+    },
+    isSkillHit() {
+      return false;
+    },
+  };
+}
+
+function getActiveCryptBeetles(hero, balls, currentTime) {
+  return balls.filter((ball) => ball.kind === "cryptBeetle" && ball.owner === hero && ball.hp > 0 && ball.expiresAt > currentTime);
+}
+
+function useHeroForestBlessing(hero, skill, balls, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime) || hero.hp / hero.maxHp > skill.triggerHpRatio) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  healBall(hero, skill.heal);
+  return true;
+}
+
+function useHeroStaffBuff(hero, skill, balls, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestAliveOpponent(hero, balls);
+  if (!enemy || !isInHeroSkillRange(hero, enemy, skill.triggerRange) || !canUseWukongStaffBuffAtDistance(hero, enemy, skill)) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  activateHeroSkillEffect(hero, skill, currentTime);
+  hero.lastAttackTime = Math.min(hero.lastAttackTime, currentTime - getBallAttackCooldown(hero) * 0.58);
+  return true;
+}
+
+function useHeroDelayedLightning(hero, skill, balls, currentTime, projectiles, spellTrajectories, lightningStrikes) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestHeroSkillTargetInRange(hero, balls, skill);
+  if (!enemy) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  const warningDuration = skill.warningDuration || 0.6;
+  const predictionTime = skill.predictionTime || warningDuration;
+  lightningStrikes.push({
+    owner: hero,
+    target: enemy,
+    targetPosition: clampPointToArena(add(enemy.position, scale(enemy.velocity, predictionTime)), skill.radius),
+    targetVelocity: { ...enemy.velocity },
+    targetStartPosition: { ...enemy.position },
+    impactAt: currentTime + warningDuration,
+    expiresAt: currentTime + warningDuration + 0.38,
+    radius: skill.radius,
+    resolved: false,
+    variant: createHeroSkillVariant(hero, skill, {
+      damage: skill.damage,
+      knockbackMultiplier: skill.knockbackMultiplier,
+    }),
+    predictionTime,
+    velocityChangeTolerance: skill.velocityChangeTolerance || 72,
+    positionChangeTolerance: skill.positionChangeTolerance || 40,
+  });
+  return true;
+}
+
+function useHeroDivineDescent(hero, skill, balls, currentTime) {
+  if (!skill || !canUseHeroSkill(hero, skill, currentTime)) {
+    return false;
+  }
+
+  const enemy = getNearestAliveOpponent(hero, balls);
+  const shouldDefend = hero.hp / hero.maxHp <= (skill.triggerHpRatio || 1);
+  const shouldEngage = enemy && isInHeroSkillRange(hero, enemy, skill.triggerRange || 0);
+  if (!shouldDefend && !shouldEngage) {
+    return false;
+  }
+
+  spendHeroSkill(hero, skill, currentTime);
+  hero.hp = Math.min(hero.maxHp, hero.hp + Math.max(1, Math.ceil(hero.hp * (skill.healthMultiplier || 0.1))));
+  activateHeroSkillEffect(hero, skill, currentTime);
+  return true;
+}
+
+function getHeroSkillTargetsInRange(hero, balls, skill) {
+  return getAliveOpponents(hero, balls)
+    .filter((enemy) => isInHeroSkillRange(hero, enemy, skill.range))
+    .sort((enemyA, enemyB) => length(subtract(enemyA.position, hero.position)) - length(subtract(enemyB.position, hero.position)));
+}
+
+function getNearestHeroSkillTargetInRange(hero, balls, skill) {
+  return getHeroSkillTargetsInRange(hero, balls, skill)[0] || null;
+}
+
+function getNearestAliveOpponent(hero, balls) {
+  return getAliveOpponents(hero, balls).sort((enemyA, enemyB) => {
+    return length(subtract(enemyA.position, hero.position)) - length(subtract(enemyB.position, hero.position));
+  })[0] || null;
+}
+
+function getAliveOpponents(ball, balls) {
+  return balls.filter((candidate) => candidate !== ball && candidate.hp > 0 && !areAlliedCombatants(ball, candidate));
+}
+
+function isInHeroSkillRange(hero, enemy, range) {
+  return Number.isFinite(range) && length(subtract(enemy.position, hero.position)) <= range + hero.radius + enemy.radius;
+}
+
+function getHeroSkill(hero, skillId) {
+  return hero.config.skills?.find((skill) => skill.id === skillId) || null;
+}
+
+function canUseHeroSkill(hero, skill, currentTime) {
+  if (hero.mp < skill.manaCost) {
+    return false;
+  }
+
+  if (skill.exclusiveGroup && hasActiveHeroSkillInGroup(hero, skill.exclusiveGroup, currentTime)) {
+    return false;
+  }
+
+  const lastUsedAt = hero.heroSkillCooldowns[skill.id] ?? -Infinity;
+  return currentTime - lastUsedAt >= skill.cooldown;
+}
+
+function spendHeroSkill(hero, skill, currentTime) {
+  hero.mp = Math.max(0, hero.mp - skill.manaCost);
+  hero.heroSkillCooldowns[skill.id] = currentTime;
+}
+
+function createHeroSkillVariant(hero, skill, extra = {}) {
+  return {
+    heroSkillId: skill.id,
+    heroId: hero.profession,
+    isSkillHit: true,
+    ...skill,
+    ...extra,
+  };
+}
+
+function activateHeroSkillEffect(hero, skill, currentTime) {
+  if (!skill.duration || skill.duration <= 0) {
+    return;
+  }
+
+  hero.heroSkillEffects[skill.id] = {
+    id: skill.id,
+    type: skill.type,
+    exclusiveGroup: skill.exclusiveGroup || null,
+    expiresAt: currentTime + skill.duration,
+    staffCount: skill.staffCount || 1,
+    spreadAngle: skill.spreadAngle || 0,
+    rangeMultiplier: skill.rangeMultiplier || 1,
+    damageMultiplier: skill.damageMultiplier || 1,
+    knockbackMultiplier: skill.knockbackMultiplier || null,
+    radiusMultiplier: skill.radiusMultiplier || 1,
+  };
+
+  if (skill.type === "divineDescent") {
+    hero.radius = hero.baseRadius * (skill.radiusMultiplier || 1);
+    hero.position = clampPointToArena(hero.position, hero.radius);
+  }
+}
+
+function expireHeroSkillEffects(hero, currentTime) {
+  if (!hero.heroSkillEffects) {
+    return;
+  }
+
+  for (const [skillId, effect] of Object.entries(hero.heroSkillEffects)) {
+    if (effect.expiresAt <= currentTime) {
+      delete hero.heroSkillEffects[skillId];
+      expireHeroSkillEffect(hero, effect);
+    }
+  }
+}
+
+function getActiveHeroSkillEffect(hero, skillId, currentTime = simulationElapsedSeconds) {
+  const effect = hero.heroSkillEffects?.[skillId] || null;
+  if (!effect) {
+    return null;
+  }
+
+  if (effect.expiresAt <= currentTime) {
+    delete hero.heroSkillEffects[skillId];
+    expireHeroSkillEffect(hero, effect);
+    return null;
+  }
+
+  return effect;
+}
+
+function expireHeroSkillEffect(hero, effect) {
+  if (effect.type === "divineDescent") {
+    hero.radius = hero.baseRadius;
+    hero.position = clampPointToArena(hero.position, hero.radius);
+  }
+}
+
+function hasActiveHeroSkillInGroup(hero, exclusiveGroup, currentTime) {
+  expireHeroSkillEffects(hero, currentTime);
+  return Object.values(hero.heroSkillEffects || {}).some((effect) => effect.exclusiveGroup === exclusiveGroup);
+}
+
+function drainMana(ball, amount) {
+  if (!ball.maxMp || amount <= 0) {
+    return 0;
+  }
+
+  const drained = Math.min(ball.mp, amount);
+  ball.mp = Math.max(0, ball.mp - drained);
+  return drained;
+}
+
+function applySlow(ball, slowMultiplier, slowDuration, currentTime) {
+  ball.slowMultiplier = Math.min(ball.slowMultiplier || 1, slowMultiplier);
+  ball.slowUntil = Math.max(ball.slowUntil || 0, currentTime + slowDuration);
+  keepSpeed(ball, currentTime);
+}
+
+function canUseWukongStaffBuffAtDistance(hero, enemy, skill) {
+  if (hero.profession !== "wukong") {
+    return true;
+  }
+
+  const distanceToEnemy = length(subtract(enemy.position, hero.position));
+  const baseReach = hero.radius + enemy.radius + hero.weaponRange;
+  if (skill.id === "tripleStaff") {
+    return distanceToEnemy <= baseReach + 58;
+  }
+  if (skill.id === "giantStaff") {
+    return distanceToEnemy > baseReach + 24;
+  }
+  return true;
+}
+
+function getBallAttackCooldown(ball) {
+  return ball.attackCooldown;
+}
+
+function updateSpellTrajectories(spellTrajectories, currentTime, balls) {
+  return spellTrajectories.filter((trajectory) => {
+    if (trajectory.expiresAt <= currentTime) {
+      return false;
+    }
+    if (trajectory.kind === "impale") {
+      resolveImpaleTrajectoryCollisions(trajectory, currentTime, balls);
+    }
+    return true;
+  });
+}
+
+function resolveImpaleTrajectoryCollisions(trajectory, currentTime, balls) {
+  const segment = getImpaleActiveSegment(trajectory, currentTime);
+  if (!segment) {
+    return;
+  }
+
+  for (const defender of balls) {
+    const hitKey = defender.label || defender.id;
+    if (
+      !hitKey ||
+      defender.hp <= 0 ||
+      trajectory.hitLabels[hitKey] ||
+      areAlliedCombatants(trajectory.owner, defender)
+    ) {
+      continue;
+    }
+
+    const hit = getSegmentCircleHit(defender.position, defender.radius + trajectory.collisionRadius, segment.start, segment.end);
+    if (!hit) {
+      continue;
+    }
+
+    trajectory.hitLabels[hitKey] = true;
+    resolveAttackHit(trajectory.owner, defender, trajectory.direction, currentTime, trajectory.variant);
+  }
+}
+
+function getImpaleActiveSegment(trajectory, currentTime) {
+  const travel = Math.min(trajectory.maxDistance, Math.max(0, (currentTime - trajectory.createdAt) * trajectory.speed));
+  if (travel <= 0) {
+    return null;
+  }
+
+  const activeStart = Math.max(0, travel - trajectory.activeLength);
+  const activeEnd = Math.min(trajectory.maxDistance, travel);
+  if (activeEnd <= activeStart) {
+    return null;
+  }
+
+  return {
+    start: add(trajectory.start, scale(trajectory.direction, activeStart)),
+    end: add(trajectory.start, scale(trajectory.direction, activeEnd)),
+  };
+}
+
+function updateLightningStrikes(lightningStrikes, currentTime) {
+  return lightningStrikes.filter((strike) => {
+    if (!strike.resolved && currentTime >= strike.impactAt) {
+      strike.resolved = true;
+      resolveLightningStrike(strike, currentTime);
+    }
+    return strike.expiresAt > currentTime;
+  });
+}
+
+function resolveLightningStrike(strike, currentTime) {
+  const defender = strike.target;
+  if (!defender || defender.hp <= 0 || areAlliedCombatants(strike.owner, defender)) {
+    return;
+  }
+
+  const expectedPosition = add(strike.targetStartPosition, scale(strike.targetVelocity, strike.predictionTime));
+  const velocityDelta = length(subtract(defender.velocity, strike.targetVelocity));
+  const positionDelta = length(subtract(defender.position, expectedPosition));
+  const distanceToStrike = length(subtract(defender.position, strike.targetPosition));
+  const stillCommitted =
+    velocityDelta <= strike.velocityChangeTolerance &&
+    positionDelta <= strike.positionChangeTolerance &&
+    distanceToStrike <= strike.radius + defender.radius;
+
+  if (stillCommitted) {
+    resolveAttackHit(strike.owner, defender, normalize(subtract(defender.position, strike.targetPosition)), currentTime, strike.variant);
+  }
+}
+
 function updateAttackForPair(attacker, defender, currentTime, projectiles) {
+  if (areAlliedCombatants(attacker, defender)) {
+    return;
+  }
+
   if (["chainSpin", "frostOrbit", "yoyo", "summonBear", "staticCharge"].includes(attacker.config.attackMode)) {
     return;
   }
@@ -1060,7 +1718,10 @@ function updateAttackForPair(attacker, defender, currentTime, projectiles) {
 
   updateAttackState(attacker, currentTime, projectiles);
 
-  const canStartAttack = attacker.config.attackMode === "projectile" || isInAttackRange(attacker, defender);
+  const canStartAttack =
+    attacker.config.attackMode === "projectile" ||
+    (attacker.config.attackMode === "cone" && isInHeroConeRange(attacker, defender)) ||
+    isInAttackRange(attacker, defender);
   if (!attacker.attackState && canStartAttack) {
     attacker.startAttack(defender, currentTime);
   }
@@ -1094,6 +1755,16 @@ function updateAttackState(attacker, currentTime, projectiles) {
         resolveAttackHit(attacker, attackState.defender, hit.normal, currentTime);
       }
     }
+  } else if (attacker.config.attackMode === "cone") {
+    if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
+      attackState.didDealDamage = true;
+      resolveHeroConeAttack(attacker, attackState.defender, currentTime);
+    }
+  } else if (attacker.config.attackMode === "staff") {
+    if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
+      attackState.didDealDamage = true;
+      resolveHeroStaffAttack(attacker, attackState.defender, currentTime);
+    }
   } else if (!attackState.didDealDamage && progress >= attackState.hitFrame) {
     const normal = normalize(attackState.direction);
     attackState.didDealDamage = true;
@@ -1110,35 +1781,46 @@ function fireProjectile(projectiles, attacker, defender, currentTime) {
     return;
   }
 
-  const weapon = attacker.config.projectileWeapon;
+  const variant = attacker.attackState?.variant || null;
+  const weapon = variant?.heroSkillId === "fireArrow" ? variant : attacker.config.projectileWeapon;
   const direction = getProjectileAimDirection(attacker, defender, weapon.speed);
   const position = add(attacker.position, scale(direction, attacker.radius + weapon.spawnOffset));
   attacker.attackState.direction = direction;
   attacker.lastAttackTime = currentTime;
   projectiles.push({
     owner: attacker,
+    kind: variant?.heroSkillId === "fireArrow" ? "fireArrow" : "projectile",
     position,
+    previousPosition: { ...position },
     direction,
     speed: weapon.speed,
     headRadius: weapon.headRadius,
+    collisionRadius: weapon.headRadius,
     shaftLength: weapon.shaftLength,
+    shaftRadius: weapon.shaftRadius || 4,
+    variant,
   });
 }
 
 function updateProjectiles(projectiles, deltaTime, currentTime, balls) {
   return projectiles.filter((projectile) => {
+    projectile.previousPosition = { ...projectile.position };
+    updateHomingProjectileDirection(projectile);
     projectile.position = add(projectile.position, scale(projectile.direction, projectile.speed * deltaTime));
 
     if (!isProjectileInArena(projectile)) {
       return false;
     }
 
-    const defender = balls.find((ball) => ball !== projectile.owner && ball.hp > 0 && isProjectileHeadColliding(projectile, ball));
+    const defender = balls.find((ball) => {
+      const hit = projectile.owner?.isHero ? getProjectileTrajectoryHit(projectile, ball) : isProjectileHeadColliding(projectile, ball);
+      return ball.hp > 0 && !areAlliedCombatants(projectile.owner, ball) && hit;
+    });
     if (!defender) {
       return true;
     }
 
-    resolveAttackHit(projectile.owner, defender, projectile.direction, currentTime);
+    resolveAttackHit(projectile.owner, defender, projectile.direction, currentTime, projectile.variant);
     return false;
   });
 }
@@ -1156,6 +1838,31 @@ function isProjectileInArena(projectile) {
 function isProjectileHeadColliding(projectile, defender) {
   const headToDefender = subtract(defender.position, projectile.position);
   return length(headToDefender) <= projectile.headRadius + defender.radius;
+}
+
+function updateHomingProjectileDirection(projectile) {
+  if (!projectile.homingStrength || !projectile.target || projectile.target.hp <= 0) {
+    return;
+  }
+
+  const desiredDirection = normalize(subtract(projectile.target.position, projectile.position));
+  projectile.direction = normalize(lerpVector(projectile.direction, desiredDirection, projectile.homingStrength));
+}
+
+function getProjectileTrajectoryHit(projectile, defender) {
+  const sweepHit = getSegmentCircleHit(
+    defender.position,
+    defender.radius + (projectile.collisionRadius || projectile.headRadius),
+    projectile.previousPosition || projectile.position,
+    projectile.position,
+  );
+
+  if (sweepHit) {
+    return sweepHit;
+  }
+
+  const tail = add(projectile.position, scale(projectile.direction, -(projectile.shaftLength || 0)));
+  return getSegmentCircleHit(defender.position, defender.radius + (projectile.shaftRadius || 0), tail, projectile.position);
 }
 
 function updateChainWeapon(ball, deltaTime) {
@@ -1560,6 +2267,10 @@ function updateStatusEffects(balls, deltaTime, currentTime) {
       updateSimulatedGasStationHealing(ball, currentTime);
     }
 
+    if (ball.slowUntil <= currentTime) {
+      ball.slowMultiplier = 1;
+    }
+
     if (ball.hp > 0 && ball.poisonUntil > currentTime && ball.poisonDamagePerSecond > 0) {
       damageBall(ball, ball.poisonDamagePerSecond * deltaTime);
     }
@@ -1672,17 +2383,182 @@ function updateEnvironmentalHazards(hazards, webLinks, flames, balls, currentTim
 }
 
 function resolveAttackHit(attacker, defender, normalFromAttackerToDefender, currentTime, attackVariant = null) {
+  if (tryHeroDodge(defender, attacker, currentTime, attackVariant)) {
+    return 0;
+  }
+
   const damage = attacker.dealAttackDamageTo(defender, normalFromAttackerToDefender, attackVariant);
+  if (damage > 0) {
+    applyHeroAttackVariantEffects(defender, attackVariant, currentTime);
+  }
   applyAttackKnockback(attacker, defender, normalFromAttackerToDefender, damage, currentTime, attackVariant);
   return damage;
+}
+
+function isHeroSkillDamageBlocked(defender, attackVariant) {
+  return Boolean(attackVariant?.heroSkillId && getActiveHeroSkillEffect(defender, "divineDescent"));
+}
+
+function tryHeroDodge(defender, attacker, currentTime, attackVariant = null) {
+  if (defender.profession !== "demon" || attackVariant?.heroSkillId === "manaBurn") {
+    return false;
+  }
+
+  const skill = getHeroSkill(defender, "dodge");
+  if (!skill || !canUseHeroSkill(defender, skill, currentTime)) {
+    return false;
+  }
+
+  const dodgeRoll = seededNoise(Math.floor(currentTime * 100), defender.label.charCodeAt(0), attacker.label.charCodeAt(0), 991);
+  if (dodgeRoll > skill.chance) {
+    return false;
+  }
+
+  spendHeroSkill(defender, skill, currentTime);
+  const sidestep = normalize({ x: -attacker.velocity.y, y: attacker.velocity.x });
+  defender.velocity = add(defender.velocity, scale(sidestep, defender.config.moveSpeed * 0.62));
+  keepSpeed(defender, currentTime);
+  return true;
+}
+
+function applyHeroAttackVariantEffects(defender, attackVariant, currentTime) {
+  if (!attackVariant?.heroSkillId) {
+    return;
+  }
+
+  if (attackVariant.stunDuration > 0) {
+    defender.frozenUntil = Math.max(defender.frozenUntil, currentTime + attackVariant.stunDuration);
+    defender.attackState = null;
+  }
+
+  if (attackVariant.slowDuration > 0 && attackVariant.slowMultiplier > 0) {
+    applySlow(defender, attackVariant.slowMultiplier, attackVariant.slowDuration, currentTime);
+  }
 }
 
 function isInAttackRange(attacker, defender) {
   return (
     attacker.hp > 0 &&
     defender.hp > 0 &&
-    length(subtract(defender.position, attacker.position)) <= attacker.radius + defender.radius + attacker.weaponRange
+    length(subtract(defender.position, attacker.position)) <= attacker.radius + defender.radius + getBallWeaponRange(attacker)
   );
+}
+
+function isInHeroConeRange(attacker, defender) {
+  if (attacker.hp <= 0 || defender.hp <= 0) {
+    return false;
+  }
+
+  const toDefender = subtract(defender.position, attacker.position);
+  if (length(toDefender) > attacker.radius + defender.radius + attacker.weaponRange) {
+    return false;
+  }
+
+  const facing = normalize(attacker.attackState?.direction || attacker.velocity);
+  const targetDirection = normalize(toDefender);
+  const minDot = Math.cos((attacker.config.coneAngle || Math.PI / 2) / 2);
+  return dot(facing, targetDirection) >= minDot;
+}
+
+function resolveHeroConeAttack(attacker, defender, currentTime) {
+  if (!isInHeroConeRange(attacker, defender)) {
+    return 0;
+  }
+
+  return resolveAttackHit(attacker, defender, getDirectionBetween(attacker, defender), currentTime, {
+    damage: attacker.attackDamage,
+    knockbackMultiplier: attacker.config.getKnockbackMultiplier(),
+  });
+}
+
+function resolveHeroStaffAttack(attacker, defender, currentTime) {
+  if (attacker.hp <= 0 || defender.hp <= 0) {
+    return 0;
+  }
+
+  let totalDamage = 0;
+  for (const staff of getWukongStaffSwingHits(attacker, defender, currentTime)) {
+    if (defender.hp <= 0) {
+      break;
+    }
+
+    totalDamage += resolveAttackHit(attacker, defender, staff.hit.normal, currentTime, createWukongStaffAttackVariant(attacker, staff.effect));
+  }
+  return totalDamage;
+}
+
+function createWukongStaffAttackVariant(attacker, effect) {
+  if (!effect) {
+    return null;
+  }
+
+  return {
+    heroSkillId: effect.id,
+    heroId: attacker.profession,
+    isSkillHit: true,
+    damage: Math.max(1, Math.round(attacker.attackDamage * effect.damageMultiplier)),
+    knockbackMultiplier: effect.knockbackMultiplier || attacker.config.getKnockbackMultiplier(),
+  };
+}
+
+function getWukongStaffSwingHits(attacker, defender, currentTime) {
+  const attackState = attacker.attackState;
+  const currentProgress = attackState ? getAttackProgressFromState(attackState, currentTime) : 1;
+  const sampleCount = 7;
+  const hitsByStaff = new Map();
+
+  for (let index = 0; index <= sampleCount; index += 1) {
+    const sampleProgress = lerp(0, clamp(currentProgress, 0, 1), index / sampleCount);
+    for (const staff of getWukongStaffSegments(attacker, currentTime, attackState?.direction, sampleProgress)) {
+      if (hitsByStaff.has(staff.index)) {
+        continue;
+      }
+
+      const hit = getSegmentCircleHit(defender.position, defender.radius + staff.hitRadius, staff.start, staff.end);
+      if (hit) {
+        hitsByStaff.set(staff.index, { ...staff, hit });
+      }
+    }
+  }
+
+  return [...hitsByStaff.values()];
+}
+
+function getWukongStaffSegments(ball, currentTime, renderDirection = null, renderProgress = null) {
+  const effect = getActiveWukongStaffEffect(ball, currentTime);
+  const direction = normalize(renderDirection || ball.attackState?.direction || ball.velocity);
+  const progress = renderProgress ?? 0.55;
+  const staffCount = effect?.staffCount || 1;
+  const spreadAngle = effect?.spreadAngle || 0;
+  const baseAngle = angleOf(direction);
+  const staffConfig = getAttackAnimationConfig("staff");
+  const swingProgress = easeOutCubic(progress);
+  const swingAngle = baseAngle - staffConfig.sweepAngle / 2 + staffConfig.sweepAngle * swingProgress;
+  const side = vectorFromAngle(swingAngle + Math.PI * 0.5);
+  const offsets = staffCount === 3 ? [-spreadAngle, 0, spreadAngle] : [0];
+  const range = getWukongStaffRange(ball, currentTime);
+
+  return offsets.map((angleOffset, index) => {
+    const staffDirection = vectorFromAngle(swingAngle + angleOffset);
+    const sideOffset = staffCount === 3 ? (index - 1) * ball.radius * 0.48 : 0;
+    const base = add(ball.position, scale(side, sideOffset));
+    return {
+      index,
+      effect,
+      start: subtract(base, scale(staffDirection, ball.radius * 0.72)),
+      end: add(base, scale(staffDirection, ball.radius + range)),
+      hitRadius: effect?.id === "giantStaff" ? 14 : 10,
+    };
+  });
+}
+
+function getActiveWukongStaffEffect(ball, currentTime = simulationElapsedSeconds) {
+  return getActiveHeroSkillEffect(ball, "tripleStaff", currentTime) || getActiveHeroSkillEffect(ball, "giantStaff", currentTime);
+}
+
+function getWukongStaffRange(ball, currentTime = simulationElapsedSeconds) {
+  const effect = getActiveHeroSkillEffect(ball, "giantStaff", currentTime);
+  return ball.weaponRange * (effect?.rangeMultiplier || 1);
 }
 
 function getChainWeaponGeometry(ball) {
@@ -1978,7 +2854,30 @@ function damageBall(ball, damage) {
 
   const appliedDamage = Math.min(ball.hp, damage);
   ball.hp = Math.max(0, ball.hp - appliedDamage);
+  tryHeroRebirth(ball, simulationElapsedSeconds);
   return appliedDamage;
+}
+
+function tryHeroRebirth(ball, currentTime) {
+  if (ball.hp > 0 || ball.profession !== "minotaur" || ball.rebirthUsed) {
+    return false;
+  }
+
+  const skill = getHeroSkill(ball, "rebirth");
+  if (!skill) {
+    return false;
+  }
+
+  ball.rebirthUsed = true;
+  ball.hp = ball.maxHp;
+  ball.mp = Math.min(ball.maxMp, Math.max(ball.mp, ball.maxMp * 0.35));
+  ball.frozenUntil = 0;
+  ball.paralyzedUntil = 0;
+  ball.shockUntil = 0;
+  ball.shockDamagePerSecond = 0;
+  ball.shockOwner = null;
+  ball.attackDisabledUntil = currentTime + 0.35;
+  return true;
 }
 
 function healBall(ball, amount) {
@@ -2017,7 +2916,8 @@ function keepSpeed(ball, elapsedSeconds) {
 }
 
 function getCurrentMoveSpeed(ball, elapsedSeconds) {
-  return ball.config.moveSpeed * getSpeedMultiplier(elapsedSeconds);
+  const slowMultiplier = ball.slowUntil > elapsedSeconds ? ball.slowMultiplier || 1 : 1;
+  return ball.config.moveSpeed * getSpeedMultiplier(elapsedSeconds) * slowMultiplier;
 }
 
 function getMatchupSummary(sceneId, aProfession, bProfession, runs) {
@@ -2126,7 +3026,7 @@ function isProfessionSummaryWithinCurve(summary) {
 
 function printResults(matchupSummaries, professionSummaries) {
   console.log(`Target curve: ${TARGET_MIN_SECONDS}-${TARGET_MAX_SECONDS}s`);
-  console.log(`Profession matchup seeds per pair: ${MATCHUP_SEEDS.length}`);
+  console.log(`Combat matchup seeds per pair: ${MATCHUP_SEEDS.length}`);
   console.log(
     `Mirror side-balance target: ${(MIRROR_MATCHUP_MIN_SIDE_WIN_RATE * 100).toFixed(0)}%-${(
       MIRROR_MATCHUP_MAX_SIDE_WIN_RATE * 100
@@ -2144,8 +3044,8 @@ function printResults(matchupSummaries, professionSummaries) {
   }
 
   console.log("");
-  console.log(`Profession win-rate target: ${(PROFESSION_MIN_WIN_RATE * 100).toFixed(0)}%-${(PROFESSION_MAX_WIN_RATE * 100).toFixed(0)}%`);
-  console.log("profession       wins/losses  winRate  status");
+  console.log(`Combatant win-rate target: ${(PROFESSION_MIN_WIN_RATE * 100).toFixed(0)}%-${(PROFESSION_MAX_WIN_RATE * 100).toFixed(0)}%`);
+  console.log("combatant        wins/losses  winRate  status");
   for (const summary of professionSummaries) {
     const status = isProfessionSummaryWithinCurve(summary) ? "PASS" : "FAIL";
     console.log(
@@ -2251,6 +3151,79 @@ function lerp(start, end, progress) {
   return start + (end - start) * progress;
 }
 
+function lerpVector(start, end, progress) {
+  return {
+    x: lerp(start.x, end.x, progress),
+    y: lerp(start.y, end.y, progress),
+  };
+}
+
+function getCombatantConfig(profession) {
+  return HeroConfig[profession] || ProfessionConfig[profession];
+}
+
+function isHeroId(profession) {
+  return Object.hasOwn(HeroConfig, profession);
+}
+
+function getBallAttackAnimationConfig(ball) {
+  if (!ball.isHero) {
+    return getAttackAnimationConfig(ball.profession);
+  }
+
+  if (ball.config.attackMode === "projectile") {
+    return getAttackAnimationConfig("archer");
+  }
+  if (ball.config.attackMode === "dualBlade") {
+    return getAttackAnimationConfig("assassin");
+  }
+  if (ball.config.attackMode === "hammer" || ball.config.attackMode === "cone") {
+    return getAttackAnimationConfig("blade");
+  }
+  if (ball.config.attackMode === "staff") {
+    return getAttackAnimationConfig("staff");
+  }
+  if (ball.config.attackMode === "spear") {
+    return getAttackAnimationConfig("spear");
+  }
+  return getAttackAnimationConfig("default");
+}
+
+function getHeroAttackVariant(attacker, defender, currentTime) {
+  if (attacker.profession !== "elfKing") {
+    return null;
+  }
+
+  const skill = getHeroSkill(attacker, "fireArrow");
+  if (!skill || !canUseHeroSkill(attacker, skill, currentTime)) {
+    return null;
+  }
+
+  spendHeroSkill(attacker, skill, currentTime);
+  return createHeroSkillVariant(attacker, skill, {
+    id: "fire",
+    damage: skill.damage,
+    castType: "projectile",
+    speed: skill.speed,
+    headRadius: skill.headRadius,
+    shaftLength: skill.shaftLength,
+    spawnOffset: skill.spawnOffset,
+    knockbackMultiplier: skill.knockbackMultiplier,
+  });
+}
+
+function getBallWeaponRange(ball) {
+  if (ball.config.attackMode === "staff") {
+    return getWukongStaffRange(ball);
+  }
+
+  return ball.weaponRange;
+}
+
+function getAttackProgressFromState(attackState, currentTime) {
+  return clamp((currentTime - attackState.startTime) / attackState.duration, 0, 1);
+}
+
 function getDirectionBetween(source, target) {
   return normalize(subtract(target.position, source.position));
 }
@@ -2286,6 +3259,22 @@ function getProjectileAimDirection(attacker, defender, projectileSpeed) {
   return normalize(toDefender);
 }
 
+function getArenaRayDistance(start, direction) {
+  const distances = [];
+  if (direction.x > 0) {
+    distances.push((ARENA_SIZE - start.x) / direction.x);
+  } else if (direction.x < 0) {
+    distances.push((0 - start.x) / direction.x);
+  }
+  if (direction.y > 0) {
+    distances.push((ARENA_SIZE - start.y) / direction.y);
+  } else if (direction.y < 0) {
+    distances.push((0 - start.y) / direction.y);
+  }
+
+  return Math.max(0, Math.min(...distances.filter((distance) => distance >= 0)));
+}
+
 function add(a, b) {
   return { x: a.x + b.x, y: a.y + b.y };
 }
@@ -2308,6 +3297,10 @@ function length(vector) {
 
 function vectorFromAngle(angle) {
   return { x: Math.cos(angle), y: Math.sin(angle) };
+}
+
+function angleOf(vector) {
+  return Math.atan2(vector.y, vector.x);
 }
 
 function normalizeAngle(angle) {

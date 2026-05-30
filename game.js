@@ -621,6 +621,26 @@ function createVoxelAssets() {
           H: "#6b4326",
         },
       ),
+      flamethrower: createVoxelSprite(
+        [
+          "......................",
+          "..BBBBBBBBBBBBB.......",
+          ".BSSSSSSSSSSSSBTTT....",
+          "BSSSSSSSSSSSSSBTTOOO..",
+          ".BSSSSSSSSSSSSBTTT....",
+          "..BBBBBBBBBBBBB.......",
+          ".....RRRR............",
+          "....RROOR...........",
+          "....RROOR...........",
+        ],
+        {
+          B: "#050711",
+          S: "#b8bdc7",
+          T: "#d8e0e5",
+          O: "#ff8a2a",
+          R: "#7c2d12",
+        },
+      ),
       bullet: createVoxelSprite(
         [
           "YYYY",
@@ -4596,11 +4616,66 @@ function updateItemAttackState(attacker, currentTime, progress) {
     return;
   }
 
+  if (weapon.kind === "cone" && !attackState.didDealDamage && progress >= attackState.hitFrame) {
+    attackState.didDealDamage = true;
+    resolveItemConeAttack(attacker, weapon, currentTime);
+    return;
+  }
+
   if (weapon.kind === "melee" && !attackState.didDealDamage && progress >= attackState.hitFrame) {
     const normal = normalize(attackState.direction);
     attackState.didDealDamage = true;
     resolveAttackHit(attacker, defender, normal, currentTime, attackState.variant);
   }
+}
+
+function resolveItemConeAttack(attacker, weapon, currentTime) {
+  const hits = balls
+    .filter((ball) => ball.hp > 0 && !areAlliedCombatants(attacker, ball))
+    .map((ball) => ({ ball, hit: getItemConeHit(attacker, ball, weapon) }))
+    .filter(({ hit }) => hit)
+    .sort((a, b) => a.hit.distanceProgress - b.hit.distanceProgress);
+
+  for (const { ball, hit } of hits) {
+    resolveAttackHit(attacker, ball, hit.normal, currentTime, {
+      ...weapon,
+      itemWeaponId: weapon.id,
+      sourceWeaponId: weapon.id,
+      isSkillHit: true,
+      damage: hit.damage,
+      knockbackMultiplier: hit.knockbackMultiplier,
+    });
+  }
+}
+
+function getItemConeHit(attacker, defender, weapon) {
+  if (!weapon || attacker.hp <= 0 || defender.hp <= 0) {
+    return null;
+  }
+
+  const toDefender = subtract(defender.position, attacker.position);
+  const centerDistance = length(toDefender);
+  const edgeDistance = Math.max(0, centerDistance - attacker.radius - defender.radius);
+  if (edgeDistance > weapon.range) {
+    return null;
+  }
+
+  const facing = normalize(attacker.attackState?.direction || attacker.velocity);
+  const targetDirection = centerDistance <= 0.001 ? facing : scale(toDefender, 1 / centerDistance);
+  const minDot = Math.cos((weapon.coneAngle || Math.PI / 2) / 2);
+  if (dot(facing, targetDirection) < minDot) {
+    return null;
+  }
+
+  const distanceProgress = clamp(edgeDistance / Math.max(1, weapon.range), 0, 1);
+  const closeDamage = weapon.damage || 1;
+  const farDamage = weapon.minDamage || Math.max(1, Math.round(closeDamage * 0.42));
+  return {
+    normal: targetDirection,
+    distanceProgress,
+    damage: Math.max(1, Math.round(lerp(closeDamage, farDamage, distanceProgress))),
+    knockbackMultiplier: lerp(weapon.knockbackMultiplier || 0.58, (weapon.knockbackMultiplier || 0.58) * 0.72, distanceProgress),
+  };
 }
 
 function fireProjectile(attacker, defender, currentTime) {
@@ -10336,6 +10411,11 @@ function drawItemWeapon(ctx, ball, weapon, direction, progress) {
     return;
   }
 
+  if (weapon.id === "flamethrower") {
+    drawItemFlamethrowerWeapon(ctx, ball, weapon, direction, progress);
+    return;
+  }
+
   if (weapon.id === "torch") {
     drawItemTorchWeapon(ctx, ball, weapon, direction, progress);
     return;
@@ -10398,6 +10478,62 @@ function drawItemGunWeapon(ctx, ball, weapon, direction, progress) {
     const muzzle = add(center, scale(direction, width * 0.7));
     ctx.fillStyle = "#ffe66d";
     ctx.fillRect(muzzle.x - 5, muzzle.y - 5, 10, 10);
+  }
+  ctx.restore();
+}
+
+function drawItemFlamethrowerWeapon(ctx, ball, weapon, direction, progress) {
+  const baseAngle = angleOf(direction);
+  const center = add(ball.position, scale(direction, ball.radius * 0.88));
+  const recoil = progress === null ? 0 : Math.sin(progress * Math.PI) * 5;
+  const muzzle = add(center, scale(direction, ball.radius * 1.02 - recoil));
+  const isFiring = progress !== null && progress > 0.12 && progress < 0.92;
+  const burstProgress = isFiring ? clamp((progress - 0.12) / 0.8, 0, 1) : 0;
+  const flamePulse = Math.sin(burstProgress * Math.PI);
+
+  ctx.save();
+  if (isFiring) {
+    const coneAngle = weapon.coneAngle || Math.PI / 2;
+    const coneRadius = weapon.range * lerp(0.74, 1.08, flamePulse);
+    drawFlameCone(ctx, muzzle, baseAngle, coneAngle, coneRadius, flamePulse);
+  }
+
+  drawRotatedVoxelSprite(ctx, voxelAssets.items.flamethrower, subtract(center, scale(direction, recoil)), ball.radius * 2.0, baseAngle, {
+    anchorX: 0.18,
+    anchorY: 0.5,
+    shadowOffset: 4,
+  });
+  ctx.restore();
+}
+
+function drawFlameCone(ctx, origin, baseAngle, coneAngle, radius, flamePulse) {
+  const halfAngle = coneAngle / 2;
+  const layers = [
+    { scale: 1, color: "#ff4b1f", alpha: 0.22 },
+    { scale: 0.74, color: "#ff9f1c", alpha: 0.34 },
+    { scale: 0.42, color: "#fff0a3", alpha: 0.42 },
+  ];
+
+  ctx.save();
+  for (const layer of layers) {
+    ctx.globalAlpha = layer.alpha * (0.55 + flamePulse * 0.45);
+    ctx.fillStyle = layer.color;
+    ctx.beginPath();
+    moveToVector(ctx, origin);
+    ctx.arc(origin.x, origin.y, radius * layer.scale, baseAngle - halfAngle * layer.scale, baseAngle + halfAngle * layer.scale);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 0.72;
+  for (let index = 0; index < 6; index += 1) {
+    const distanceProgress = (index + 1) / 7;
+    const flicker = Math.sin(elapsedTimeSeconds * 18 + index * 1.7) * 0.14;
+    const angle = baseAngle + (distanceProgress - 0.5 + flicker) * coneAngle * 0.72;
+    const point = add(origin, scale(vectorFromAngle(angle), radius * distanceProgress * (0.55 + flamePulse * 0.32)));
+    const size = lerp(12, 5, distanceProgress);
+    ctx.fillStyle = index % 2 === 0 ? "#ffd166" : "#ff6b24";
+    ctx.fillRect(point.x - size / 2, point.y - size / 2, size, size);
   }
   ctx.restore();
 }
