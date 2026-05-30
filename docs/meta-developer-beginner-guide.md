@@ -69,6 +69,8 @@ Ad account number: 见 Meta 后台
 
 当前没有添加付款方式，也没有创建真实投放。App 已连接到该业务资产组合，后台提示应用现由 `Profession Ball Arena` 管理；后续可在 Meta Business Suite 中再次核对资产归属。
 
+2026-05-30 复核基础设置页：应用模式仍为开发中，应用类型仍为消费者，分类已是游戏/策略，基础资料页显示已保存。Business portfolio 仍显示未验证；这通常不影响保存基础资料，但后续做高级访问权、商业化或用户数据能力时，可能需要完成公司验证。
+
 ## 2. 添加 Instant Games 能力
 
 进入应用后台后，找类似这些入口：
@@ -117,6 +119,7 @@ Category: Games / Arcade / Casual，按后台选项最接近的填
 - 当前后台基础资料主体已保存；应用图标已上传。HTTPS 证书已修复，隐私政策和服务条款已保存为 `https://`。
 - `用户数据删除` 字段暂时因 Meta 后台校验问题无法保存有效 HTTPS URL，后续提审前需要重新检查该字段。
 - `必要操作` 页面当前没有待处理项目；`应用审核 > 申请` 当前没有未提交内容。
+- Business portfolio 当前未验证；如果后台后续提示公司验证，先准备公司/个人开发者主体资料，再继续提交。
 
 ## 4. 上传游戏 ZIP
 
@@ -160,6 +163,8 @@ VITE_META_REWARDED_VIDEO_PLACEMENT_ID=你的_Meta_激励视频广告位_ID npm r
 当前 Meta ad account 只完成账号创建，没有付款方式和真实投放。Meta 小游戏广告 placement 仍需等 Instant Games / Audience Network 后台路径可用后再创建，并把 placement ID 通过环境变量写入 Meta 构建命令。
 
 当前 Audience Network 已推进到“请完善你的信息”弹窗。继续前需要你确认要提交的国家/地区；点继续后会进入 Meta Audience Network 变现资料开通流程。不要在这里添加付款方式或真实投放，除非你明确要开启商业化结算。
+
+如果只想尽量推进到测试上架准备阶段，可以先完成国家/地区这一步，但遇到支付方式、税务、收款账户、真实投放预算或公司验证提交时暂停复核。
 
 ## 5. 添加测试人员并试玩
 

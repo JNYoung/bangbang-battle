@@ -41,10 +41,12 @@
 - 未添加支付方式，未创建投放广告系列，未开启任何真实广告花费。
 - 2026-05-30 已确认并点击 `Connect`，后台提示成功：应用现由 `Profession Ball Arena` 管理；后续可在 Meta Business Suite 中再次核对业务资产。
 - 2026-05-30 已将 GitHub Pages 自定义域名证书修复完成，并开启 Enforce HTTPS；Meta 后台隐私政策和服务条款 URL 已从临时 `http://` 改为 `https://` 并保存成功。
+- 2026-05-30 再次复核基础设置页：应用仍为 `开发中` + `消费者` 类型，分类为 `游戏 / 策略`，基础资料页显示 `已保存`。
 - 2026-05-30 Meta 后台的 `用户数据删除` 字段对 `https://professionballarena.top/data-deletion/`、`https://professionballarena.top/data-deletion/index.html` 和同域隐私政策 URL 均报 `name_placeholder should represent a valid URL`；清空该字段后可保存。不要回退为 `http://`，后续需在正确 Instant Games 应用或 Meta 表单恢复后重新填写。
 - 当前消费者应用的 Add product 页面只显示 App Events、Audience Network、Facebook 登录、Webhook、Fundraisers；直接访问 Instant Games / Web Hosting 候选后台路径会回到面板或空白页。
 - 2026-05-30 再次进入 Add product 区域确认：仍没有 Instant Games / Web Hosting / Gaming Services 入口。
 - 2026-05-30 进入 Audience Network 变现入口后，后台要求先完善国家/地区并继续开通变现资料；尚未提交该步骤，因为它会把业务资料继续提交到 Meta Audience Network 变现流程。该入口不等同于 Instant Games Web Hosting，暂不能上传小游戏 ZIP。
+- 2026-05-30 Business portfolio 在基础设置页仍显示 `未验证`；目前不影响已保存基础资料，但若后续申请高级访问权、商业化或用户数据能力，可能需要完成公司验证。
 - 新建应用流程当前也只显示 `业务` 和 `消费者` 两种应用类型；选择 `业务` 后下一页只有应用名称、联系邮箱、业务资产组合，没有 Instant Games 入口。
 - `必要操作` 页面显示当前没有任何必要措施。
 - `应用审核 > 申请` 页面显示当前没有未提交内容；本次提交尚未添加任何权限和功能。
@@ -122,10 +124,12 @@
 
 - GitHub Pages HTTPS 已修复，`https://professionballarena.top/privacy/` 可正常访问；Meta 后台隐私政策和服务条款 URL 已保存为 `https://`。
 - App ID `1013763001162439` 已绑定到 `Profession Ball Arena` 业务资产组合。
+- 基础设置已复核为已保存；Business portfolio 仍未验证，后续如 Meta 要求商业化或高级访问权，需要在 Business Suite 完成验证。
 - 确认当前 Meta 账号是否具备 Instant Games Developer Platform 访问权限。
 - 如果后台仍只显示 `业务` / `消费者`，需要先申请或开通 Instant Games / Gaming Services 访问；不要继续创建普通消费者应用。
 - 在出现 Instant Games 应用类型或产品入口后，创建正确应用并进入 Web Hosting / Upload Bundle 页面。
 - 创建 Meta 广告 placement，并把插屏 ID 配置为 `VITE_META_APP_OPEN_AD_PLACEMENT_ID`；如果后续接奖励广告，再配置 `VITE_META_REWARDED_VIDEO_PLACEMENT_ID`。当前仅推进到 Audience Network 开通页，未提交国家/地区和变现资料，且尚无 Instant Games placement ID。
+- 如果你确认继续 Audience Network 变现档案开通，下一步只提交国家/地区并进入后续页面；遇到支付方式、税务或结算资料时先暂停核对。
 - 上传 `release/meta-instant/profession-ball-arena-meta.zip`。
 - 用后台测试入口启动游戏，确认能进入合规弹窗、主菜单和一局战斗。
 
@@ -165,6 +169,7 @@
 - `professionballarena.top` 的 HTTPS 证书已修复并开启强制 HTTPS；Meta 后台隐私政策和服务条款 URL 已保存为 HTTPS。
 - Meta 后台 `用户数据删除` 字段暂时拒绝有效 HTTPS URL，需后续重试或在正确 Instant Games 应用中重新填写。
 - App 已绑定到 `Profession Ball Arena` 业务资产组合；如后台后续要求，需在 Meta Business Suite 再次核对资产归属。
+- Business portfolio 仍显示未验证；如后续申请高级访问权、Audience Network 商业化或 Meta 要求资产验证，需要补公司验证资料。
 - Meta ad account 已创建但没有付款方式；没有支付方式前不能做真实投放或完成完整商业化闭环。
 - Audience Network 变现入口已打开到资料完善弹窗，但需要提交国家/地区后继续；提交前应确认是否要开通该变现档案。
 - 封面图、截图和试玩录屏已有候选素材；还需要按 Meta 后台尺寸要求二次裁切或上传。
