@@ -1,6 +1,6 @@
 # Meta Developer 新手引导
 
-更新日期：2026-05-29
+更新日期：2026-05-30
 
 这份文档面向第一次使用 Meta Developer Dashboard 的开发者。后台字段名称可能会随 Meta 更新略有变化，遇到不一致时以后台页面提示为准，并把截图发给 Codex 继续判断。
 
@@ -23,6 +23,10 @@ release/meta-instant/profession-ball-arena-meta.zip
 - 联系邮箱：`j.n.young0209@gmail.com`
 
 2026-05-29 实操注意：当前 `https://professionballarena.top/...` 证书与域名不匹配，Meta 后台会把 URL 判为无效。临时保存后台时用了 `http://professionballarena.top/...`；提审前必须修复 HTTPS 证书并切回 HTTPS。代码侧 `official-site/public/CNAME` 和 DNS 指向已正确，GitHub Pages 仍提示证书尚未生成，需要等待 GitHub 签发证书或在仓库 Pages 设置里重新检查域名。
+
+2026-05-30 实操注意：应用图标已上传并保存，Meta 上传包已重新构建校验通过。公开域名 HTTPS 证书已签发并开启强制 HTTPS；当前主要阻塞不在本地包体，而在 Meta 后台没有 Instant Games / Web Hosting 入口。
+
+2026-05-30 HTTPS 修复记录：GitHub Pages 自定义域名已重新触发证书签发，`https_certificate.state` 为 `approved`，覆盖 `professionballarena.top` 和 `www.professionballarena.top`，`https_enforced` 已开启。Meta 基础设置里的 URL 已填回 `https://`，等待保存确认。
 
 ## 1. 创建 Meta Developer 应用
 
@@ -52,6 +56,17 @@ App Type: 消费者
 
 这个应用可保留作记录，但当前没有 Instant Games / Web Hosting 入口，不能作为最终上传小游戏 ZIP 的应用。不要删除它，除非你明确确认要清理旧应用。
 
+2026-05-30 已创建业务资产组合和广告账号：
+
+```text
+Business portfolio: Profession Ball Arena
+Business ID: 见 Meta 后台
+Ad account: Profession Ball Arena Ads
+Ad account number: 见 Meta 后台
+```
+
+当前没有添加付款方式，也没有创建真实投放。App 已连接到该业务资产组合，后台提示应用现由 `Profession Ball Arena` 管理；后续可在 Meta Business Suite 中再次核对资产归属。
+
 ## 2. 添加 Instant Games 能力
 
 进入应用后台后，找类似这些入口：
@@ -75,6 +90,7 @@ App Type: 消费者
 - `消费者` 应用的产品入口只显示 App Events、Audience Network、Facebook 登录、Webhook、Fundraisers。
 - 新建应用页当前只显示 `业务` 和 `消费者` 两类；选择 `业务` 后下一页也没有 Instant Games 选项。
 - 这通常意味着当前账号/后台没有开放 Instant Games Developer Platform 访问权限。下一步应先开通或申请该平台访问，而不是继续创建普通应用。
+- 2026-05-30 再次确认 Add product 列表仍没有 Instant Games / Web Hosting，暂时无法上传 `profession-ball-arena-meta.zip`。
 
 ## 3. 配置基础设置
 
@@ -95,6 +111,8 @@ Category: Games / Arcade / Casual，按后台选项最接近的填
 - 隐私政策页面必须公网可访问，不能需要登录。
 - 数据删除说明页面也必须公网可访问。
 - 域名建议只填裸域名 `professionballarena.top`，URL 字段再填完整 `https://...`。
+- 当前后台基础资料主体已保存；应用图标已上传。HTTPS 证书已修复，URL 字段已填回 `https://`，等待保存确认。
+- `必要操作` 页面当前没有待处理项目；`应用审核 > 申请` 当前没有未提交内容。
 
 ## 4. 上传游戏 ZIP
 
@@ -134,6 +152,8 @@ VITE_META_REWARDED_VIDEO_PLACEMENT_ID=你的_Meta_激励视频广告位_ID npm r
 ```
 
 没有配置 Meta placement ID 时，游戏会安全跳过广告请求，不会回退到 AdMob。
+
+当前 Meta ad account 只完成账号创建，没有付款方式和真实投放。Meta 小游戏广告 placement 仍需等 Instant Games / Audience Network 后台路径可用后再创建，并把 placement ID 通过环境变量写入 Meta 构建命令。
 
 ## 5. 添加测试人员并试玩
 

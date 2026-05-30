@@ -1,6 +1,6 @@
 # Meta 小游戏推进计划
 
-更新日期：2026-05-29
+更新日期：2026-05-30
 
 本文按 Meta Instant Games / Facebook Instant Games 上传包方向推进。由于 Meta 后台和审核规则会随账号状态变化，最终字段以登录 Meta Developer Dashboard 后的实时提示为准。
 
@@ -11,6 +11,7 @@
 - 主游戏构建通过：`npm run build`
 - 完整质量检查通过：`npm run test:ci`
 - Meta 上传包已生成并校验：`release/meta-instant/profession-ball-arena-meta.zip`
+- 最近一次包体校验：2026-05-30 执行 `VITE_PLATFORM_TARGET=meta npm run build && node scripts/build-meta.mjs && node scripts/verify-build-artifacts.mjs` 通过。
 - 当前 ZIP 大小约 2.2 MB，根目录包含 `index.html`、`fbapp-config.json` 和静态资源。
 - `fbapp-config.json` 已配置：
   - `platform_version`: `RICH_GAMEPLAY`
@@ -21,28 +22,37 @@
 - 已配置公开域名：`professionballarena.top`
 - `app-ads.txt` 已配置 AdMob 发布商 ID：`pub-2481288993515154`，仅用于 Android/iOS/Google 广告链路；Meta 小游戏广告改走 Meta Instant Games 广告接口。
 
-## 2026-05-29 后台实操记录
+## 2026-05-29/30 后台实操记录
 
 - 已在 Meta Developer 创建应用：`Profession Ball Arena`
 - 当前 App ID：`1013763001162439`
 - 当前应用类型：`消费者`
-- 已填写并保存基础设置：
+- 已填写基础设置；当前 Meta 页面已填回 HTTPS URL，等待点击保存：
   - App domain: `professionballarena.top`
-  - Privacy Policy URL: `http://professionballarena.top/privacy/`
-  - Terms URL: `http://professionballarena.top/terms/`
-  - Data Deletion URL: `http://professionballarena.top/data-deletion/`
+  - Privacy Policy URL: `https://professionballarena.top/privacy/`
+  - Terms URL: `https://professionballarena.top/terms/`
+  - Data Deletion URL: `https://professionballarena.top/data-deletion/`
   - Category: `游戏`
   - Subcategory: `策略`
-- 注意：这里临时使用 `http://`，因为 `https://professionballarena.top/...` 当前证书与域名不匹配，Meta 会把 URL 判定为无效。上线/提审前应修复 GitHub Pages 自定义域名 HTTPS 证书，并改回 `https://`。
+- 2026-05-30 已上传并保存 1024x1024 应用图标。
+- 2026-05-30 已创建 Business portfolio：`Profession Ball Arena`；完整编号保留在 Meta 后台，不写入公开仓库。
+- 2026-05-30 已创建 Meta ad account：`Profession Ball Arena Ads`；完整广告账号编号保留在 Meta 后台，不写入公开仓库。
+- 未添加支付方式，未创建投放广告系列，未开启任何真实广告花费。
+- 2026-05-30 已确认并点击 `Connect`，后台提示成功：应用现由 `Profession Ball Arena` 管理；后续可在 Meta Business Suite 中再次核对业务资产。
+- 2026-05-30 已将 GitHub Pages 自定义域名证书修复完成，并开启 Enforce HTTPS；Meta 后台 URL 已从临时 `http://` 改为 `https://`，等待保存确认。
 - 当前消费者应用的 Add product 页面只显示 App Events、Audience Network、Facebook 登录、Webhook、Fundraisers；直接访问 Instant Games / Web Hosting 候选后台路径会回到面板或空白页。
 - 新建应用流程当前也只显示 `业务` 和 `消费者` 两种应用类型；选择 `业务` 后下一页只有应用名称、联系邮箱、业务资产组合，没有 Instant Games 入口。
+- `必要操作` 页面显示当前没有任何必要措施。
+- `应用审核 > 申请` 页面显示当前没有未提交内容；本次提交尚未添加任何权限和功能。
+- `应用审核 > 权限和功能` 页面显示标准访问权列表。最小单机游戏提审暂不申请高级访问权；如果后续接 Facebook 登录、邮箱或公开资料相关功能，再按后台要求完成验证和审核申请。
 - GitHub Pages 配置已检查：
   - Pages source: `gh-pages`
   - CNAME: `professionballarena.top`
   - `official-site/public/CNAME` 已存在并会构建到 `official-site/dist/CNAME`
   - DNS 健康检查有效，裸域名 A 记录指向 GitHub Pages IP，`www` CNAME 指向 `jnyoung.github.io`
-  - 重新触发 Pages build 后状态为 `built`
-  - 仍不能启用 `https_enforced`，GitHub API 返回 `The certificate does not exist yet`
+  - 2026-05-30 通过 Pages API 清空并重新写回自定义域名后重新触发构建，状态为 `built`
+  - HTTPS certificate state: `approved`，覆盖 `professionballarena.top` 和 `www.professionballarena.top`，到期日 `2026-08-28`
+  - `https_enforced`: `true`
 
 ## 你需要准备的信息
 
@@ -94,7 +104,8 @@
 
 负责人：你 + Codex
 
-- 等待或在 GitHub Pages 设置页重新触发自定义域名证书签发，直到 `https://professionballarena.top/privacy/` 不再报证书错误；然后开启 Enforce HTTPS 并把 Meta 后台 URL 改回 `https://`。
+- GitHub Pages HTTPS 已修复，`https://professionballarena.top/privacy/` 可正常访问；Meta 后台 URL 已填为 `https://`，等待保存确认。
+- App ID `1013763001162439` 已绑定到 `Profession Ball Arena` 业务资产组合。
 - 确认当前 Meta 账号是否具备 Instant Games Developer Platform 访问权限。
 - 如果后台仍只显示 `业务` / `消费者`，需要先申请或开通 Instant Games / Gaming Services 访问；不要继续创建普通消费者应用。
 - 在出现 Instant Games 应用类型或产品入口后，创建正确应用并进入 Web Hosting / Upload Bundle 页面。
@@ -135,9 +146,19 @@
 ## 当前阻塞项
 
 - 当前 Meta 后台没有开放 Instant Games / Web Hosting 入口，现有 App ID `1013763001162439` 是消费者应用，不能作为最终小游戏上传应用使用。
-- `professionballarena.top` 的 HTTPS 证书当前不匹配，需在 GitHub Pages / DNS 侧修复后再改回 HTTPS URL。
-- 需要准备审核素材，尤其是后台指定尺寸的图标、封面图和截图。
-- 需要在 Meta 后台确认最新审核字段；本地网络访问 Meta 文档页面出现超时，不能替代后台实时校验。
+- `professionballarena.top` 的 HTTPS 证书已修复并开启强制 HTTPS；后续只需在 Meta 后台保存 HTTPS URL 并用于提审校验。
+- App 已绑定到 `Profession Ball Arena` 业务资产组合；如后台后续要求，需在 Meta Business Suite 再次核对资产归属。
+- Meta ad account 已创建但没有付款方式；没有支付方式前不能做真实投放或完成完整商业化闭环。
+- 还需要准备封面图、截图和试玩录屏；应用图标已完成。
+- 需要在 Meta 后台确认 Instant Games 解锁后的最新审核字段；后台实时提示优先于本地文档。
+
+## 回归测试重点
+
+- 差异化打包必须持续通过：Meta ZIP 注入 `FBInstant` SDK，且不包含 `@capacitor-community/admob` 导入路径。
+- Meta 广告只能走 `FBInstant.getInterstitialAdAsync()` / `FBInstant.getRewardedVideoAsync()`；缺少 Meta placement ID 时安全跳过，不能回退到 AdMob。
+- Android/iOS 仍走 AdMob，`VITE_ADMOB_MODE=real` 只用于正式移动端发布构建。
+- 每次改动 `services.js`、`platform.js`、`scripts/build-meta.mjs`、`scripts/verify-build-artifacts.mjs` 或广告/合规文案后，至少执行 `npm run lint:syntax && npm test && npm run test:artifacts`。
+- 手工回归时重点检查：首次合规弹窗、主菜单、职业选择、战斗、结算、广告跳过/展示结果、隐私政策/数据删除链接。
 
 ## 常用命令
 
