@@ -22,7 +22,7 @@ release/meta-instant/profession-ball-arena-meta.zip
 - 数据删除说明：`https://professionballarena.top/data-deletion/`
 - 联系邮箱：`j.n.young0209@gmail.com`
 
-2026-05-29 实操注意：当前 `https://professionballarena.top/...` 证书与域名不匹配，Meta 后台会把 URL 判为无效。临时保存后台时用了 `http://professionballarena.top/...`；提审前必须修复 HTTPS 证书并切回 HTTPS。代码侧 `official-site/public/CNAME` 和 DNS 指向已正确，GitHub Pages 仍提示证书尚未生成，需要等待 GitHub 签发证书或在仓库 Pages 设置里重新检查域名。
+2026-05-29 历史记录：当时 `https://professionballarena.top/...` 证书与域名不匹配，Meta 后台会把 URL 判为无效。临时保存后台时用了 `http://professionballarena.top/...`。
 
 2026-05-30 实操注意：应用图标已上传并保存，Meta 上传包已重新构建校验通过。公开域名 HTTPS 证书已签发并开启强制 HTTPS；当前主要阻塞不在本地包体，而在 Meta 后台没有 Instant Games / Web Hosting 入口。
 
@@ -93,6 +93,7 @@ Ad account number: 见 Meta 后台
 - 新建应用页当前只显示 `业务` 和 `消费者` 两类；选择 `业务` 后下一页也没有 Instant Games 选项。
 - 这通常意味着当前账号/后台没有开放 Instant Games Developer Platform 访问权限。下一步应先开通或申请该平台访问，而不是继续创建普通应用。
 - 2026-05-30 再次确认 Add product 列表仍没有 Instant Games / Web Hosting，暂时无法上传 `profession-ball-arena-meta.zip`。
+- 2026-05-30 Audience Network 入口可以打开到变现流程，但下一步要求完善国家/地区并继续提交变现资料。该流程不等同于 Instant Games Web Hosting，不能解决小游戏 ZIP 上传入口问题。
 
 ## 3. 配置基础设置
 
@@ -158,6 +159,8 @@ VITE_META_REWARDED_VIDEO_PLACEMENT_ID=你的_Meta_激励视频广告位_ID npm r
 
 当前 Meta ad account 只完成账号创建，没有付款方式和真实投放。Meta 小游戏广告 placement 仍需等 Instant Games / Audience Network 后台路径可用后再创建，并把 placement ID 通过环境变量写入 Meta 构建命令。
 
+当前 Audience Network 已推进到“请完善你的信息”弹窗。继续前需要你确认要提交的国家/地区；点继续后会进入 Meta Audience Network 变现资料开通流程。不要在这里添加付款方式或真实投放，除非你明确要开启商业化结算。
+
 ## 5. 添加测试人员并试玩
 
 后台通常需要先把 Facebook 账号加入测试角色：
@@ -186,8 +189,19 @@ VITE_META_REWARDED_VIDEO_PLACEMENT_ID=你的_Meta_激励视频广告位_ID npm r
 
 至少准备：
 
-- 1024x1024 应用图标。
-- 3-5 张截图：合规弹窗、主菜单、职业选择、战斗、结算。
+- 1024x1024 应用图标：可用 `public/app-icon.png`。
+- 宣传图/封面图候选：可用 `official-site/public/assets/arena-hero.png`，后台若要求固定尺寸再裁切。
+- 3-5 张截图：可从以下现有素材中挑选，覆盖合规弹窗、主菜单、职业选择、战斗、结算。
+  - `store-assets/screenshots/google-phone/01-classic-battle.png`
+  - `store-assets/screenshots/google-phone/02-profession-select.png`
+  - `store-assets/screenshots/google-phone/03-item-mode.png`
+  - `store-assets/screenshots/google-phone/04-hero-battle.png`
+  - `store-assets/screenshots/google-phone/05-settings-privacy.png`
+  - `store-assets/screenshots/apple-iphone-69/01-classic-battle.png`
+  - `store-assets/screenshots/apple-iphone-69/02-profession-select.png`
+  - `store-assets/screenshots/apple-iphone-69/03-item-mode.png`
+  - `store-assets/screenshots/apple-iphone-69/04-hero-battle.png`
+  - `store-assets/screenshots/apple-iphone-69/05-settings-privacy.png`
 - 15-30 秒试玩录屏。
 - 一段审核说明：
 
