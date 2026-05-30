@@ -112,6 +112,12 @@ export const ItemSpawnConfig = {
   retryInterval: 0.75,
 };
 
+export const ItemModePoolConfig = {
+  weaponCount: 6,
+  buildingCount: 4,
+  requiredBuildingIds: ["gasStation"],
+};
+
 export function getItemInitialCount(ballCount = 2) {
   const safeBallCount = normalizeItemBallCount(ballCount);
   return Math.max(ItemSpawnConfig.initialCount, Math.ceil(safeBallCount * 0.65));
@@ -134,6 +140,47 @@ function normalizeItemBallCount(ballCount) {
   }
 
   return Math.min(Math.max(parsedCount, 2), 6);
+}
+
+export function getItemDropPool(seed = 1) {
+  const weaponIds = pickSeededItemIds(Object.keys(ItemWeaponConfig), ItemModePoolConfig.weaponCount, seed, 101);
+  const availableBuildingIds = Object.keys(ItemBuildingConfig);
+  const requiredBuildingIds = ItemModePoolConfig.requiredBuildingIds.filter((id) => availableBuildingIds.includes(id));
+  const optionalBuildingIds = availableBuildingIds.filter((id) => !requiredBuildingIds.includes(id));
+  const optionalBuildingCount = Math.max(0, ItemModePoolConfig.buildingCount - requiredBuildingIds.length);
+  const buildingIds = [
+    ...requiredBuildingIds,
+    ...pickSeededItemIds(optionalBuildingIds, optionalBuildingCount, seed, 211),
+  ].slice(0, ItemModePoolConfig.buildingCount);
+
+  return [
+    ...buildingIds.map((id) => ({ id, type: "building" })),
+    ...weaponIds.map((id) => ({ id, type: "weapon" })),
+  ];
+}
+
+function pickSeededItemIds(ids, count, seed, salt) {
+  return ids
+    .map((id, index) => ({
+      id,
+      score: getSeededItemPoolScore(seed, id, index, salt),
+    }))
+    .sort((itemA, itemB) => itemA.score - itemB.score || itemA.id.localeCompare(itemB.id))
+    .slice(0, Math.min(count, ids.length))
+    .map((item) => item.id);
+}
+
+function getSeededItemPoolScore(seed, id, index, salt) {
+  return hashItemPoolValue(`${seed}:${id}:${index}:${salt}`) / 0xffffffff;
+}
+
+function hashItemPoolValue(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 export const ItemWeaponConfig = {

@@ -50,7 +50,7 @@ ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
 
 - `lint:syntax`：检查核心 JS、平台脚本和打包脚本语法。
 - `npm test`：验证职业配置、速度曲线、技能伤害、挂件/攻击特效配置、合规同意状态、职业选择持久化、统计接口、广告服务链路和 IAP 预留接口。
-- `test:matchups`：按场景职业池跑职业对战模拟，确保胜负时间仍落在 18-75 秒目标曲线内。
+- `test:matchups`：按场景职业池跑职业对战模拟，并覆盖道具模式每局 6 个道具 + 4 个建筑的当局道具池，确保胜负时间仍落在 18-75 秒目标曲线内。
 - `test:artifacts`：使用 `VITE_PLATFORM_TARGET=meta` 构建 Web 产物、生成 Meta Instant Games ZIP，并验证 SDK 注入、`fbapp-config.json`、ZIP 文件，以及 Meta 包不包含 AdMob SDK 导入路径。
 - `test:ci`：串联以上所有检查，适合 GitHub Actions。
 
