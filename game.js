@@ -19,6 +19,7 @@ import {
   SceneConfig,
   SIDE_VISUAL_CONFIG,
   getAttackAnimationConfig,
+  getItemDropPool,
   getItemInitialCount,
   getItemMaxActiveCount,
   getItemSpawnInterval,
@@ -3690,10 +3691,7 @@ function spawnDroppedItem(currentTime, forcedOffset = 0) {
 }
 
 function getItemDropEntries() {
-  return [
-    ...Object.keys(ItemWeaponConfig).map((id) => ({ id, type: "weapon" })),
-    ...Object.keys(ItemBuildingConfig).map((id) => ({ id, type: "building" })),
-  ];
+  return getItemDropPool(terrainState.seed);
 }
 
 function getDroppedItemType(item) {

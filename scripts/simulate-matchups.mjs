@@ -5,12 +5,14 @@ import {
   HeroConfig,
   ITEM_SCENE_ID,
   ItemBuildingConfig,
+  ItemModePoolConfig,
   ItemModeBallConfig,
   ItemSpawnConfig,
   ItemWeaponConfig,
   ProfessionConfig,
   SceneConfig,
   getAttackAnimationConfig,
+  getItemDropPool,
   getItemInitialCount,
   getItemMaxActiveCount,
   getItemSpawnInterval,
@@ -572,12 +574,14 @@ function simulateItemMode(seed, ballCount = 2) {
   let droppedItems = [];
   let itemFlames = [];
   let itemBuildings = [];
+  const itemDropPool = getItemDropPool(seed);
   const stats = createItemModeStats();
   const spawnState = {
     counter: 0,
     nextSpawnTime: 0,
     maxActive: getItemMaxActiveCount(ballCount),
     spawnInterval: getItemSpawnInterval(ballCount),
+    dropEntries: itemDropPool,
     recentSpawnZones: [],
   };
   const balls = createSimulatedItemBalls(seed, ballCount);
@@ -722,7 +726,7 @@ function spawnSimulatedItem(seed, currentTime, balls, droppedItems, spawnState, 
     return droppedItems;
   }
 
-  const dropEntries = getSimulatedItemDropEntries();
+  const dropEntries = spawnState.dropEntries || getSimulatedItemDropEntries(seed);
   const spawnIndex = spawnState.counter;
   const weaponNoise = seededNoise(seed, spawnIndex + 17, droppedItems.length + 23, 733);
   const dropEntry = dropEntries[Math.floor(weaponNoise * dropEntries.length) % dropEntries.length];
@@ -749,11 +753,8 @@ function spawnSimulatedItem(seed, currentTime, balls, droppedItems, spawnState, 
   ];
 }
 
-function getSimulatedItemDropEntries() {
-  return [
-    ...Object.keys(ItemWeaponConfig).map((id) => ({ id, type: "weapon" })),
-    ...Object.keys(ItemBuildingConfig).map((id) => ({ id, type: "building" })),
-  ];
+function getSimulatedItemDropEntries(seed = 1) {
+  return getItemDropPool(seed);
 }
 
 function createSimulatedItemPosition(seed, spawnIndex, balls, droppedItems, itemBuildings, spawnState, currentTime) {
@@ -3108,6 +3109,9 @@ function isItemSummaryWithinCurve(summary) {
 function printItemResults(itemSummaries) {
   console.log("");
   console.log(`Item mode seeds per ball count: ${ITEM_MODE_SEEDS.length}`);
+  console.log(
+    `Item mode active pool: ${ItemModePoolConfig.weaponCount} weapons + ${ItemModePoolConfig.buildingCount} buildings; required buildings: ${ItemModePoolConfig.requiredBuildingIds.join(", ")}`,
+  );
   console.log("balls  avg    min/max      winners             items       status");
 
   for (const summary of itemSummaries) {
