@@ -7,6 +7,7 @@ import {
   HeroConfig,
   ITEM_SCENE_ID,
   ItemBuildingConfig,
+  ItemModePoolConfig,
   ItemModeBallConfig,
   ItemSpawnConfig,
   ItemWeaponConfig,
@@ -14,6 +15,7 @@ import {
   SceneConfig,
   SIDE_VISUAL_CONFIG,
   getAttackAnimationConfig,
+  getItemDropPool,
   getItemInitialCount,
   getItemMaxActiveCount,
   getItemSpawnInterval,
@@ -162,10 +164,20 @@ test("item mode config is data-driven and numerically valid", () => {
   assert.equal(ItemSpawnConfig.recentSpawnAvoidDuration > 0, true);
   assert.equal(ItemSpawnConfig.spawnAttempts >= 24, true);
   assert.equal(ItemSpawnConfig.retryInterval > 0 && ItemSpawnConfig.retryInterval < ItemSpawnConfig.spawnInterval, true);
+  assert.equal(ItemModePoolConfig.weaponCount, 6);
+  assert.equal(ItemModePoolConfig.buildingCount, 4);
+  assert.deepEqual(ItemModePoolConfig.requiredBuildingIds, ["gasStation"]);
   assert.equal(getItemInitialCount(2), ItemSpawnConfig.initialCount);
   assert.equal(getItemInitialCount(6) > getItemInitialCount(2), true);
   assert.equal(getItemMaxActiveCount(6) > getItemMaxActiveCount(2), true);
   assert.equal(getItemSpawnInterval(6) < getItemSpawnInterval(2), true);
+  const itemDropPool = getItemDropPool(12345);
+  assert.equal(itemDropPool.length, 10);
+  assert.equal(itemDropPool.filter((entry) => entry.type === "weapon").length, 6);
+  assert.equal(itemDropPool.filter((entry) => entry.type === "building").length, 4);
+  assert.equal(itemDropPool.some((entry) => entry.type === "building" && entry.id === "gasStation"), true);
+  assert.deepEqual(getItemDropPool(12345), itemDropPool);
+  assert.notDeepEqual(getItemDropPool(12346), itemDropPool);
 
   const weaponIds = Object.keys(ItemWeaponConfig).sort();
   assert.deepEqual(weaponIds, ["bow", "flamethrower", "pistol", "rocket", "spear", "staff", "sword", "torch"]);
