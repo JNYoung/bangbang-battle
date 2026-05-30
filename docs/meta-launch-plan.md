@@ -27,11 +27,11 @@
 - 已在 Meta Developer 创建应用：`Profession Ball Arena`
 - 当前 App ID：`1013763001162439`
 - 当前应用类型：`消费者`
-- 已填写基础设置；当前 Meta 页面已填回 HTTPS URL，等待点击保存：
+- 已填写并保存基础设置；当前 Meta 页面已保存 HTTPS 隐私政策和服务条款：
   - App domain: `professionballarena.top`
   - Privacy Policy URL: `https://professionballarena.top/privacy/`
   - Terms URL: `https://professionballarena.top/terms/`
-  - Data Deletion URL: `https://professionballarena.top/data-deletion/`
+  - Data Deletion URL: 暂未保存；Meta 后台当前对有效 HTTPS URL 报 `name_placeholder should represent a valid URL`
   - Category: `游戏`
   - Subcategory: `策略`
 - 2026-05-30 已上传并保存 1024x1024 应用图标。
@@ -39,7 +39,8 @@
 - 2026-05-30 已创建 Meta ad account：`Profession Ball Arena Ads`；完整广告账号编号保留在 Meta 后台，不写入公开仓库。
 - 未添加支付方式，未创建投放广告系列，未开启任何真实广告花费。
 - 2026-05-30 已确认并点击 `Connect`，后台提示成功：应用现由 `Profession Ball Arena` 管理；后续可在 Meta Business Suite 中再次核对业务资产。
-- 2026-05-30 已将 GitHub Pages 自定义域名证书修复完成，并开启 Enforce HTTPS；Meta 后台 URL 已从临时 `http://` 改为 `https://`，等待保存确认。
+- 2026-05-30 已将 GitHub Pages 自定义域名证书修复完成，并开启 Enforce HTTPS；Meta 后台隐私政策和服务条款 URL 已从临时 `http://` 改为 `https://` 并保存成功。
+- 2026-05-30 Meta 后台的 `用户数据删除` 字段对 `https://professionballarena.top/data-deletion/`、`https://professionballarena.top/data-deletion/index.html` 和同域隐私政策 URL 均报 `name_placeholder should represent a valid URL`；清空该字段后可保存。不要回退为 `http://`，后续需在正确 Instant Games 应用或 Meta 表单恢复后重新填写。
 - 当前消费者应用的 Add product 页面只显示 App Events、Audience Network、Facebook 登录、Webhook、Fundraisers；直接访问 Instant Games / Web Hosting 候选后台路径会回到面板或空白页。
 - 新建应用流程当前也只显示 `业务` 和 `消费者` 两种应用类型；选择 `业务` 后下一页只有应用名称、联系邮箱、业务资产组合，没有 Instant Games 入口。
 - `必要操作` 页面显示当前没有任何必要措施。
@@ -104,7 +105,7 @@
 
 负责人：你 + Codex
 
-- GitHub Pages HTTPS 已修复，`https://professionballarena.top/privacy/` 可正常访问；Meta 后台 URL 已填为 `https://`，等待保存确认。
+- GitHub Pages HTTPS 已修复，`https://professionballarena.top/privacy/` 可正常访问；Meta 后台隐私政策和服务条款 URL 已保存为 `https://`。
 - App ID `1013763001162439` 已绑定到 `Profession Ball Arena` 业务资产组合。
 - 确认当前 Meta 账号是否具备 Instant Games Developer Platform 访问权限。
 - 如果后台仍只显示 `业务` / `消费者`，需要先申请或开通 Instant Games / Gaming Services 访问；不要继续创建普通消费者应用。
@@ -146,7 +147,8 @@
 ## 当前阻塞项
 
 - 当前 Meta 后台没有开放 Instant Games / Web Hosting 入口，现有 App ID `1013763001162439` 是消费者应用，不能作为最终小游戏上传应用使用。
-- `professionballarena.top` 的 HTTPS 证书已修复并开启强制 HTTPS；后续只需在 Meta 后台保存 HTTPS URL 并用于提审校验。
+- `professionballarena.top` 的 HTTPS 证书已修复并开启强制 HTTPS；Meta 后台隐私政策和服务条款 URL 已保存为 HTTPS。
+- Meta 后台 `用户数据删除` 字段暂时拒绝有效 HTTPS URL，需后续重试或在正确 Instant Games 应用中重新填写。
 - App 已绑定到 `Profession Ball Arena` 业务资产组合；如后台后续要求，需在 Meta Business Suite 再次核对资产归属。
 - Meta ad account 已创建但没有付款方式；没有支付方式前不能做真实投放或完成完整商业化闭环。
 - 还需要准备封面图、截图和试玩录屏；应用图标已完成。

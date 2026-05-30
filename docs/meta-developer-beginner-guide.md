@@ -26,7 +26,9 @@ release/meta-instant/profession-ball-arena-meta.zip
 
 2026-05-30 实操注意：应用图标已上传并保存，Meta 上传包已重新构建校验通过。公开域名 HTTPS 证书已签发并开启强制 HTTPS；当前主要阻塞不在本地包体，而在 Meta 后台没有 Instant Games / Web Hosting 入口。
 
-2026-05-30 HTTPS 修复记录：GitHub Pages 自定义域名已重新触发证书签发，`https_certificate.state` 为 `approved`，覆盖 `professionballarena.top` 和 `www.professionballarena.top`，`https_enforced` 已开启。Meta 基础设置里的 URL 已填回 `https://`，等待保存确认。
+2026-05-30 HTTPS 修复记录：GitHub Pages 自定义域名已重新触发证书签发，`https_certificate.state` 为 `approved`，覆盖 `professionballarena.top` 和 `www.professionballarena.top`，`https_enforced` 已开启。Meta 基础设置里的隐私政策和服务条款 URL 已保存为 `https://`。
+
+2026-05-30 Meta 后台注意：`用户数据删除` 字段当前对有效 HTTPS URL 报 `name_placeholder should represent a valid URL`，包括数据删除说明页、显式 `index.html` 和同域隐私政策 URL。清空该字段后可保存其它 HTTPS URL；不要回退到 `http://`，后续在正确 Instant Games 应用或 Meta 表单恢复后再重新填写数据删除说明 URL。
 
 ## 1. 创建 Meta Developer 应用
 
@@ -111,7 +113,8 @@ Category: Games / Arcade / Casual，按后台选项最接近的填
 - 隐私政策页面必须公网可访问，不能需要登录。
 - 数据删除说明页面也必须公网可访问。
 - 域名建议只填裸域名 `professionballarena.top`，URL 字段再填完整 `https://...`。
-- 当前后台基础资料主体已保存；应用图标已上传。HTTPS 证书已修复，URL 字段已填回 `https://`，等待保存确认。
+- 当前后台基础资料主体已保存；应用图标已上传。HTTPS 证书已修复，隐私政策和服务条款已保存为 `https://`。
+- `用户数据删除` 字段暂时因 Meta 后台校验问题无法保存有效 HTTPS URL，后续提审前需要重新检查该字段。
 - `必要操作` 页面当前没有待处理项目；`应用审核 > 申请` 当前没有未提交内容。
 
 ## 4. 上传游戏 ZIP
