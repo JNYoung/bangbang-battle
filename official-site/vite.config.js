@@ -11,6 +11,8 @@ export default defineConfig({
         terms: resolve(__dirname, "terms/index.html"),
         support: resolve(__dirname, "support/index.html"),
         dataDeletion: resolve(__dirname, "data-deletion/index.html"),
+        download: resolve(__dirname, "download/index.html"),
+        battle: resolve(__dirname, "battle/index.html"),
       },
     },
   },

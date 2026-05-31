@@ -32,6 +32,10 @@ export const DefaultSettings = {
   vibrationEnabled: true,
   musicEnabled: true,
   soundEffectsEnabled: true,
+  reducedShakeEnabled: false,
+  highlightTextEnabled: true,
+  compactReportEnabled: false,
+  quickSettlementEnabled: false,
 };
 
 export function createComplianceState({

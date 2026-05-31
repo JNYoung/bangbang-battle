@@ -40,6 +40,10 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "settings.vibration"), "settings.vibration");
     assert.notEqual(translate(locale, "settings.music"), "settings.music");
     assert.notEqual(translate(locale, "settings.soundEffects"), "settings.soundEffects");
+    assert.notEqual(translate(locale, "settings.reducedShake"), "settings.reducedShake");
+    assert.notEqual(translate(locale, "settings.highlightText"), "settings.highlightText");
+    assert.notEqual(translate(locale, "settings.compactReport"), "settings.compactReport");
+    assert.notEqual(translate(locale, "settings.quickSettlement"), "settings.quickSettlement");
     assert.notEqual(translate(locale, "status.paused"), "status.paused");
     assert.notEqual(translate(locale, "hud.shake"), "hud.shake");
     assert.notEqual(translate(locale, "pause.resume"), "pause.resume");
@@ -76,6 +80,14 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "heroes.cryptLord.skills.summonBeetle"), "heroes.cryptLord.skills.summonBeetle");
     assert.match(translate(locale, "result.winner", { side: "A", profession: "Archer" }), /A|Archer|الكرة/);
     assert.match(translate(locale, "result.winnerNoProfession", { side: "A" }), /A|الكرة/);
+    assert.notEqual(translate(locale, "result.nextChallenge", { role: "Shield" }), "result.nextChallenge");
+    assert.notEqual(translate(locale, "main.funStatsLine", {
+      favorite: "Archer",
+      flop: "Shield",
+      shortestLoss: "12s",
+      longestMatch: "88s",
+      mapVictims: 2,
+    }), "main.funStatsLine");
   }
 });
 

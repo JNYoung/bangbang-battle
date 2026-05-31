@@ -1,4 +1,4 @@
-import { createComplianceState, normalizeSelectedProfessions } from "./compliance-state.js";
+import { MAX_BALL_COUNT, createComplianceState, normalizeSelectedProfessions } from "./compliance-state.js";
 import {
   ARENA_SIZE,
   ATTACK_ANIMATION_CONFIG,
@@ -30,7 +30,18 @@ import {
 } from "./game-config.js";
 import { LegalConfig, getLegalDocument } from "./legal-config.js";
 import { GamePlatform, initializePlatform } from "./platform.js";
-import { AnalyticsEvents, ads, analytics, iap } from "./services.js";
+import {
+  AnalyticsEvents,
+  ShareTargets,
+  ads,
+  analytics,
+  createBattleReplaySeed,
+  createBattleReplayShareUrl,
+  deepLinks,
+  iap,
+  parseBattleReplayLink,
+  socialShare,
+} from "./services.js";
 import {
   CosmeticTrigger,
   createAttackEffectInstances,
@@ -206,6 +217,10 @@ const BATTLE_INTRO_CLASH_TIME_SECONDS = 1.08;
 const BATTLE_INTRO_SIDE_REVEAL_SECONDS = 1.24;
 const RESULT_FIREWORK_CYCLE_SECONDS = 2.7;
 const RESULT_FIREWORK_COUNT = 8;
+const REPORT_CARD_WIDTH = 1080;
+const REPORT_CARD_HEIGHT = 1350;
+const QUICK_SETTLEMENT_RAMP_SECONDS = 18;
+const QUICK_SETTLEMENT_MIN_MULTIPLIER = 2.5;
 const PLAYER_PROGRESS_STORAGE_KEY = "bangbang.playerProgress";
 const DAILY_WIN_GOAL = 3;
 const DAILY_MATCH_GOAL = 5;
@@ -215,6 +230,31 @@ const QUICK_START_MATCHUPS = Object.freeze([
   { scene: DEFAULT_SCENE_ID, a: "shield", b: "assassin" },
   { scene: DEFAULT_SCENE_ID, a: "archer", b: "chain" },
 ]);
+const ROLE_COUNTER_RECOMMENDATIONS = Object.freeze({
+  spear: "archer",
+  blade: "spear",
+  shield: "mage",
+  assassin: "shield",
+  archer: "assassin",
+  chain: "shield",
+  mage: "assassin",
+  bat: "venom",
+  venom: "archer",
+  spider: "lava",
+  lava: "frost",
+  reaper: "shield",
+  frost: "static",
+  yoyo: "chain",
+  static: "spear",
+  summoner: "blade",
+  demon: "dwarfKing",
+  dwarfKing: "elfKing",
+  minotaur: "wukong",
+  elfKing: "demon",
+  wukong: "cryptLord",
+  cryptLord: "zeus",
+  zeus: "minotaur",
+});
 
 let balls = [];
 let gameOver = false;
@@ -234,7 +274,11 @@ let activeLegalDocument = "privacy";
 let legalScrollOffset = 0;
 let hasCheckedLegalConsent = false;
 let activeProfessionSide = "a";
-let selectedProfessions = complianceState.getSelectedProfessions(getUrlProfessionOverrides());
+let pendingBattleDeepLink = parseBattleReplayLink(globalThis.location?.href || "");
+let pendingBattleReplaySeed = pendingBattleDeepLink?.replaySeed || null;
+let pendingBattleAutoStart = Boolean(pendingBattleDeepLink?.autoStart);
+let activeBattleReplaySeed = pendingBattleReplaySeed || null;
+let selectedProfessions = complianceState.getSelectedProfessions(getUrlProfessionOverrides(pendingBattleDeepLink));
 let serviceMessage = "";
 let pointerDownElementId = null;
 let interactiveElements = [];
@@ -268,6 +312,7 @@ let cryptBeetleCounter = 0;
 let terrainState = createTerrainState();
 let currentLocale = getInitialLocale();
 let settings = complianceState.getSettings();
+let pendingNextDayReturnPayload = null;
 let matchTelemetry = createMatchTelemetryState();
 let performanceStats = createPerformanceStatsState();
 let playerProgress = loadPlayerProgress();
@@ -275,6 +320,8 @@ let resultInsight = null;
 let activeAdOverlay = null;
 let adSessionState = createAdSessionState();
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
+let shareTargetOverlayOpen = false;
+let deepLinkListenerHandle = null;
 let lastArenaShakeTime = -Infinity;
 let arenaShakeStartedAt = -Infinity;
 let arenaShakeSeed = 0;
@@ -1154,13 +1201,71 @@ function getBallLabel(index) {
   return String.fromCharCode("A".charCodeAt(0) + index);
 }
 
-function getUrlProfessionOverrides() {
+function getUrlProfessionOverrides(deepLink = null) {
+  if (deepLink) {
+    return {
+      scene: deepLink.scene,
+      a: deepLink.a,
+      b: deepLink.b,
+      ballCount: deepLink.ballCount,
+    };
+  }
+
   const params = new URLSearchParams(window.location.search);
   return {
     scene: params.get("scene"),
     a: params.get("a"),
     b: params.get("b"),
+    ballCount: params.get("count") || params.get("ballCount"),
   };
+}
+
+async function initializeDeepLinkRouting() {
+  try {
+    const launchDeepLink = await deepLinks.getLaunchUrl();
+    applyBattleDeepLink(launchDeepLink?.url, { autoStart: false });
+  } catch (error) {
+    console.warn("Deep link initialization failed", error);
+  }
+
+  if (!deepLinkListenerHandle) {
+    deepLinkListenerHandle = deepLinks.addListener((event) => {
+      applyBattleDeepLink(event?.url, { autoStart: true });
+    });
+  }
+}
+
+function applyBattleDeepLink(rawUrl, options = {}) {
+  const deepLink = parseBattleReplayLink(rawUrl || "");
+  if (!deepLink) {
+    return false;
+  }
+
+  pendingBattleDeepLink = deepLink;
+  pendingBattleReplaySeed = deepLink.replaySeed || createBattleReplaySeed();
+  pendingBattleAutoStart = deepLink.autoStart;
+  selectedProfessions = complianceState.saveSelectedProfessions(getUrlProfessionOverrides(deepLink));
+  serviceMessage = t("messages.deepLinkReady", { scene: getSceneName(selectedProfessions.scene) });
+
+  if (options.autoStart && complianceState.hasAcceptedCurrentLegal() && pendingBattleAutoStart) {
+    startGame({ source: "deeplink", replaySeed: pendingBattleReplaySeed });
+    return true;
+  }
+
+  if (screen !== Screen.CONSENT && screen !== Screen.LEGAL_DOCUMENT) {
+    setScreen(Screen.MAIN_MENU);
+  }
+
+  return true;
+}
+
+function consumePendingBattleDeepLink() {
+  if (!pendingBattleDeepLink || !pendingBattleAutoStart || !complianceState.hasAcceptedCurrentLegal()) {
+    return false;
+  }
+
+  startGame({ source: "deeplink", replaySeed: pendingBattleReplaySeed });
+  return true;
 }
 
 function getActiveProfessionIds() {
@@ -1323,7 +1428,7 @@ function randomizeProfessionSide(side, excludedIds = []) {
 
 function randomizeAndStartGame(mode) {
   if (isCurrentItemMode()) {
-    startGame();
+    startGame({ source: "random_start" });
     return;
   }
 
@@ -1334,7 +1439,7 @@ function randomizeAndStartGame(mode) {
     randomizeProfessionSide(mode);
   }
 
-  startGame();
+  startGame({ source: "random_start" });
 }
 
 function quickStartGame() {
@@ -1347,12 +1452,12 @@ function quickStartGame() {
     professionA: getProfessionName(selectedProfessions.a),
     professionB: getProfessionName(selectedProfessions.b),
   });
-  startGame();
+  startGame({ source: "quick_start" });
 }
 
 function getQuickStartMatchup() {
   const progress = getCurrentPlayerProgress();
-  const totalMatches = progress.daily.matches + getTotalMasteryMatches(progress);
+  const totalMatches = progress.totalMatches;
   return QUICK_START_MATCHUPS[totalMatches % QUICK_START_MATCHUPS.length] || QUICK_START_MATCHUPS[0];
 }
 
@@ -1533,6 +1638,9 @@ function setScreen(nextScreen) {
   legalScrollOffset = 0;
   sceneDropdownOpen = false;
   sceneDropdownLayout = null;
+  if (nextScreen !== Screen.RESULT) {
+    shareTargetOverlayOpen = false;
+  }
   if (fromScreen === Screen.PLAYING && nextScreen !== Screen.PLAYING) {
     void ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
   }
@@ -1573,7 +1681,9 @@ async function acceptLegalAndEnterMenu() {
   analytics.track(AnalyticsEvents.legalAccept, { version: LegalConfig.version });
   trackGameInitSuccess("legal_accept");
   setScreen(Screen.MAIN_MENU);
-  void maybeShowAppOpenAd("legal_accept");
+  if (!consumePendingBattleDeepLink()) {
+    void maybeShowAppOpenAd("legal_accept");
+  }
 }
 
 function openMatchSetup() {
@@ -1584,13 +1694,24 @@ function openMatchSetup() {
   setScreen(Screen.PROFESSION_SELECT);
 }
 
-function startGame() {
+function startGame(options = {}) {
+  const startSource = options.source || "manual";
+  const progressBeforeStart = getCurrentPlayerProgress();
+  activeBattleReplaySeed = options.replaySeed || pendingBattleReplaySeed || createBattleReplaySeed();
+  pendingBattleReplaySeed = null;
+  pendingBattleAutoStart = false;
   resumeAudioContext();
   playGameSound("start", 0);
   triggerVibration([18], elapsedTimeSeconds);
   selectedProfessions = complianceState.saveSelectedProfessions(selectedProfessions);
   restartGame();
-  analytics.track(AnalyticsEvents.gameStart, createGameStartAnalyticsPayload());
+  analytics.track(AnalyticsEvents.gameStart, {
+    ...createGameStartAnalyticsPayload(),
+    start_source: startSource,
+    daily_match_index: progressBeforeStart.daily.matches + 1,
+    total_matches_before: progressBeforeStart.totalMatches,
+  });
+  trackMatchStartFunnelEvents(progressBeforeStart, startSource);
   setScreen(Screen.PLAYING);
   startMusic();
 }
@@ -1615,7 +1736,7 @@ function resumeGame() {
 }
 
 function restartFromPause() {
-  startGame();
+  startGame({ source: "pause_restart" });
 }
 
 function openSettingsFromPause() {
@@ -1633,7 +1754,8 @@ function openMainSettings() {
 }
 
 function restartGame() {
-  terrainState = createTerrainState(undefined, selectedProfessions.scene);
+  activeBattleReplaySeed ||= createBattleReplaySeed();
+  terrainState = createTerrainState(activeBattleReplaySeed, selectedProfessions.scene);
   balls = createInitialBalls();
   attackEffectInstances = [];
   projectiles = [];
@@ -1662,6 +1784,7 @@ function restartGame() {
   elapsedTimeSeconds = 0;
   matchElapsedTimeSeconds = 0;
   matchTelemetry = createMatchTelemetryState();
+  matchTelemetry.replaySeed = activeBattleReplaySeed;
   resetPerformanceStats();
   resetBattleBannerAd();
   lastArenaShakeTime = -Infinity;
@@ -1745,7 +1868,8 @@ function getArenaShakeOffset(currentTime = elapsedTimeSeconds) {
     return { x: 0, y: 0 };
   }
 
-  const strength = ARENA_SHAKE_MAX_OFFSET * (1 - progress) ** 2;
+  const shakeScale = settings.reducedShakeEnabled ? 0.34 : 1;
+  const strength = ARENA_SHAKE_MAX_OFFSET * shakeScale * (1 - progress) ** 2;
   return {
     x: Math.round(Math.sin((currentTime + arenaShakeSeed) * 88) * strength + Math.sin((currentTime + arenaShakeSeed) * 141) * strength * 0.35),
     y: Math.round(Math.cos((currentTime + arenaShakeSeed) * 103) * strength + Math.sin((currentTime + arenaShakeSeed) * 73) * strength * 0.35),
@@ -1809,7 +1933,9 @@ function getCurrentPlayerProgress() {
 }
 
 function loadPlayerProgress() {
-  return normalizePlayerProgress(safeParseStorageJson(PLAYER_PROGRESS_STORAGE_KEY, {}));
+  const savedProgress = safeParseStorageJson(PLAYER_PROGRESS_STORAGE_KEY, {});
+  pendingNextDayReturnPayload = createNextDayReturnPayload(savedProgress);
+  return normalizePlayerProgress(savedProgress);
 }
 
 function savePlayerProgress() {
@@ -1819,15 +1945,23 @@ function savePlayerProgress() {
 function normalizePlayerProgress(progress = {}) {
   const todayKey = getLocalDateKey();
   const savedDaily = progress.dateKey === todayKey && progress.daily ? progress.daily : {};
-  const mastery = progress.mastery && typeof progress.mastery === "object" ? progress.mastery : {};
+  const mastery = normalizeMasteryProgress(progress.mastery && typeof progress.mastery === "object" ? progress.mastery : {});
+  const daily = {
+    matches: Math.max(0, Number.parseInt(savedDaily.matches, 10) || 0),
+    wins: Math.max(0, Number.parseInt(savedDaily.wins, 10) || 0),
+  };
+  const derivedTotalMatches = Object.values(mastery).reduce((total, roleProgress) => total + (roleProgress.matches || 0), 0);
 
   return {
     dateKey: todayKey,
-    daily: {
-      matches: Math.max(0, Number.parseInt(savedDaily.matches, 10) || 0),
-      wins: Math.max(0, Number.parseInt(savedDaily.wins, 10) || 0),
-    },
-    mastery: normalizeMasteryProgress(mastery),
+    daily,
+    totalMatches: Math.max(
+      daily.matches,
+      derivedTotalMatches,
+      Math.max(0, Number.parseInt(progress.totalMatches, 10) || 0),
+    ),
+    mastery,
+    stats: normalizeEntertainmentStats(progress.stats),
     lastResult: progress.lastResult && typeof progress.lastResult === "object" ? progress.lastResult : null,
   };
 }
@@ -1846,9 +1980,37 @@ function normalizeMasteryProgress(mastery) {
   );
 }
 
+function normalizeEntertainmentStats(stats = {}) {
+  return {
+    shortestLoss: normalizeMatchStatRecord(stats.shortestLoss),
+    longestMatch: normalizeMatchStatRecord(stats.longestMatch),
+    mapEventVictimCount: Math.max(0, Number.parseInt(stats.mapEventVictimCount, 10) || 0),
+  };
+}
+
+function normalizeMatchStatRecord(record) {
+  if (!record || typeof record !== "object") {
+    return null;
+  }
+
+  const seconds = Number(record.seconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return null;
+  }
+
+  return {
+    seconds,
+    ownRole: typeof record.ownRole === "string" ? record.ownRole : "none",
+    opponentRole: typeof record.opponentRole === "string" ? record.opponentRole : "none",
+    winnerSide: typeof record.winnerSide === "string" ? record.winnerSide : "draw",
+    dateKey: typeof record.dateKey === "string" ? record.dateKey : "",
+  };
+}
+
 function recordPlayerProgress(winnerSide, insight) {
   const progress = getCurrentPlayerProgress();
   progress.daily.matches += 1;
+  progress.totalMatches += 1;
   if (winnerSide === "A") {
     progress.daily.wins += 1;
   }
@@ -1863,6 +2025,8 @@ function recordPlayerProgress(winnerSide, insight) {
     progress.mastery[ownRole] = roleProgress;
   }
 
+  updateEntertainmentStats(progress, winnerSide, ownRole);
+
   progress.lastResult = {
     winnerSide,
     ownRole,
@@ -1871,6 +2035,65 @@ function recordPlayerProgress(winnerSide, insight) {
     dateKey: progress.dateKey,
   };
   savePlayerProgress();
+  return progress;
+}
+
+function updateEntertainmentStats(progress, winnerSide, ownRole) {
+  progress.stats ||= normalizeEntertainmentStats();
+  const seconds = Math.max(0.1, roundAnalyticsNumber(matchElapsedTimeSeconds, 1));
+  const matchRecord = {
+    seconds,
+    ownRole,
+    opponentRole: getAnalyticsRoleForSide("B"),
+    winnerSide,
+    dateKey: progress.dateKey,
+  };
+
+  if (!progress.stats.longestMatch || seconds > progress.stats.longestMatch.seconds) {
+    progress.stats.longestMatch = matchRecord;
+  }
+
+  if (winnerSide === "B" && (!progress.stats.shortestLoss || seconds < progress.stats.shortestLoss.seconds)) {
+    progress.stats.shortestLoss = matchRecord;
+  }
+
+  progress.stats.mapEventVictimCount += getSideMetric(matchTelemetry.mapEventVictimCountsBySide, "A");
+}
+
+function createNextDayReturnPayload(savedProgress) {
+  if (!savedProgress || typeof savedProgress !== "object") {
+    return null;
+  }
+
+  const savedDateKey = typeof savedProgress.dateKey === "string" ? savedProgress.dateKey : "";
+  const todayKey = getLocalDateKey();
+  const previousDailyMatches = Math.max(0, Number.parseInt(savedProgress.daily?.matches, 10) || 0);
+  const totalMatches = Math.max(0, Number.parseInt(savedProgress.totalMatches, 10) || 0);
+  if (!savedDateKey || savedDateKey === todayKey || (previousDailyMatches <= 0 && totalMatches <= 0)) {
+    return null;
+  }
+
+  return {
+    previous_date: savedDateKey,
+    current_date: todayKey,
+    days_elapsed: getDateKeyDistance(savedDateKey, todayKey),
+    previous_daily_matches: previousDailyMatches,
+    previous_daily_wins: Math.max(0, Number.parseInt(savedProgress.daily?.wins, 10) || 0),
+    total_matches: totalMatches,
+    scene: selectedProfessions.scene,
+    locale: currentLocale,
+    surface: getRuntimeSurface(),
+  };
+}
+
+function getDateKeyDistance(fromDateKey, toDateKey) {
+  const fromTime = Date.parse(`${fromDateKey}T00:00:00`);
+  const toTime = Date.parse(`${toDateKey}T00:00:00`);
+  if (!Number.isFinite(fromTime) || !Number.isFinite(toTime)) {
+    return 1;
+  }
+
+  return Math.max(1, Math.round((toTime - fromTime) / 86400000));
 }
 
 function getLocalDateKey(date = new Date()) {
@@ -1926,6 +2149,8 @@ function createMatchTelemetryState() {
     hitSourceCounts: {},
     hitSourceCountsBySide: {},
     hitSourceDamageBySide: {},
+    mapEventVictimCountsBySide: {},
+    mapEventTypeCounts: {},
   };
 }
 
@@ -2332,6 +2557,61 @@ function createGameStartAnalyticsPayload() {
   };
 }
 
+function createFunnelAnalyticsPayload(extraPayload = {}) {
+  return {
+    ...getMatchBaseAnalyticsPayload(),
+    match_id: matchTelemetry.matchId,
+    daily_match_count: getCurrentPlayerProgress().daily.matches,
+    total_matches: getCurrentPlayerProgress().totalMatches,
+    ...extraPayload,
+  };
+}
+
+function trackMatchStartFunnelEvents(progressBeforeStart, startSource) {
+  const payload = createFunnelAnalyticsPayload({
+    start_source: startSource,
+    daily_match_index: progressBeforeStart.daily.matches + 1,
+    total_matches_before: progressBeforeStart.totalMatches,
+  });
+
+  if (progressBeforeStart.totalMatches === 0) {
+    analytics.track(AnalyticsEvents.firstBattleStart, payload);
+  }
+
+  if (progressBeforeStart.totalMatches === 1) {
+    analytics.track(AnalyticsEvents.secondBattleStart, payload);
+  }
+}
+
+function trackMatchCompletionFunnelEvents(winnerSide, progressAfterMatch) {
+  const payload = createFunnelAnalyticsPayload({
+    daily_match_count: progressAfterMatch.daily.matches,
+    daily_win_count: progressAfterMatch.daily.wins,
+    total_matches: progressAfterMatch.totalMatches,
+    winner_side: winnerSide,
+    own_result: getOwnResult(winnerSide),
+    duration_sec: roundAnalyticsNumber(matchElapsedTimeSeconds, 1),
+  });
+
+  if (progressAfterMatch.totalMatches === 1) {
+    analytics.track(AnalyticsEvents.firstBattleComplete, payload);
+  }
+
+  analytics.track(AnalyticsEvents.dailyMatchComplete, {
+    ...payload,
+    daily_goal_reached: progressAfterMatch.daily.matches >= DAILY_MATCH_GOAL,
+  });
+}
+
+function maybeTrackNextDayReturn() {
+  if (!pendingNextDayReturnPayload) {
+    return;
+  }
+
+  analytics.track(AnalyticsEvents.nextDayReturn, pendingNextDayReturnPayload);
+  pendingNextDayReturnPayload = null;
+}
+
 function createGameEndAnalyticsPayload(result, winnerSide) {
   const ownSide = "A";
   const opponentSide = "B";
@@ -2351,6 +2631,9 @@ function createGameEndAnalyticsPayload(result, winnerSide) {
     opponent_damage_dealt: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageDealtBySide, opponentSide), 1),
     own_damage_taken: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageTakenBySide, ownSide), 1),
     opponent_damage_taken: roundAnalyticsNumber(getSideMetric(matchTelemetry.damageTakenBySide, opponentSide), 1),
+    own_map_event_victim_count: getSideMetric(matchTelemetry.mapEventVictimCountsBySide, ownSide),
+    opponent_map_event_victim_count: getSideMetric(matchTelemetry.mapEventVictimCountsBySide, opponentSide),
+    total_map_event_victim_count: sumMetric(matchTelemetry.mapEventVictimCountsBySide),
     total_attack_count: sumMetric(matchTelemetry.attackCountsBySide),
     total_attacked_count: sumMetric(matchTelemetry.attackedCountsBySide),
   };
@@ -2414,6 +2697,20 @@ function recordCombatHit(attacker, defender, damage, source = "attack") {
   matchTelemetry.hitSourceCounts[source] = (matchTelemetry.hitSourceCounts[source] || 0) + 1;
   incrementNestedMetric(matchTelemetry.hitSourceCountsBySide, attackerSide, source, 1);
   incrementNestedMetric(matchTelemetry.hitSourceDamageBySide, attackerSide, source, damage);
+}
+
+function recordMapEventVictim(ball, eventType) {
+  if (!matchTelemetry || !ball) {
+    return;
+  }
+
+  const side = getCombatantTelemetrySide(ball);
+  if (!side) {
+    return;
+  }
+
+  incrementSideMetric(matchTelemetry.mapEventVictimCountsBySide, side, 1);
+  matchTelemetry.mapEventTypeCounts[eventType] = (matchTelemetry.mapEventTypeCounts[eventType] || 0) + 1;
 }
 
 function getCombatantTelemetrySide(combatant) {
@@ -3086,7 +3383,7 @@ function gameLoop(timestamp) {
   updateAdState(timestamp);
 
   if (isMatchActive) {
-    const scaledDeltaTime = deltaTime * gameSpeedMultiplier;
+    const scaledDeltaTime = deltaTime * getEffectiveGameSpeedMultiplier();
     elapsedTimeSeconds += scaledDeltaTime;
     matchElapsedTimeSeconds += scaledDeltaTime;
     update(scaledDeltaTime, elapsedTimeSeconds);
@@ -3100,6 +3397,14 @@ function gameLoop(timestamp) {
   damageIndicators = updateDamageIndicators(damageIndicators, elapsedTimeSeconds);
   draw();
   requestAnimationFrame(gameLoop);
+}
+
+function getEffectiveGameSpeedMultiplier() {
+  if (settings.quickSettlementEnabled && matchElapsedTimeSeconds >= QUICK_SETTLEMENT_RAMP_SECONDS) {
+    return Math.max(gameSpeedMultiplier, QUICK_SETTLEMENT_MIN_MULTIPLIER);
+  }
+
+  return gameSpeedMultiplier;
 }
 
 function update(deltaTime, currentTime) {
@@ -4130,6 +4435,7 @@ function applyNeutralSceneDamage(object, ball, config, currentTime) {
   object.lastHitByLabel[ball.label] = currentTime;
   const damage = damageBall(ball, config.damage);
   if (damage > 0) {
+    recordMapEventVictim(ball, object.type);
     playGameSound("hit", getMusicIntensity());
     triggerVibration([10], currentTime);
   }
@@ -4137,6 +4443,7 @@ function applyNeutralSceneDamage(object, ball, config, currentTime) {
 
 function applyNeutralIceTile(object, ball, config, currentTime) {
   object.consumed = true;
+  recordMapEventVictim(ball, object.type);
   ball.frozenUntil = Math.max(ball.frozenUntil, currentTime + config.freezeDuration);
   ball.attackState = null;
   pushHeroEffect("neutralFreeze", ball.position, ball.radius * 1.9, currentTime, config.color);
@@ -6149,7 +6456,7 @@ function tryHeroRebirth(ball, currentTime) {
   }
 
   ball.rebirthUsed = true;
-  ball.hp = ball.maxHp;
+  ball.hp = Math.max(1, Math.ceil(ball.maxHp * (skill.reviveHpRatio ?? 1)));
   ball.mp = Math.min(ball.maxMp, Math.max(ball.mp, ball.maxMp * 0.35));
   ball.frozenUntil = 0;
   ball.paralyzedUntil = 0;
@@ -6162,7 +6469,7 @@ function tryHeroRebirth(ball, currentTime) {
 }
 
 function createDamageIndicator(ball, amount) {
-  if (!ball || amount <= 0) {
+  if (!settings.highlightTextEnabled || !ball || amount <= 0) {
     return;
   }
 
@@ -6657,13 +6964,14 @@ function checkGameOver() {
 function finishMatch(winnerSide) {
   gameOver = true;
   resultInsight = createMatchResultInsight(winnerSide);
-  recordPlayerProgress(winnerSide, resultInsight);
+  const progressAfterMatch = recordPlayerProgress(winnerSide, resultInsight);
   startResultCelebration(winnerSide);
   stopMusic();
   playGameSound("result", 1);
   triggerVibration([28, 28, 38], elapsedTimeSeconds);
   trackPerformanceSnapshot("match_end");
   analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
+  trackMatchCompletionFunnelEvents(winnerSide, progressAfterMatch);
   setScreen(Screen.RESULT);
 }
 
@@ -7748,7 +8056,44 @@ function drawMainMenuProgress(x, y, width) {
     y = drawWrappedText(`${t("main.lastResultTitle")}: ${progress.lastResult.reason}`, x, y + 4, width, 18, COLORS.muted, 12);
   }
 
+  if (progress.totalMatches > 0) {
+    y = drawWrappedText(getEntertainmentStatsLine(progress), x, y + 4, width, 18, COLORS.muted, 12);
+  }
+
   return y;
+}
+
+function getEntertainmentStatsLine(progress) {
+  const favoriteEntry = getFeaturedMasteryEntry(progress);
+  const flopEntry = getMostFlippedRoleEntry(progress);
+
+  return t("main.funStatsLine", {
+    favorite: favoriteEntry ? getProfessionName(favoriteEntry.roleId) : t("main.statNone"),
+    flop: flopEntry ? getProfessionName(flopEntry.roleId) : t("main.statNone"),
+    shortestLoss: formatMatchStatSeconds(progress.stats.shortestLoss),
+    longestMatch: formatMatchStatSeconds(progress.stats.longestMatch),
+    mapVictims: progress.stats.mapEventVictimCount,
+  });
+}
+
+function getMostFlippedRoleEntry(progress = getCurrentPlayerProgress()) {
+  return Object.entries(progress.mastery)
+    .map(([roleId, roleProgress]) => ({
+      roleId,
+      matches: roleProgress.matches || 0,
+      wins: roleProgress.wins || 0,
+      losses: Math.max(0, (roleProgress.matches || 0) - (roleProgress.wins || 0)),
+    }))
+    .filter((entry) => entry.losses > 0)
+    .sort((entryA, entryB) => entryB.losses - entryA.losses || entryB.matches - entryA.matches || entryA.roleId.localeCompare(entryB.roleId))[0] || null;
+}
+
+function formatMatchStatSeconds(record) {
+  if (!record?.seconds) {
+    return t("main.statNone");
+  }
+
+  return t("main.statSeconds", { seconds: Math.max(1, Math.round(record.seconds)) });
 }
 
 function drawProgressMeter(label, value, goal, x, y, width) {
@@ -7966,23 +8311,26 @@ function drawSettingsScreen() {
   });
   y += 54;
 
-  y = drawWrappedText(
-    t("settings.statsInfo", {
-      analytics: getAnalyticsStatusText(),
-      ads: getAdsStatusText(),
-      iap: t("common.iap"),
-    }),
-    panel.x + 28,
-    y,
-    panel.width - 56,
-    21,
-    COLORS.text,
-    15,
-  );
-  y += 14;
-  drawSmallNotice(panel.x + 28, y, panel.width - 56, serviceMessage || t("settings.sdkNotice"));
   const backLabel = settingsReturnScreen === Screen.PAUSED ? t("pause.backToPause") : t("settings.backMain");
-  drawButton(backLabel, panel.x + 28, panel.y + panel.height - 70, panel.width - 56, 46, () => {
+  const backButtonY = panel.y + panel.height - 70;
+  if (y + 72 < backButtonY) {
+    y = drawWrappedText(
+      t("settings.statsInfo", {
+        analytics: getAnalyticsStatusText(),
+        ads: getAdsStatusText(),
+        iap: t("common.iap"),
+      }),
+      panel.x + 28,
+      y,
+      panel.width - 56,
+      21,
+      COLORS.text,
+      15,
+    );
+    y += 14;
+  }
+  drawSmallNotice(panel.x + 28, Math.min(y, backButtonY - 44), panel.width - 56, serviceMessage || t("settings.sdkNotice"));
+  drawButton(backLabel, panel.x + 28, backButtonY, panel.width - 56, 46, () => {
     serviceMessage = "";
     setScreen(settingsReturnScreen);
   }, { id: "settings-back" });
@@ -8095,12 +8443,61 @@ function drawResultOverlay() {
   const buttonX = panelX + padding;
   drawResultInsight(panelX + padding, infoY, panelWidth - padding * 2, Math.max(54, infoBottom - infoY), { compact });
 
+  const fullButtonWidth = panelWidth - padding * 2;
+  const splitButtonWidth = (fullButtonWidth - buttonGap) / 2;
+  const recommendation = getResultNextRecommendation();
   let currentButtonY = buttonY;
-  drawButton(t("result.again"), buttonX, currentButtonY, panelWidth - padding * 2, buttonHeight, startGame, { id: "result-again" });
+  drawButton(recommendation.buttonLabel, buttonX, currentButtonY, fullButtonWidth, buttonHeight, startRecommendedMatch, { id: "result-recommend-next", active: true });
   currentButtonY += buttonHeight + buttonGap;
-  drawButton(t("result.setup"), buttonX, currentButtonY, panelWidth - padding * 2, buttonHeight, openMatchSetup, { id: "result-setup" });
+  drawButton(t("result.again"), buttonX, currentButtonY, splitButtonWidth, buttonHeight, () => startGame({ source: "result_again" }), { id: "result-again" });
+  drawButton(t("result.shareCard"), buttonX + splitButtonWidth + buttonGap, currentButtonY, splitButtonWidth, buttonHeight, () => {
+    shareTargetOverlayOpen = true;
+  }, { id: "result-share-card" });
   currentButtonY += buttonHeight + buttonGap;
-  drawButton(t("result.backMain"), buttonX, currentButtonY, panelWidth - padding * 2, buttonHeight, returnToMenu, { id: "result-back-main" });
+  drawButton(t("result.setup"), buttonX, currentButtonY, splitButtonWidth, buttonHeight, openMatchSetup, { id: "result-setup" });
+  drawButton(t("result.backMain"), buttonX + splitButtonWidth + buttonGap, currentButtonY, splitButtonWidth, buttonHeight, returnToMenu, { id: "result-back-main" });
+  if (shareTargetOverlayOpen) {
+    drawShareTargetOverlay(resultLayout);
+  }
+  ctx.restore();
+}
+
+function drawShareTargetOverlay(resultLayout) {
+  const overlayWidth = Math.min(resultLayout.panelWidth - resultLayout.padding * 2, 312);
+  const overlayHeight = 204;
+  const overlayX = resultLayout.panelX + (resultLayout.panelWidth - overlayWidth) / 2;
+  const overlayY = resultLayout.panelY + (resultLayout.panelHeight - overlayHeight) / 2;
+  const buttonHeight = 36;
+  const buttonGap = 10;
+  const buttonX = overlayX + 22;
+  const buttonWidth = overlayWidth - 44;
+  let buttonY = overlayY + 48;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(5, 7, 17, 0.58)";
+  ctx.fillRect(resultLayout.panelX, resultLayout.panelY, resultLayout.panelWidth, resultLayout.panelHeight);
+  drawPanel({ x: overlayX, y: overlayY, width: overlayWidth, height: overlayHeight });
+  ctx.fillStyle = COLORS.text;
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = canvasFont(17, 900);
+  ctx.fillText(t("shareTargets.title"), overlayX + overlayWidth / 2, overlayY + 27);
+
+  drawButton(t("shareTargets.facebook"), buttonX, buttonY, buttonWidth, buttonHeight, () => {
+    void generateAndShareBattleReportCard(ShareTargets.facebook);
+  }, { id: "share-facebook" });
+  buttonY += buttonHeight + buttonGap;
+  drawButton(t("shareTargets.tiktok"), buttonX, buttonY, buttonWidth, buttonHeight, () => {
+    void generateAndShareBattleReportCard(ShareTargets.tiktok);
+  }, { id: "share-tiktok" });
+  buttonY += buttonHeight + buttonGap;
+  drawButton(t("shareTargets.system"), buttonX, buttonY, (buttonWidth - buttonGap) / 2, buttonHeight, () => {
+    void generateAndShareBattleReportCard(ShareTargets.system);
+  }, { id: "share-system" });
+  drawButton(t("shareTargets.cancel"), buttonX + (buttonWidth + buttonGap) / 2, buttonY, (buttonWidth - buttonGap) / 2, buttonHeight, () => {
+    shareTargetOverlayOpen = false;
+  }, { id: "share-cancel" });
   ctx.restore();
 }
 
@@ -8138,23 +8535,731 @@ function getResultOverlayLayout() {
   };
 }
 
+function getResultNextRecommendation() {
+  const scene = selectedProfessions.scene;
+  if (isCurrentItemMode()) {
+    return {
+      buttonLabel: t("result.nextItemChaos"),
+      selectedProfessions: {
+        ...selectedProfessions,
+        ballCount: Math.min(MAX_BALL_COUNT, Math.max(4, (selectedProfessions.ballCount || 2) + 1)),
+      },
+      matchupText: t("result.nextItemChaos"),
+      reason: "item_chaos",
+    };
+  }
+
+  const ownRole = selectedProfessions.a;
+  const opponentRole = selectedProfessions.b;
+  if (resultWinnerSide === "A") {
+    const counterRole = getRecommendedCounterRole(ownRole, scene, opponentRole);
+    return createResultRecommendation({
+      labelKey: "result.nextChallenge",
+      reason: "challenge_counter",
+      selectedProfessions: { ...selectedProfessions, b: counterRole },
+      highlightRole: counterRole,
+    });
+  }
+
+  if (resultWinnerSide === "B") {
+    const revengeRole = getRecommendedCounterRole(opponentRole, scene, ownRole);
+    return createResultRecommendation({
+      labelKey: "result.nextRevenge",
+      reason: "revenge_lineup",
+      selectedProfessions: { ...selectedProfessions, a: revengeRole },
+      highlightRole: revengeRole,
+    });
+  }
+
+  const breakerRole = getAlternativeRoleForScene(opponentRole, scene, ownRole);
+  return createResultRecommendation({
+    labelKey: "result.nextDrawBreaker",
+    reason: "draw_breaker",
+    selectedProfessions: { ...selectedProfessions, b: breakerRole },
+    highlightRole: breakerRole,
+  });
+}
+
+function createResultRecommendation({ labelKey, reason, selectedProfessions: nextProfessions, highlightRole }) {
+  const normalized = normalizeSelectedProfessions(nextProfessions, ProfessionConfig);
+  return {
+    buttonLabel: t(labelKey, { role: getProfessionName(highlightRole) }),
+    selectedProfessions: normalized,
+    matchupText: getMatchupText(normalized),
+    reason,
+  };
+}
+
+function getRecommendedCounterRole(roleId, scene, fallbackRole) {
+  const recommendedRole = ROLE_COUNTER_RECOMMENDATIONS[roleId];
+  const sceneRoles = getSceneProfessionIds(scene);
+  if (recommendedRole && sceneRoles.includes(recommendedRole)) {
+    return recommendedRole;
+  }
+
+  return getAlternativeRoleForScene(fallbackRole, scene, roleId);
+}
+
+function getAlternativeRoleForScene(currentRole, scene, excludedRole = null) {
+  const sceneRoles = getSceneProfessionIds(scene).filter((roleId) => roleId !== currentRole && roleId !== excludedRole);
+  if (sceneRoles.length) {
+    return sceneRoles[0];
+  }
+
+  return getSceneProfessionIds(scene).find((roleId) => roleId !== currentRole) || currentRole;
+}
+
+function getMatchupText(professions) {
+  if (isItemScene(professions.scene)) {
+    return t("setup.itemModeHeader");
+  }
+
+  return `${getProfessionName(professions.a)} vs ${getProfessionName(professions.b)}`;
+}
+
+function startRecommendedMatch() {
+  const recommendation = getResultNextRecommendation();
+  selectedProfessions = complianceState.saveSelectedProfessions(recommendation.selectedProfessions);
+  serviceMessage = t("messages.recommendedMatch", { matchup: recommendation.matchupText });
+  analytics.track(AnalyticsEvents.nextMatchRecommendClick, createFunnelAnalyticsPayload({
+    recommendation_reason: recommendation.reason,
+    recommended_matchup: recommendation.matchupText,
+    winner_side: resultWinnerSide,
+    own_result: getOwnResult(resultWinnerSide),
+  }));
+  startGame({ source: "result_recommendation" });
+}
+
 function drawResultInsight(x, y, width, maxHeight = Infinity, options = {}) {
   const insight = resultInsight || createMatchResultInsight(resultWinnerSide);
   const compact = Boolean(options.compact);
+  const compactReport = Boolean(settings.compactReportEnabled);
   const titleFontSize = compact ? 15 : 17;
   const reasonFontSize = compact ? 12 : 13;
   const statsFontSize = compact ? 11 : 12;
   const reasonLineHeight = compact ? 16 : 18;
   const statsLineHeight = compact ? 15 : 17;
   const titleHeight = compact ? 20 : 24;
-  const maxReasonLines = Math.max(1, Math.min(compact ? 2 : 3, Math.floor((maxHeight - titleHeight - statsLineHeight - 4) / reasonLineHeight)));
+  const statsReservedHeight = compactReport ? 0 : statsLineHeight + 4;
+  const maxReasonLines = compactReport
+    ? 1
+    : Math.max(1, Math.min(compact ? 2 : 3, Math.floor((maxHeight - titleHeight - statsReservedHeight) / reasonLineHeight)));
 
   drawResultSectionHeader(t("result.analysisTitle"), x, y, width, titleFontSize);
   y += titleHeight;
   y = drawWrappedTextLinesLimited(insight.reason, x, y, width, reasonLineHeight, COLORS.text, reasonFontSize, maxReasonLines);
+  if (compactReport) {
+    return y;
+  }
+
   y += compact ? 2 : 4;
   drawSingleLineNotice(insight.stats, x, y, width, statsFontSize, COLORS.muted);
   return y;
+}
+
+async function generateAndShareBattleReportCard(target = ShareTargets.system) {
+  if (screen !== Screen.RESULT) {
+    return;
+  }
+
+  shareTargetOverlayOpen = false;
+  analytics.track(AnalyticsEvents.reportCardClick, createFunnelAnalyticsPayload({
+    share_target: target,
+    winner_side: resultWinnerSide,
+    own_result: getOwnResult(resultWinnerSide),
+  }));
+  serviceMessage = t("messages.reportCardGenerating");
+  try {
+    const cardData = createBattleReportCardData();
+    const cardCanvas = createBattleReportCardCanvas(cardData);
+    const blob = await canvasToBlob(cardCanvas, "image/png");
+    const fileName = createBattleReportFileName();
+    const shared = await tryShareBattleReportCard(blob, fileName, cardData, target);
+    if (shared) {
+      return;
+    }
+
+    downloadBattleReportCard(blob, fileName);
+    serviceMessage = t("messages.reportCardSaved");
+  } catch (error) {
+    console.error("Failed to create battle report card", error);
+    serviceMessage = t("messages.reportCardFailed");
+  }
+}
+
+function createBattleReportCardData() {
+  const insight = resultInsight || createMatchResultInsight(resultWinnerSide);
+  return {
+    winnerSide: resultWinnerSide,
+    winnerText: getBattleReportWinnerText(),
+    reason: settings.compactReportEnabled
+      ? getCompactReportText(insight.reason || t("reportCard.reasonFallback"))
+      : insight.reason || t("reportCard.reasonFallback"),
+    worstMoment: getBattleReportWorstMoment(resultWinnerSide, insight),
+    todayTitle: getTodayReportTitle(resultWinnerSide),
+    stats: insight.stats || "",
+    scene: getSceneName(selectedProfessions.scene),
+    date: getLocalDateKey(),
+    shareUrl: createBattleReplayShareUrl({
+      ...selectedProfessions,
+      seed: matchTelemetry.replaySeed || activeBattleReplaySeed,
+      matchId: matchTelemetry.matchId,
+    }),
+  };
+}
+
+function getCompactReportText(text, maxLength = 42) {
+  const value = String(text || "").trim();
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(1, maxLength - 3)).trimEnd()}...`;
+}
+
+function getBattleReportWinnerText() {
+  if (resultMessage) {
+    return resultMessage;
+  }
+
+  if (resultWinnerSide === "draw") {
+    return t("result.draw");
+  }
+
+  if (isCurrentItemMode()) {
+    return t("result.winnerNoProfession", { side: getSideLabel(resultWinnerSide) });
+  }
+
+  const professionId = resultWinnerSide === "B" ? selectedProfessions.b : selectedProfessions.a;
+  return t("result.winner", {
+    side: getSideLabel(resultWinnerSide),
+    profession: getProfessionName(professionId),
+  });
+}
+
+function getBattleReportWorstMoment(winnerSide, insight) {
+  if (winnerSide === "draw") {
+    return t("reportCard.worstDraw");
+  }
+
+  const loserSide = winnerSide === "B" ? "A" : "B";
+  const loser = getSideLabel(loserSide);
+  const winner = getSideLabel(winnerSide);
+  const topSource = getTopDamageSourceForSide(winnerSide);
+  const source = insight?.topSourceLabel || (topSource ? getHitSourceLabel(topSource.source) : t("result.sourceAttack"));
+  const topDamage = Math.round(topSource?.damage || 0);
+  const loserDamageTaken = Math.round(getSideMetric(matchTelemetry.damageTakenBySide, loserSide));
+  const loserAttacks = getSideMetric(matchTelemetry.attackCountsBySide, loserSide);
+  const winnerAttacks = getSideMetric(matchTelemetry.attackCountsBySide, winnerSide);
+
+  if (topDamage >= Math.max(14, loserDamageTaken * 0.32) && source) {
+    return t("reportCard.worstSource", { loser, source, damage: topDamage });
+  }
+
+  if (loserAttacks >= winnerAttacks + 2) {
+    return t("reportCard.worstCountered", { loser, count: loserAttacks });
+  }
+
+  if (loserDamageTaken > 0) {
+    return t("reportCard.worstDamage", { loser, damage: loserDamageTaken });
+  }
+
+  return t("reportCard.worstFallback", { loser, winner });
+}
+
+function getTodayReportTitle(winnerSide) {
+  const progress = getCurrentPlayerProgress();
+  const masteryEntry = getFeaturedMasteryEntry(progress);
+
+  if (winnerSide === "draw") {
+    return t("reportCard.todayTitleDraw");
+  }
+
+  if (winnerSide === "A" && progress.daily.wins >= DAILY_WIN_GOAL) {
+    return t("reportCard.todayTitleDailyCloser");
+  }
+
+  if (masteryEntry?.level >= 3) {
+    return t("reportCard.todayTitleMastery", {
+      role: getProfessionName(masteryEntry.roleId),
+      level: masteryEntry.level,
+    });
+  }
+
+  if (winnerSide === "A") {
+    return t("reportCard.todayTitleCloser");
+  }
+
+  if (progress.daily.matches >= DAILY_MATCH_GOAL) {
+    return t("reportCard.todayTitleDramaWitness");
+  }
+
+  return t("reportCard.todayTitleWitness");
+}
+
+function createBattleReportCardCanvas(cardData) {
+  const cardCanvas = document.createElement("canvas");
+  cardCanvas.width = REPORT_CARD_WIDTH;
+  cardCanvas.height = REPORT_CARD_HEIGHT;
+  const cardContext = cardCanvas.getContext("2d");
+  cardContext.imageSmoothingEnabled = false;
+  drawBattleReportCard(cardContext, cardData);
+  return cardCanvas;
+}
+
+function canvasToBlob(sourceCanvas, type) {
+  return new Promise((resolve, reject) => {
+    sourceCanvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+
+      reject(new Error("Unable to export battle report card"));
+    }, type);
+  });
+}
+
+async function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error || new Error("Unable to read battle report card")));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function tryShareBattleReportCard(blob, fileName, cardData, target = ShareTargets.system) {
+  if (socialShare.isNativeAvailable()) {
+    try {
+      const result = await socialShare.shareImage({
+        target,
+        fileName,
+        contentType: "image/png",
+        base64Data: await blobToDataUrl(blob),
+        title: t("reportCard.shareTitle"),
+        text: getBattleReportShareText(cardData),
+        deepLinkUrl: cardData.shareUrl,
+      });
+      if (result?.shared) {
+        serviceMessage = t("messages.reportCardShared");
+        return true;
+      }
+    } catch (error) {
+      console.warn("Native battle report sharing failed", error);
+    }
+  }
+
+  const browserNavigator = globalThis.navigator;
+  if (
+    !blob ||
+    typeof globalThis.File === "undefined" ||
+    !browserNavigator?.share ||
+    typeof browserNavigator.canShare !== "function"
+  ) {
+    return false;
+  }
+
+  const file = new File([blob], fileName, { type: "image/png" });
+  if (!browserNavigator.canShare({ files: [file] })) {
+    return false;
+  }
+
+  try {
+    await browserNavigator.share({
+      files: [file],
+      title: t("reportCard.shareTitle"),
+      text: getBattleReportShareText(cardData),
+    });
+    serviceMessage = t("messages.reportCardShared");
+    return true;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      serviceMessage = t("messages.reportCardCancelled");
+      return true;
+    }
+
+    console.warn("Falling back to battle report card download", error);
+    return false;
+  }
+}
+
+function getBattleReportShareText(cardData) {
+  return t("reportCard.shareText", {
+    winner: cardData.winnerText,
+    link: cardData.shareUrl,
+  });
+}
+
+function downloadBattleReportCard(blob, fileName) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
+}
+
+function createBattleReportFileName() {
+  const matchId = String(matchTelemetry?.matchId || "match").replace(/[^\w-]/g, "");
+  return `bangbang-battle-report-${getLocalDateKey()}-${matchId || "match"}.png`;
+}
+
+function drawBattleReportCard(context, cardData) {
+  const winnerVisual = cardData.winnerSide === "draw" ? SIDE_VISUAL_CONFIG.F : getSideVisualConfig(cardData.winnerSide);
+  const accent = winnerVisual?.accentColor || "#ffd166";
+  const innerX = 58;
+  const innerY = 58;
+  const innerWidth = REPORT_CARD_WIDTH - innerX * 2;
+  const innerHeight = REPORT_CARD_HEIGHT - innerY * 2;
+
+  drawReportCardPixelBackground(context, winnerVisual);
+  drawReportCardFrame(context, innerX, innerY, innerWidth, innerHeight, {
+    fill: "#202822",
+    border: accent,
+    shadow: "#050711",
+  });
+  drawReportCardCornerPixels(context, innerX, innerY, innerWidth, innerHeight, accent);
+
+  context.save();
+  context.direction = getTextDirection(currentLocale);
+  context.textAlign = "center";
+  context.textBaseline = "top";
+  context.fillStyle = "#ffe7a3";
+  context.font = canvasFont(28, 900);
+  context.fillText(t("reportCard.eyebrow"), REPORT_CARD_WIDTH / 2, 108);
+  context.fillStyle = "#fff6d6";
+  context.font = canvasFont(getFittedFontSizeForContext(context, cardData.winnerText, innerWidth - 132, 68, 36, 900), 900);
+  context.fillText(cardData.winnerText, REPORT_CARD_WIDTH / 2, 168);
+  context.restore();
+
+  drawReportCardBattleStrip(context, innerX + 72, 272, innerWidth - 144, 96, cardData.winnerSide, accent);
+  drawReportCardMetaRibbon(context, innerX + 86, 390, innerWidth - 172, cardData, accent);
+
+  drawReportCardSection(context, {
+    label: t("reportCard.reasonLabel"),
+    text: cardData.reason,
+    x: innerX + 68,
+    y: 492,
+    width: innerWidth - 136,
+    height: 218,
+    accent,
+    maxLines: 4,
+  });
+  drawReportCardSection(context, {
+    label: t("reportCard.worstLabel"),
+    text: cardData.worstMoment,
+    x: innerX + 68,
+    y: 744,
+    width: innerWidth - 136,
+    height: 198,
+    accent: "#ff8a65",
+    maxLines: 3,
+  });
+  drawReportCardSection(context, {
+    label: t("reportCard.titleLabel"),
+    text: cardData.todayTitle,
+    x: innerX + 68,
+    y: 976,
+    width: innerWidth - 136,
+    height: 166,
+    accent: "#37d7ff",
+    maxLines: 2,
+    featured: true,
+  });
+
+  drawReportCardFooter(context, innerX + 86, 1190, innerWidth - 172, cardData);
+}
+
+function drawReportCardPixelBackground(context, winnerVisual) {
+  const baseColor = winnerVisual?.shadowColor || "#12181c";
+  context.fillStyle = baseColor;
+  context.fillRect(0, 0, REPORT_CARD_WIDTH, REPORT_CARD_HEIGHT);
+
+  const tileSize = 36;
+  for (let tileY = 0; tileY < REPORT_CARD_HEIGHT; tileY += tileSize) {
+    for (let tileX = 0; tileX < REPORT_CARD_WIDTH; tileX += tileSize) {
+      const shade = ((tileX / tileSize) * 11 + (tileY / tileSize) * 7) % 5;
+      context.fillStyle = shade === 0 ? "rgba(255, 246, 214, 0.05)" : "rgba(5, 7, 17, 0.10)";
+      context.fillRect(tileX, tileY, tileSize - 2, tileSize - 2);
+    }
+  }
+
+  context.fillStyle = winnerVisual?.color || "#d9aa55";
+  context.globalAlpha = 0.22;
+  context.fillRect(0, 0, REPORT_CARD_WIDTH, 136);
+  context.fillRect(0, REPORT_CARD_HEIGHT - 176, REPORT_CARD_WIDTH, 176);
+  context.globalAlpha = 1;
+}
+
+function drawReportCardFrame(context, x, y, width, height, options = {}) {
+  const fill = options.fill || "#1b2530";
+  const border = options.border || "#d9aa55";
+  const shadow = options.shadow || "#050711";
+
+  context.save();
+  context.fillStyle = shadow;
+  context.fillRect(x + 12, y + 12, width, height);
+  drawTiledVoxelTexture(context, voxelAssets.blocks.deepslate, x, y, width, height, 48);
+  context.globalAlpha = 0.88;
+  context.fillStyle = fill;
+  context.fillRect(x, y, width, height);
+  context.globalAlpha = 1;
+  context.strokeStyle = "#050711";
+  context.lineWidth = 8;
+  context.strokeRect(x + 4, y + 4, width - 8, height - 8);
+  context.strokeStyle = border;
+  context.lineWidth = 4;
+  context.strokeRect(x + 18, y + 18, width - 36, height - 36);
+  context.fillStyle = "rgba(255, 246, 214, 0.22)";
+  context.fillRect(x + 26, y + 26, width - 52, 5);
+  context.fillRect(x + 26, y + 26, 5, height - 52);
+  context.restore();
+}
+
+function drawReportCardCornerPixels(context, x, y, width, height, accent) {
+  context.save();
+  context.fillStyle = accent;
+  const size = 18;
+  const points = [
+    [x + 34, y + 34],
+    [x + width - 52, y + 34],
+    [x + 34, y + height - 52],
+    [x + width - 52, y + height - 52],
+  ];
+  for (const [pointX, pointY] of points) {
+    context.fillRect(pointX, pointY, size, size);
+    context.fillRect(pointX + (pointX < REPORT_CARD_WIDTH / 2 ? size : -size), pointY, size, size);
+    context.fillRect(pointX, pointY + (pointY < REPORT_CARD_HEIGHT / 2 ? size : -size), size, size);
+  }
+  context.restore();
+}
+
+function drawReportCardBattleStrip(context, x, y, width, height, winnerSide, accent) {
+  drawReportCardFrame(context, x, y, width, height, {
+    fill: "rgba(9, 13, 20, 0.82)",
+    border: accent,
+    shadow: "#050711",
+  });
+  const gap = 28;
+  const badgeWidth = (width - gap * 2 - 92) / 2;
+  drawReportCardSideBadge(context, "A", x + gap, y + 20, badgeWidth, height - 40, winnerSide === "A");
+
+  context.save();
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillStyle = "#ffe7a3";
+  context.font = canvasFont(34, 900);
+  context.fillText("VS", x + width / 2, y + height / 2);
+  context.restore();
+
+  drawReportCardSideBadge(context, "B", x + width - gap - badgeWidth, y + 20, badgeWidth, height - 40, winnerSide === "B");
+}
+
+function drawReportCardSideBadge(context, side, x, y, width, height, isWinner) {
+  const visual = getSideVisualConfig(side);
+  context.save();
+  context.fillStyle = isWinner ? visual.color : "rgba(255, 246, 214, 0.08)";
+  context.fillRect(x, y, width, height);
+  context.strokeStyle = isWinner ? visual.accentColor : "rgba(255, 246, 214, 0.24)";
+  context.lineWidth = 4;
+  context.strokeRect(x + 2, y + 2, width - 4, height - 4);
+  drawReportCardPixelBall(context, visual, x + 26, y + height / 2 - 18, 36);
+  context.direction = getTextDirection(currentLocale);
+  context.textAlign = isRtlLocale(currentLocale) ? "right" : "left";
+  context.textBaseline = "middle";
+  context.fillStyle = isWinner ? "#050711" : "#fff6d6";
+  context.font = canvasFont(getFittedFontSizeForContext(context, getSideLabel(side), width - 86, 28, 18, 900), 900);
+  context.fillText(getSideLabel(side), x + 78, y + height / 2);
+  context.restore();
+}
+
+function drawReportCardPixelBall(context, visual, x, y, size) {
+  const unit = size / 6;
+  context.save();
+  context.fillStyle = visual.shadowColor || "#050711";
+  context.fillRect(x + unit, y + unit * 5, unit * 4, unit);
+  context.fillStyle = visual.color;
+  context.fillRect(x + unit, y, unit * 4, unit);
+  context.fillRect(x, y + unit, unit * 6, unit * 4);
+  context.fillRect(x + unit, y + unit * 5, unit * 4, unit);
+  context.fillStyle = visual.accentColor;
+  context.fillRect(x + unit * 2, y + unit, unit * 2, unit);
+  context.fillStyle = "#050711";
+  context.fillRect(x + unit * 4, y + unit * 2, unit, unit);
+  context.restore();
+}
+
+function drawReportCardMetaRibbon(context, x, y, width, cardData, accent) {
+  context.save();
+  context.fillStyle = "#d9aa55";
+  context.fillRect(x, y, width, 54);
+  context.strokeStyle = "#050711";
+  context.lineWidth = 5;
+  context.strokeRect(x + 2.5, y + 2.5, width - 5, 49);
+  context.fillStyle = "#050711";
+  context.font = canvasFont(getFittedFontSizeForContext(context, t("reportCard.meta", {
+    scene: cardData.scene,
+    date: cardData.date,
+  }), width - 42, 22, 14, 900), 900);
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(t("reportCard.meta", { scene: cardData.scene, date: cardData.date }), x + width / 2, y + 27);
+  context.fillStyle = accent;
+  context.fillRect(x + 18, y + 17, 20, 20);
+  context.fillRect(x + width - 38, y + 17, 20, 20);
+  context.restore();
+}
+
+function drawReportCardSection(context, options) {
+  const { label, text, x, y, width, height, accent, maxLines, featured = false } = options;
+  drawReportCardFrame(context, x, y, width, height, {
+    fill: featured ? "#162f38" : "#263029",
+    border: accent,
+    shadow: "#050711",
+  });
+
+  context.save();
+  context.direction = getTextDirection(currentLocale);
+  context.textAlign = getReportCardStartAlign();
+  context.textBaseline = "top";
+  context.fillStyle = accent;
+  context.fillRect(getReportCardStartX(x + 30, width - 60), y + 28, 10, 38);
+  context.fillStyle = "#ffe7a3";
+  context.font = canvasFont(28, 900);
+  context.fillText(label, getReportCardStartX(x + 52, width - 104), y + 28);
+
+  if (featured) {
+    context.fillStyle = "#fff6d6";
+    context.font = canvasFont(getFittedFontSizeForContext(context, text, width - 92, 46, 28, 900), 900);
+    context.textBaseline = "middle";
+    context.fillText(text, getReportCardStartX(x + 46, width - 92), y + 112);
+  } else {
+    drawReportCardWrappedText(context, text, x + 42, y + 84, width - 84, featured ? 48 : 36, "#fff6d6", featured ? 36 : 28, maxLines, 800);
+  }
+  context.restore();
+}
+
+function drawReportCardFooter(context, x, y, width, cardData) {
+  context.save();
+  context.fillStyle = "rgba(5, 7, 17, 0.42)";
+  context.fillRect(x, y, width, 82);
+  context.strokeStyle = "rgba(255, 246, 214, 0.22)";
+  context.lineWidth = 3;
+  context.strokeRect(x + 1.5, y + 1.5, width - 3, 79);
+  drawReportCardWrappedText(context, cardData.stats, x + 24, y + 12, width - 48, 24, "#d8e4cf", 19, 1, 800);
+  context.fillStyle = "#ffe7a3";
+  context.font = canvasFont(19, 900);
+  context.textAlign = "center";
+  context.textBaseline = "top";
+  context.fillText(t("reportCard.footer"), x + width / 2, y + 39);
+  context.fillStyle = "#d8e4cf";
+  context.font = canvasFont(16, 800);
+  context.fillText(getReportCardDisplayLink(cardData.shareUrl), x + width / 2, y + 62);
+  context.restore();
+}
+
+function getReportCardDisplayLink(shareUrl) {
+  if (!shareUrl) {
+    return "";
+  }
+
+  try {
+    const url = new URL(shareUrl);
+    return `${url.host}${url.pathname}`;
+  } catch {
+    return String(shareUrl);
+  }
+}
+
+function drawReportCardWrappedText(context, text, x, y, maxWidth, lineHeight, color, fontSize, maxLines, weight = 700) {
+  const font = canvasFont(fontSize, weight);
+  const lines = wrapTextLinesForContext(context, text, maxWidth, font);
+  const visibleLines = lines.slice(0, Math.max(1, maxLines));
+  if (lines.length > visibleLines.length) {
+    visibleLines[visibleLines.length - 1] = fitTextWithEllipsisForContext(context, visibleLines[visibleLines.length - 1], maxWidth, font);
+  }
+
+  context.save();
+  context.direction = getTextDirection(currentLocale);
+  context.fillStyle = color;
+  context.font = font;
+  context.textAlign = getReportCardStartAlign();
+  context.textBaseline = "top";
+  for (const line of visibleLines) {
+    context.fillText(line, getReportCardStartX(x, maxWidth), y);
+    y += lineHeight;
+  }
+  context.restore();
+  return y;
+}
+
+function wrapTextLinesForContext(context, text, maxWidth, font) {
+  context.save();
+  context.font = font;
+  const lines = [];
+  for (const paragraph of String(text).split("\n")) {
+    lines.push(...wrapWordsForContext(context, paragraph, maxWidth));
+  }
+  context.restore();
+  return lines;
+}
+
+function wrapWordsForContext(context, paragraph, maxWidth) {
+  const words = getWrapTokens(paragraph);
+  const lines = [];
+  let line = "";
+
+  for (const word of words) {
+    const nextLine = `${line}${word}`;
+    if (line.trim() && context.measureText(nextLine).width > maxWidth) {
+      lines.push(line.trimEnd());
+      line = word.trimStart();
+    } else {
+      line = nextLine;
+    }
+  }
+
+  lines.push(line.trimEnd());
+  return lines;
+}
+
+function fitTextWithEllipsisForContext(context, text, maxWidth, font) {
+  const ellipsis = "...";
+  let fittedText = String(text).trimEnd();
+  context.save();
+  context.font = font;
+  while (fittedText.length > 0 && context.measureText(`${fittedText}${ellipsis}`).width > maxWidth) {
+    fittedText = fittedText.slice(0, -1).trimEnd();
+  }
+  context.restore();
+  return `${fittedText}${ellipsis}`;
+}
+
+function getFittedFontSizeForContext(context, text, maxWidth, desiredSize, minSize, weight = 700) {
+  context.save();
+  let fontSize = desiredSize;
+  while (fontSize > minSize) {
+    context.font = canvasFont(fontSize, weight);
+    if (context.measureText(String(text)).width <= maxWidth) {
+      context.restore();
+      return fontSize;
+    }
+    fontSize -= 1;
+  }
+  context.restore();
+  return minSize;
+}
+
+function getReportCardStartAlign() {
+  return isRtlLocale(currentLocale) ? "right" : "left";
+}
+
+function getReportCardStartX(x, width) {
+  return isRtlLocale(currentLocale) ? x + width : x;
 }
 
 function drawResultSectionHeader(text, x, y, width, fontSize) {
@@ -8452,10 +9557,14 @@ function drawFeedbackSettings(x, y, width) {
     { key: "vibrationEnabled", labelKey: "settings.vibration", id: "settings-vibration" },
     { key: "musicEnabled", labelKey: "settings.music", id: "settings-music" },
     { key: "soundEffectsEnabled", labelKey: "settings.soundEffects", id: "settings-sound-effects" },
+    { key: "reducedShakeEnabled", labelKey: "settings.reducedShake", id: "settings-reduced-shake" },
+    { key: "highlightTextEnabled", labelKey: "settings.highlightText", id: "settings-highlight-text" },
+    { key: "compactReportEnabled", labelKey: "settings.compactReport", id: "settings-compact-report" },
+    { key: "quickSettlementEnabled", labelKey: "settings.quickSettlement", id: "settings-quick-settlement" },
   ];
   const gap = 10;
   const buttonHeight = 38;
-  const columns = width >= 540 ? 3 : width >= 400 ? 2 : 1;
+  const columns = width >= 540 ? 3 : width >= 320 ? 2 : 1;
   const rows = Math.ceil(options.length / columns);
   const buttonWidth = (width - gap * (columns - 1)) / columns;
 
@@ -11233,6 +12342,10 @@ function drawProjectiles(ctx) {
 }
 
 function drawDamageIndicators(ctx, currentTime) {
+  if (!settings.highlightTextEnabled) {
+    return;
+  }
+
   for (const indicator of damageIndicators) {
     const progress = clamp((currentTime - indicator.createdAt) / DAMAGE_TEXT_DURATION, 0, 1);
     const alpha = 1 - easeInCubic(progress);
@@ -12365,13 +13478,13 @@ function handleKeyDown(event) {
     } else if (screen === Screen.PAUSED) {
       resumeGame();
     } else if (screen === Screen.RESULT) {
-      startGame();
+      startGame({ source: "keyboard_result" });
     }
   }
 
   if (event.key.toLowerCase() === "r" && (screen === Screen.RESULT || screen === Screen.PAUSED)) {
     resumeAudioContext();
-    startGame();
+    startGame({ source: screen === Screen.PAUSED ? "keyboard_pause_restart" : "keyboard_result_restart" });
   }
 }
 
@@ -12424,11 +13537,12 @@ function getWallAnchoredPoint(wall, point, inset) {
 
 function getSafeAreaInsets() {
   const style = getComputedStyle(document.documentElement);
+  const nativeInsets = globalThis.__nativeSafeAreaInsets || {};
   return {
-    top: parseCssPixel(style.getPropertyValue("--safe-top")),
-    right: parseCssPixel(style.getPropertyValue("--safe-right")),
-    bottom: parseCssPixel(style.getPropertyValue("--safe-bottom")),
-    left: parseCssPixel(style.getPropertyValue("--safe-left")),
+    top: Math.max(parseCssPixel(style.getPropertyValue("--safe-top")), parseCssPixel(nativeInsets.top)),
+    right: Math.max(parseCssPixel(style.getPropertyValue("--safe-right")), parseCssPixel(nativeInsets.right)),
+    bottom: Math.max(parseCssPixel(style.getPropertyValue("--safe-bottom")), parseCssPixel(nativeInsets.bottom)),
+    left: Math.max(parseCssPixel(style.getPropertyValue("--safe-left")), parseCssPixel(nativeInsets.left)),
   };
 }
 
@@ -12670,13 +13784,17 @@ async function bootGame() {
   resizeCanvas();
   GamePlatform.setLoadingProgress(35);
   await initializePlatform();
+  await initializeDeepLinkRouting();
   GamePlatform.setLoadingProgress(80);
   await syncAnalyticsCollection();
   await initializeAdsIfAllowed();
   trackGameInitSuccess();
+  maybeTrackNextDayReturn();
   screen = complianceState.hasAcceptedCurrentLegal() ? Screen.MAIN_MENU : Screen.CONSENT;
   if (screen === Screen.MAIN_MENU) {
-    void maybeShowAppOpenAd("boot");
+    if (!consumePendingBattleDeepLink()) {
+      void maybeShowAppOpenAd("boot");
+    }
   }
   lastFrameTime = performance.now();
   requestAnimationFrame(gameLoop);
