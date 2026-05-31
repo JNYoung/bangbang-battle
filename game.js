@@ -66,6 +66,7 @@ const Screen = Object.freeze({
   CONSENT: "consent",
   LEGAL_DOCUMENT: "legalDocument",
   MAIN_MENU: "mainMenu",
+  REPORTS: "reports",
   PROFESSION_SELECT: "professionSelect",
   SETTINGS: "settings",
   PLAYING: "playing",
@@ -221,10 +222,16 @@ const REPORT_CARD_WIDTH = 1080;
 const REPORT_CARD_HEIGHT = 1350;
 const QUICK_SETTLEMENT_RAMP_SECONDS = 18;
 const QUICK_SETTLEMENT_MIN_MULTIPLIER = 2.5;
+const BATTLE_HIGHLIGHT_DURATION_SECONDS = 1.22;
+const BATTLE_HIGHLIGHT_COOLDOWN_SECONDS = 0.78;
+const IMPACT_SHAKE_DURATION_SECONDS = 0.3;
+const IMPACT_SHAKE_MAX_OFFSET = 6;
 const PLAYER_PROGRESS_STORAGE_KEY = "bangbang.playerProgress";
 const DAILY_WIN_GOAL = 3;
 const DAILY_MATCH_GOAL = 5;
 const MASTERY_MATCHES_PER_LEVEL = 3;
+const REPORT_HISTORY_LIMIT = 5;
+const COLLECTION_BADGE_LIMIT = 3;
 const QUICK_START_MATCHUPS = Object.freeze([
   { scene: DEFAULT_SCENE_ID, a: "spear", b: "blade" },
   { scene: DEFAULT_SCENE_ID, a: "shield", b: "assassin" },
@@ -255,6 +262,96 @@ const ROLE_COUNTER_RECOMMENDATIONS = Object.freeze({
   cryptLord: "zeus",
   zeus: "minotaur",
 });
+const DAILY_PLAYLIST_ENTRIES = Object.freeze([
+  {
+    id: "rangedDerby",
+    titleKey: "playlist.rangedDerby.title",
+    taglineKey: "playlist.rangedDerby.tagline",
+    scene: DEFAULT_SCENE_ID,
+    a: "archer",
+    b: "mage",
+  },
+  {
+    id: "shieldTrial",
+    titleKey: "playlist.shieldTrial.title",
+    taglineKey: "playlist.shieldTrial.tagline",
+    scene: DEFAULT_SCENE_ID,
+    a: "shield",
+    b: "venom",
+  },
+  {
+    id: "assassinDare",
+    titleKey: "playlist.assassinDare.title",
+    taglineKey: "playlist.assassinDare.tagline",
+    scene: DEFAULT_SCENE_ID,
+    a: "assassin",
+    b: "chain",
+  },
+  {
+    id: "frostBurn",
+    titleKey: "playlist.frostBurn.title",
+    taglineKey: "playlist.frostBurn.tagline",
+    scene: DEFAULT_SCENE_ID,
+    a: "frost",
+    b: "lava",
+  },
+  {
+    id: "summonerPanic",
+    titleKey: "playlist.summonerPanic.title",
+    taglineKey: "playlist.summonerPanic.tagline",
+    scene: DEFAULT_SCENE_ID,
+    a: "summoner",
+    b: "reaper",
+  },
+  {
+    id: "classicBrawl",
+    titleKey: "playlist.classicBrawl.title",
+    taglineKey: "playlist.classicBrawl.tagline",
+    scene: DEFAULT_SCENE_ID,
+    a: "spear",
+    b: "blade",
+  },
+]);
+const DAILY_PLAYLIST_SIZE = 3;
+const MATCH_VARIANT_NOTICE_DURATION = 2.8;
+const MATCH_VARIANT_EVENT_NOTICE_DURATION = 2.2;
+const MATCH_VARIANT_EVENT_TIMES = Object.freeze([6.4, 13.2, 20.4]);
+const MATCH_VARIANT_CONFIG = Object.freeze([
+  {
+    id: "crosswind",
+    titleKey: "variants.crosswind.title",
+    descriptionKey: "variants.crosswind.description",
+    type: "weather",
+    windStrength: 18,
+  },
+  {
+    id: "rainyMud",
+    titleKey: "variants.rainyMud.title",
+    descriptionKey: "variants.rainyMud.description",
+    type: "weather",
+    speedMultiplier: 0.9,
+  },
+  {
+    id: "pillarMaze",
+    titleKey: "variants.pillarMaze.title",
+    descriptionKey: "variants.pillarMaze.description",
+    type: "obstacle",
+  },
+  {
+    id: "supplyDrop",
+    titleKey: "variants.supplyDrop.title",
+    descriptionKey: "variants.supplyDrop.description",
+    type: "event",
+    eventObjects: ["largeHealth", "iceTile", "smallHealth"],
+  },
+  {
+    id: "hazardRush",
+    titleKey: "variants.hazardRush.title",
+    descriptionKey: "variants.hazardRush.description",
+    type: "event",
+    eventObjects: ["groundFire", "thorns", "iceTile"],
+  },
+]);
 
 let balls = [];
 let gameOver = false;
@@ -296,6 +393,7 @@ let arenaHazards = [];
 let webLinks = [];
 let flameTrails = [];
 let damageIndicators = [];
+let battleHighlights = [];
 let neutralSceneObjects = [];
 let recentNeutralSceneSpawnZones = [];
 let droppedItems = [];
@@ -317,6 +415,11 @@ let matchTelemetry = createMatchTelemetryState();
 let performanceStats = createPerformanceStatsState();
 let playerProgress = loadPlayerProgress();
 let resultInsight = null;
+let pendingPlaylistEntry = null;
+let activePlaylistEntry = null;
+let activeMatchVariant = null;
+let matchVariantNotices = [];
+let nextMatchVariantEventIndex = 0;
 let activeAdOverlay = null;
 let adSessionState = createAdSessionState();
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
@@ -325,6 +428,9 @@ let deepLinkListenerHandle = null;
 let lastArenaShakeTime = -Infinity;
 let arenaShakeStartedAt = -Infinity;
 let arenaShakeSeed = 0;
+let impactShakeStartedAt = -Infinity;
+let impactShakeSeed = 0;
+let impactShakeStrength = 0;
 let battleIntroStartedAt = 0;
 let resultCelebrationStartedAt = 0;
 let resultWinnerSide = "draw";
@@ -337,6 +443,7 @@ let nextMusicNoteTime = 0;
 let musicStepIndex = 0;
 let lastVibrationTime = -Infinity;
 let lastCollisionFeedbackTime = -Infinity;
+let lastBattleHighlightTime = -Infinity;
 
 const voxelAssets = createVoxelAssets();
 
@@ -1019,6 +1126,7 @@ class Ball {
     if (!isBallMovementLocked(this, currentTime)) {
       this.position.x += this.velocity.x * deltaTime;
       this.position.y += this.velocity.y * deltaTime;
+      applyMatchVariantMovement(this, deltaTime, currentTime);
     }
     this.hitFlashTime = Math.max(0, this.hitFlashTime - deltaTime);
     this.shockFlashTime = Math.max(0, this.shockFlashTime - deltaTime);
@@ -1079,6 +1187,7 @@ class Ball {
       : getHeroAttackVariant(this, defender, currentTime) || this.config.getAttackVariant?.(this, defender, currentTime) || null;
     const attackConfig = itemWeapon ? getItemAttackAnimationConfig(itemWeapon) : getBallAttackAnimationConfig(this);
     const direction = getAttackDirection(this, defender, variant);
+    const telemetrySource = getAttackTelemetrySource(this, variant || (itemWeapon ? { itemWeaponId: itemWeapon.id } : null));
     this.attackState = {
       defender,
       startTime: currentTime,
@@ -1090,6 +1199,7 @@ class Ball {
       didDealDamage: false,
     };
     this.lastAttackTime = currentTime;
+    recordCombatAttempt(this, telemetrySource);
     if (itemWeapon) {
       consumeEquippedItemDurability(this);
     }
@@ -1443,22 +1553,199 @@ function randomizeAndStartGame(mode) {
 }
 
 function quickStartGame() {
-  const matchup = getQuickStartMatchup();
+  startDailyPlaylistMatch(getQuickStartPlaylistEntry());
+}
+
+function startDailyPlaylistMatch(entry) {
+  const matchup = entry || getQuickStartPlaylistEntry();
   selectedProfessions = normalizeSelectedProfessions(matchup, ProfessionConfig);
   activeProfessionSide = "a";
   resetProfessionScroll();
   sceneDropdownOpen = false;
-  serviceMessage = t("messages.quickStart", {
+  pendingPlaylistEntry = matchup;
+  serviceMessage = t("messages.quickStartPlaylist", {
+    title: t(matchup.titleKey),
     professionA: getProfessionName(selectedProfessions.a),
     professionB: getProfessionName(selectedProfessions.b),
   });
   startGame({ source: "quick_start" });
 }
 
+function getQuickStartPlaylistEntry() {
+  const entries = getTodayPlaylistEntries();
+  const progress = getCurrentPlayerProgress();
+  return entries[progress.daily.matches % entries.length] || entries[0] || getQuickStartMatchup();
+}
+
 function getQuickStartMatchup() {
   const progress = getCurrentPlayerProgress();
   const totalMatches = progress.totalMatches;
   return QUICK_START_MATCHUPS[totalMatches % QUICK_START_MATCHUPS.length] || QUICK_START_MATCHUPS[0];
+}
+
+function getTodayPlaylistEntries(dateKey = getLocalDateKey()) {
+  const entries = DAILY_PLAYLIST_ENTRIES;
+  if (entries.length <= DAILY_PLAYLIST_SIZE) {
+    return [...entries];
+  }
+
+  const startIndex = hashStringToInt(dateKey) % entries.length;
+  return Array.from({ length: DAILY_PLAYLIST_SIZE }, (_, index) => entries[(startIndex + index) % entries.length]);
+}
+
+function createMatchVariant() {
+  if (!isCurrentClassicMode()) {
+    return null;
+  }
+
+  const progress = getCurrentPlayerProgress();
+  const seed = hashStringToInt([
+    getLocalDateKey(),
+    selectedProfessions.scene,
+    selectedProfessions.a,
+    selectedProfessions.b,
+    progress.lifetime.matches,
+    activePlaylistEntry?.id || "free",
+  ].join(":"));
+  const config = MATCH_VARIANT_CONFIG[seed % MATCH_VARIANT_CONFIG.length];
+  if (!config) {
+    return null;
+  }
+
+  return {
+    ...config,
+    seed,
+    title: t(config.titleKey),
+    description: t(config.descriptionKey),
+  };
+}
+
+function pushMatchVariantNotice(title, description, duration = MATCH_VARIANT_EVENT_NOTICE_DURATION) {
+  if (!title) {
+    return;
+  }
+
+  matchVariantNotices.push({
+    title,
+    description: description || "",
+    createdAt: elapsedTimeSeconds,
+    expiresAt: elapsedTimeSeconds + duration,
+  });
+  matchVariantNotices = matchVariantNotices.slice(-2);
+}
+
+function spawnInitialMatchVariantObjects(currentTime) {
+  if (!activeMatchVariant || activeMatchVariant.id !== "pillarMaze") {
+    return;
+  }
+
+  const positions = [
+    { x: 400, y: 260 },
+    { x: 400, y: 540 },
+    { x: 280, y: 400 },
+    { x: 520, y: 400 },
+  ];
+  const startIndex = activeMatchVariant.seed % positions.length;
+  for (let index = 0; index < 3; index += 1) {
+    const position = positions[(startIndex + index) % positions.length];
+    spawnMatchVariantNeutralObject("earthWall", currentTime, index, {
+      position,
+      lifetime: 55,
+    });
+  }
+}
+
+function updateMatchVariantEvents(currentTime) {
+  if (!activeMatchVariant || !isCurrentClassicMode() || activeMatchVariant.type !== "event") {
+    return;
+  }
+
+  if (nextMatchVariantEventIndex >= MATCH_VARIANT_EVENT_TIMES.length) {
+    return;
+  }
+
+  const eventTime = MATCH_VARIANT_EVENT_TIMES[nextMatchVariantEventIndex];
+  if (currentTime < eventTime) {
+    return;
+  }
+
+  const eventObjects = activeMatchVariant.eventObjects || [];
+  const objectType = eventObjects[(activeMatchVariant.seed + nextMatchVariantEventIndex) % eventObjects.length] || "smallHealth";
+  const didSpawn = spawnMatchVariantNeutralObject(objectType, currentTime, nextMatchVariantEventIndex);
+  nextMatchVariantEventIndex += 1;
+  if (didSpawn) {
+    pushMatchVariantNotice(
+      t("variants.eventNotice.title"),
+      t("variants.eventNotice.description", { object: t(`variants.objects.${objectType}`) }),
+    );
+    triggerImpactShake(IMPACT_SHAKE_MAX_OFFSET * 0.55, currentTime);
+  }
+}
+
+function spawnMatchVariantNeutralObject(type, currentTime, index, options = {}) {
+  const config = NEUTRAL_SCENE_TYPE_CONFIG[type];
+  if (!config) {
+    return false;
+  }
+
+  const position = options.position || createMatchVariantObjectPosition(type, index, config);
+  if (!position) {
+    return false;
+  }
+
+  neutralSceneObjects.push({
+    id: `variant-${activeMatchVariant?.id || "event"}-${index}`,
+    type,
+    kind: config.kind,
+    position,
+    radius: config.radius,
+    createdAt: currentTime,
+    expiresAt: currentTime + (options.lifetime || config.lifetime),
+    lastHitByLabel: {},
+    consumed: false,
+    variantId: activeMatchVariant?.id || "",
+  });
+  return true;
+}
+
+function createMatchVariantObjectPosition(type, index, config) {
+  const padding = Math.max(112, config.radius + 72);
+  const span = ARENA_SIZE - padding * 2;
+  const seed = activeMatchVariant?.seed || terrainState.seed;
+
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const x = padding + terrainNoise(seed, index + 31, attempt + 7, 1543) * span;
+    const y = padding + terrainNoise(seed, index + 43, attempt + 13, 1559) * span;
+    const position = snapVector({ x, y }, 4);
+    if (!isNeutralSceneSpawnPositionBlocked(position, config)) {
+      return position;
+    }
+  }
+
+  return snapVector({
+    x: ARENA_SIZE / 2 + (index - 1) * 96,
+    y: ARENA_SIZE / 2 + (type === "groundFire" ? 84 : -72),
+  }, 4);
+}
+
+function applyMatchVariantMovement(ball, deltaTime, currentTime) {
+  if (!activeMatchVariant || activeMatchVariant.id !== "crosswind" || !isPrimaryCombatant(ball) || isBallMovementLocked(ball, currentTime)) {
+    return;
+  }
+
+  const gust = Math.sin(currentTime * 0.9 + activeMatchVariant.seed * 0.001) * activeMatchVariant.windStrength;
+  const flutter = Math.sin(currentTime * 2.4 + ball.label.charCodeAt(0)) * 4;
+  ball.position.x += gust * deltaTime;
+  ball.position.y += flutter * deltaTime;
+}
+
+function getMatchVariantSpeedMultiplier(currentTime = elapsedTimeSeconds) {
+  if (!activeMatchVariant || activeMatchVariant.id !== "rainyMud") {
+    return 1;
+  }
+
+  const cycle = positiveModulo(currentTime + (activeMatchVariant.seed % 5), 9);
+  return cycle > 2.2 && cycle < 6.8 ? activeMatchVariant.speedMultiplier : 1;
 }
 
 function getSceneName(sceneId) {
@@ -1694,6 +1981,11 @@ function openMatchSetup() {
   setScreen(Screen.PROFESSION_SELECT);
 }
 
+function openReportHistory() {
+  serviceMessage = "";
+  setScreen(Screen.REPORTS);
+}
+
 function startGame(options = {}) {
   const startSource = options.source || "manual";
   const progressBeforeStart = getCurrentPlayerProgress();
@@ -1756,6 +2048,11 @@ function openMainSettings() {
 function restartGame() {
   activeBattleReplaySeed ||= createBattleReplaySeed();
   terrainState = createTerrainState(activeBattleReplaySeed, selectedProfessions.scene);
+  activePlaylistEntry = pendingPlaylistEntry;
+  pendingPlaylistEntry = null;
+  activeMatchVariant = createMatchVariant();
+  matchVariantNotices = [];
+  nextMatchVariantEventIndex = 0;
   balls = createInitialBalls();
   attackEffectInstances = [];
   projectiles = [];
@@ -1765,6 +2062,7 @@ function restartGame() {
   webLinks = [];
   flameTrails = [];
   damageIndicators = [];
+  battleHighlights = [];
   neutralSceneObjects = [];
   recentNeutralSceneSpawnZones = [];
   droppedItems = [];
@@ -1790,16 +2088,24 @@ function restartGame() {
   lastArenaShakeTime = -Infinity;
   arenaShakeStartedAt = -Infinity;
   arenaShakeSeed = 0;
+  impactShakeStartedAt = -Infinity;
+  impactShakeSeed = 0;
+  impactShakeStrength = 0;
+  if (activeMatchVariant) {
+    pushMatchVariantNotice(activeMatchVariant.title, activeMatchVariant.description, MATCH_VARIANT_NOTICE_DURATION);
+  }
   battleIntroStartedAt = 0;
   resultCelebrationStartedAt = 0;
   resultWinnerSide = "draw";
   lastVibrationTime = -Infinity;
   lastCollisionFeedbackTime = -Infinity;
+  lastBattleHighlightTime = -Infinity;
   lastFrameTime = performance.now();
   if (isCurrentItemMode()) {
     spawnInitialItems(elapsedTimeSeconds);
   } else if (isCurrentClassicMode()) {
     spawnInitialNeutralSceneObjects(elapsedTimeSeconds);
+    spawnInitialMatchVariantObjects(elapsedTimeSeconds);
   }
   GamePlatform.setLoadingProgress(100);
 }
@@ -1863,16 +2169,25 @@ function getArenaShakeCooldownRemaining(currentTime = elapsedTimeSeconds) {
 }
 
 function getArenaShakeOffset(currentTime = elapsedTimeSeconds) {
-  const progress = clamp((currentTime - arenaShakeStartedAt) / ARENA_SHAKE_DURATION_SECONDS, 0, 1);
-  if (progress >= 1) {
+  const manualOffset = getShakeOffset(arenaShakeStartedAt, ARENA_SHAKE_DURATION_SECONDS, ARENA_SHAKE_MAX_OFFSET, arenaShakeSeed, currentTime);
+  const impactOffset = getShakeOffset(impactShakeStartedAt, IMPACT_SHAKE_DURATION_SECONDS, impactShakeStrength, impactShakeSeed, currentTime);
+  return {
+    x: manualOffset.x + impactOffset.x,
+    y: manualOffset.y + impactOffset.y,
+  };
+}
+
+function getShakeOffset(startedAt, duration, maxOffset, seed, currentTime) {
+  const progress = clamp((currentTime - startedAt) / duration, 0, 1);
+  if (progress >= 1 || maxOffset <= 0) {
     return { x: 0, y: 0 };
   }
 
   const shakeScale = settings.reducedShakeEnabled ? 0.34 : 1;
-  const strength = ARENA_SHAKE_MAX_OFFSET * shakeScale * (1 - progress) ** 2;
+  const strength = maxOffset * shakeScale * (1 - progress) ** 2;
   return {
-    x: Math.round(Math.sin((currentTime + arenaShakeSeed) * 88) * strength + Math.sin((currentTime + arenaShakeSeed) * 141) * strength * 0.35),
-    y: Math.round(Math.cos((currentTime + arenaShakeSeed) * 103) * strength + Math.sin((currentTime + arenaShakeSeed) * 73) * strength * 0.35),
+    x: Math.round(Math.sin((currentTime + seed) * 88) * strength + Math.sin((currentTime + seed) * 141) * strength * 0.35),
+    y: Math.round(Math.cos((currentTime + seed) * 103) * strength + Math.sin((currentTime + seed) * 73) * strength * 0.35),
   };
 }
 
@@ -1887,6 +2202,8 @@ function returnToMenu() {
   webLinks = [];
   flameTrails = [];
   damageIndicators = [];
+  battleHighlights = [];
+  matchVariantNotices = [];
   neutralSceneObjects = [];
   recentNeutralSceneSpawnZones = [];
   droppedItems = [];
@@ -1903,6 +2220,10 @@ function returnToMenu() {
   gameOver = false;
   resultMessage = "";
   resultInsight = null;
+  activePlaylistEntry = null;
+  pendingPlaylistEntry = null;
+  activeMatchVariant = null;
+  nextMatchVariantEventIndex = 0;
   setScreen(Screen.MAIN_MENU);
 }
 
@@ -1935,7 +2256,10 @@ function getCurrentPlayerProgress() {
 function loadPlayerProgress() {
   const savedProgress = safeParseStorageJson(PLAYER_PROGRESS_STORAGE_KEY, {});
   pendingNextDayReturnPayload = createNextDayReturnPayload(savedProgress);
-  return normalizePlayerProgress(savedProgress);
+  const normalizedProgress = normalizePlayerProgress(savedProgress);
+  // Last-result copy is only useful within the current app session; avoid showing stale results after cold start.
+  normalizedProgress.lastResult = null;
+  return normalizedProgress;
 }
 
 function savePlayerProgress() {
@@ -1945,24 +2269,44 @@ function savePlayerProgress() {
 function normalizePlayerProgress(progress = {}) {
   const todayKey = getLocalDateKey();
   const savedDaily = progress.dateKey === todayKey && progress.daily ? progress.daily : {};
-  const mastery = normalizeMasteryProgress(progress.mastery && typeof progress.mastery === "object" ? progress.mastery : {});
+  const normalizedMastery = normalizeMasteryProgress(progress.mastery && typeof progress.mastery === "object" ? progress.mastery : {});
   const daily = {
     matches: Math.max(0, Number.parseInt(savedDaily.matches, 10) || 0),
     wins: Math.max(0, Number.parseInt(savedDaily.wins, 10) || 0),
   };
-  const derivedTotalMatches = Object.values(mastery).reduce((total, roleProgress) => total + (roleProgress.matches || 0), 0);
+  const savedLifetime = progress.lifetime && typeof progress.lifetime === "object" ? progress.lifetime : {};
+  const savedHistory = Array.isArray(progress.history) ? progress.history : [];
+  const inferredLifetimeMatches = Object.values(normalizedMastery).reduce(
+    (total, roleProgress) => total + (roleProgress.matches || 0),
+    0,
+  );
+  const lifetimeMatches = Math.max(
+    0,
+    Number.parseInt(savedLifetime.matches, 10) || 0,
+    Number.parseInt(progress.totalMatches, 10) || 0,
+    inferredLifetimeMatches,
+    daily.matches,
+  );
+  const lifetimeWins = Math.max(
+    0,
+    Number.parseInt(savedLifetime.wins, 10) || 0,
+    daily.wins,
+  );
 
   return {
     dateKey: todayKey,
     daily,
-    totalMatches: Math.max(
-      daily.matches,
-      derivedTotalMatches,
-      Math.max(0, Number.parseInt(progress.totalMatches, 10) || 0),
-    ),
-    mastery,
+    totalMatches: lifetimeMatches,
+    lifetime: {
+      matches: lifetimeMatches,
+      wins: lifetimeWins,
+      currentStreak: Math.max(0, Number.parseInt(savedLifetime.currentStreak, 10) || 0),
+      bestStreak: Math.max(0, Number.parseInt(savedLifetime.bestStreak, 10) || 0),
+    },
+    mastery: normalizedMastery,
     stats: normalizeEntertainmentStats(progress.stats),
     lastResult: progress.lastResult && typeof progress.lastResult === "object" ? progress.lastResult : null,
+    history: normalizeMatchHistory(savedHistory),
   };
 }
 
@@ -2007,12 +2351,43 @@ function normalizeMatchStatRecord(record) {
   };
 }
 
+function normalizeMatchHistory(history) {
+  return history
+    .filter((entry) => entry && typeof entry === "object")
+    .slice(0, REPORT_HISTORY_LIMIT)
+    .map((entry) => ({
+      matchId: String(entry.matchId || ""),
+      dateKey: String(entry.dateKey || ""),
+      winnerSide: entry.winnerSide === "draw" ? "draw" : String(entry.winnerSide || ""),
+      ownResult: ["win", "loss", "draw"].includes(entry.ownResult) ? entry.ownResult : "draw",
+      ownRole: String(entry.ownRole || "none"),
+      opponentRole: String(entry.opponentRole || "none"),
+      reason: String(entry.reason || ""),
+      lesson: String(entry.lesson || ""),
+      playlistId: String(entry.playlistId || ""),
+      playlistTitle: String(entry.playlistTitle || ""),
+      variantId: String(entry.variantId || ""),
+      variantTitle: String(entry.variantTitle || ""),
+      duration: Math.max(0, Number.parseFloat(entry.duration) || 0),
+      ownDamage: Math.max(0, Math.round(Number.parseFloat(entry.ownDamage) || 0)),
+      opponentDamage: Math.max(0, Math.round(Number.parseFloat(entry.opponentDamage) || 0)),
+      ownHits: Math.max(0, Number.parseInt(entry.ownHits, 10) || 0),
+      opponentHits: Math.max(0, Number.parseInt(entry.opponentHits, 10) || 0),
+    }));
+}
+
 function recordPlayerProgress(winnerSide, insight) {
   const progress = getCurrentPlayerProgress();
   progress.daily.matches += 1;
   progress.totalMatches += 1;
+  progress.lifetime.matches += 1;
   if (winnerSide === "A") {
     progress.daily.wins += 1;
+    progress.lifetime.wins += 1;
+    progress.lifetime.currentStreak += 1;
+    progress.lifetime.bestStreak = Math.max(progress.lifetime.bestStreak, progress.lifetime.currentStreak);
+  } else {
+    progress.lifetime.currentStreak = 0;
   }
 
   const ownRole = getAnalyticsRoleForSide("A");
@@ -2034,6 +2409,10 @@ function recordPlayerProgress(winnerSide, insight) {
     reason: insight?.reason || "",
     dateKey: progress.dateKey,
   };
+  progress.history = [
+    createMatchHistoryEntry(winnerSide, insight),
+    ...progress.history,
+  ].slice(0, REPORT_HISTORY_LIMIT);
   savePlayerProgress();
   return progress;
 }
@@ -2068,7 +2447,11 @@ function createNextDayReturnPayload(savedProgress) {
   const savedDateKey = typeof savedProgress.dateKey === "string" ? savedProgress.dateKey : "";
   const todayKey = getLocalDateKey();
   const previousDailyMatches = Math.max(0, Number.parseInt(savedProgress.daily?.matches, 10) || 0);
-  const totalMatches = Math.max(0, Number.parseInt(savedProgress.totalMatches, 10) || 0);
+  const totalMatches = Math.max(
+    0,
+    Number.parseInt(savedProgress.totalMatches, 10) || 0,
+    Number.parseInt(savedProgress.lifetime?.matches, 10) || 0,
+  );
   if (!savedDateKey || savedDateKey === todayKey || (previousDailyMatches <= 0 && totalMatches <= 0)) {
     return null;
   }
@@ -2094,6 +2477,31 @@ function getDateKeyDistance(fromDateKey, toDateKey) {
   }
 
   return Math.max(1, Math.round((toTime - fromTime) / 86400000));
+}
+
+function createMatchHistoryEntry(winnerSide, insight) {
+  const ownSide = "A";
+  const opponentSide = "B";
+
+  return {
+    matchId: matchTelemetry.matchId,
+    dateKey: getLocalDateKey(),
+    winnerSide,
+    ownResult: getOwnResult(winnerSide),
+    ownRole: getAnalyticsRoleForSide(ownSide),
+    opponentRole: getAnalyticsRoleForSide(opponentSide),
+    reason: insight?.reason || "",
+    lesson: insight?.lesson || "",
+    playlistId: activePlaylistEntry?.id || "",
+    playlistTitle: activePlaylistEntry ? t(activePlaylistEntry.titleKey) : "",
+    variantId: activeMatchVariant?.id || "",
+    variantTitle: activeMatchVariant?.title || "",
+    duration: Math.round(matchElapsedTimeSeconds),
+    ownDamage: Math.round(getSideMetric(matchTelemetry.damageDealtBySide, ownSide)),
+    opponentDamage: Math.round(getSideMetric(matchTelemetry.damageDealtBySide, opponentSide)),
+    ownHits: getSideMetric(matchTelemetry.attackCountsBySide, ownSide),
+    opponentHits: getSideMetric(matchTelemetry.attackCountsBySide, opponentSide),
+  };
 }
 
 function getLocalDateKey(date = new Date()) {
@@ -2122,6 +2530,78 @@ function getMasteryLevel(matches) {
   return Math.max(1, Math.floor(matches / MASTERY_MATCHES_PER_LEVEL) + 1);
 }
 
+function getPlayerCollectionTitle(progress = getCurrentPlayerProgress()) {
+  const bestMasteryLevel = Math.max(1, ...Object.values(progress.mastery).map((roleProgress) => getMasteryLevel(roleProgress.matches || 0)));
+  if (progress.lifetime.bestStreak >= 5) {
+    return t("collection.titles.streakDirector");
+  }
+  if (bestMasteryLevel >= 4) {
+    return t("collection.titles.roleSpecialist");
+  }
+  if (progress.lifetime.wins >= 8) {
+    return t("collection.titles.arenaProducer");
+  }
+  if (progress.lifetime.matches >= 10) {
+    return t("collection.titles.dramaRegular");
+  }
+  if (progress.lifetime.wins >= 1) {
+    return t("collection.titles.firstWinner");
+  }
+  return t("collection.titles.newWatcher");
+}
+
+function getUnlockedCollectionBadges(progress = getCurrentPlayerProgress()) {
+  const badges = [];
+  const featuredMastery = getFeaturedMasteryEntry(progress);
+  if (progress.lifetime.wins >= 1) {
+    badges.push({ id: "firstWin", label: t("collection.badges.firstWin") });
+  }
+  if (progress.lifetime.matches >= 5) {
+    badges.push({ id: "fiveShows", label: t("collection.badges.fiveShows") });
+  }
+  if (progress.lifetime.bestStreak >= 3) {
+    badges.push({ id: "hotStreak", label: t("collection.badges.hotStreak") });
+  }
+  if (featuredMastery?.level >= 3) {
+    badges.push({
+      id: "roleLoyalist",
+      label: t("collection.badges.roleLoyalist", { role: getProfessionName(featuredMastery.roleId) }),
+    });
+  }
+  if (progress.history.some((entry) => entry.ownResult === "win" && entry.opponentDamage > entry.ownDamage)) {
+    badges.push({ id: "comeback", label: t("collection.badges.comeback") });
+  }
+  return badges;
+}
+
+function getMostWinningRoleEntry(progress = getCurrentPlayerProgress()) {
+  return Object.entries(progress.mastery)
+    .map(([roleId, roleProgress]) => ({
+      roleId,
+      matches: roleProgress.matches || 0,
+      wins: roleProgress.wins || 0,
+      level: getMasteryLevel(roleProgress.matches || 0),
+    }))
+    .filter((entry) => entry.wins > 0)
+    .sort((entryA, entryB) => entryB.wins - entryA.wins || entryB.matches - entryA.matches || entryA.roleId.localeCompare(entryB.roleId))[0] || null;
+}
+
+function getWorstDefeatEntry(progress = getCurrentPlayerProgress()) {
+  return progress.history
+    .filter((entry) => entry.ownResult === "loss")
+    .sort((entryA, entryB) => (entryB.opponentDamage - entryB.ownDamage) - (entryA.opponentDamage - entryA.ownDamage))[0] || null;
+}
+
+function getRoleDisplayName(roleId) {
+  if (roleId === "item_ball") {
+    return t("reports.itemModeRole");
+  }
+  if (!roleId || roleId === "none") {
+    return t("reports.noRole");
+  }
+  return getProfessionName(roleId);
+}
+
 function safeParseStorageJson(key, fallback) {
   try {
     const value = globalThis.localStorage?.getItem(key);
@@ -2142,6 +2622,9 @@ function safeSetStorageJson(key, value) {
 function createMatchTelemetryState() {
   return {
     matchId: createMatchId(),
+    attackAttemptsBySide: {},
+    specialAttemptsBySide: {},
+    specialHitsBySide: {},
     attackCountsBySide: {},
     attackedCountsBySide: {},
     damageDealtBySide: {},
@@ -2151,6 +2634,7 @@ function createMatchTelemetryState() {
     hitSourceDamageBySide: {},
     mapEventVictimCountsBySide: {},
     mapEventTypeCounts: {},
+    maxDamageDeficitBySide: {},
   };
 }
 
@@ -2201,6 +2685,15 @@ function createMatchId() {
   const timestamp = Date.now().toString(36);
   const randomPart = Math.floor(Math.random() * 0xffffff).toString(36).padStart(5, "0");
   return `${timestamp}_${randomPart}`;
+}
+
+function hashStringToInt(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < String(value).length; index += 1) {
+    hash ^= String(value).charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 function trackSettingSelect(settingName, settingValue, extraPayload = {}) {
@@ -2647,6 +3140,8 @@ function getMatchBaseAnalyticsPayload() {
     opponent_side: "B",
     own_role: getAnalyticsRoleForSide("A"),
     opponent_role: getAnalyticsRoleForSide("B"),
+    playlist_id: activePlaylistEntry?.id || "custom",
+    match_variant: activeMatchVariant?.id || "none",
     locale: currentLocale,
     surface: getRuntimeSurface(),
   };
@@ -2679,6 +3174,22 @@ function getOwnResult(winnerSide) {
   return winnerSide === "A" ? "win" : "loss";
 }
 
+function recordCombatAttempt(attacker, source = "attack") {
+  if (!matchTelemetry) {
+    return;
+  }
+
+  const attackerSide = getCombatantTelemetrySide(attacker);
+  if (!attackerSide) {
+    return;
+  }
+
+  incrementSideMetric(matchTelemetry.attackAttemptsBySide, attackerSide, 1);
+  if (isSpecialCombatSource(source, attacker)) {
+    incrementSideMetric(matchTelemetry.specialAttemptsBySide, attackerSide, 1);
+  }
+}
+
 function recordCombatHit(attacker, defender, damage, source = "attack") {
   if (damage <= 0 || !matchTelemetry) {
     return;
@@ -2697,6 +3208,101 @@ function recordCombatHit(attacker, defender, damage, source = "attack") {
   matchTelemetry.hitSourceCounts[source] = (matchTelemetry.hitSourceCounts[source] || 0) + 1;
   incrementNestedMetric(matchTelemetry.hitSourceCountsBySide, attackerSide, source, 1);
   incrementNestedMetric(matchTelemetry.hitSourceDamageBySide, attackerSide, source, damage);
+  if (isSpecialCombatSource(source, attacker)) {
+    incrementSideMetric(matchTelemetry.specialHitsBySide, attackerSide, 1);
+  }
+  updateDamageDeficitTelemetry();
+  maybePushCombatHighlight(attacker, defender, damage, source);
+}
+
+function maybePushCombatHighlight(attacker, defender, damage, source) {
+  const currentTime = elapsedTimeSeconds;
+  const attackerSide = getCombatantTelemetrySide(attacker);
+  if (!attackerSide || !attacker?.position || !defender?.position) {
+    return;
+  }
+
+  const attackerHpRatio = getCombatantHpRatio(attacker);
+  const defenderDefeated = defender.hp <= 0 && isPrimaryCombatant(defender);
+  const bigHitThreshold = Math.max(13, (defender.maxHp || 100) * 0.18);
+  const specialSource = isSpecialCombatSource(source, attacker);
+  let text = "";
+  let priority = 0;
+
+  if (defenderDefeated && attackerHpRatio <= 0.3) {
+    text = t("highlight.clutchFinish", { side: getSideLabel(attackerSide) });
+    priority = 4;
+  } else if (defenderDefeated) {
+    text = t("highlight.finisher", { side: getSideLabel(attackerSide) });
+    priority = 3;
+  } else if (attackerHpRatio <= 0.28 && damage >= 6) {
+    text = t("highlight.clutchHit", { side: getSideLabel(attackerSide) });
+    priority = 2;
+  } else if (specialSource && damage >= 5) {
+    text = t("highlight.skillHit", {
+      side: getSideLabel(attackerSide),
+      source: getHitSourceLabel(source),
+    });
+    priority = 2;
+  } else if (damage >= bigHitThreshold) {
+    text = t("highlight.bigHit", {
+      side: getSideLabel(attackerSide),
+      damage: formatDamageAmount(damage),
+    });
+    priority = 1;
+  }
+
+  if (!text) {
+    return;
+  }
+
+  const bypassCooldown = priority >= 3;
+  if (!bypassCooldown && currentTime - lastBattleHighlightTime < BATTLE_HIGHLIGHT_COOLDOWN_SECONDS) {
+    return;
+  }
+
+  const position = clampPointToArena(
+    scale(add(attacker.position, defender.position), 0.5),
+    42,
+  );
+  battleHighlights.push({
+    text,
+    position,
+    color: attacker.visual?.accentColor || SIDE_VISUAL_CONFIG[attackerSide]?.accentColor || "#ffd166",
+    priority,
+    createdAt: currentTime,
+    expiresAt: currentTime + BATTLE_HIGHLIGHT_DURATION_SECONDS,
+  });
+  battleHighlights = battleHighlights
+    .sort((highlightA, highlightB) => highlightB.priority - highlightA.priority || highlightB.createdAt - highlightA.createdAt)
+    .slice(0, 3);
+  lastBattleHighlightTime = currentTime;
+
+  if (priority >= 2 || damage >= bigHitThreshold) {
+    triggerImpactShake(priority >= 3 ? IMPACT_SHAKE_MAX_OFFSET : IMPACT_SHAKE_MAX_OFFSET * 0.7, currentTime);
+  }
+}
+
+function getCombatantHpRatio(combatant) {
+  return combatant?.maxHp > 0 ? clamp(combatant.hp / combatant.maxHp, 0, 1) : 1;
+}
+
+function triggerImpactShake(strength = IMPACT_SHAKE_MAX_OFFSET, currentTime = elapsedTimeSeconds) {
+  impactShakeStartedAt = currentTime;
+  impactShakeSeed = Math.random() * 1000;
+  impactShakeStrength = clamp(strength, 0, IMPACT_SHAKE_MAX_OFFSET);
+}
+
+function updateDamageDeficitTelemetry() {
+  for (const side of ["A", "B"]) {
+    const damageDealt = getSideMetric(matchTelemetry.damageDealtBySide, side);
+    const damageTaken = getSideMetric(matchTelemetry.damageTakenBySide, side);
+    const deficit = Math.max(0, damageTaken - damageDealt);
+    matchTelemetry.maxDamageDeficitBySide[side] = Math.max(
+      matchTelemetry.maxDamageDeficitBySide[side] || 0,
+      deficit,
+    );
+  }
 }
 
 function recordMapEventVictim(ball, eventType) {
@@ -3395,6 +4001,8 @@ function gameLoop(timestamp) {
   visualElapsedTimeSeconds += deltaTime;
   updateAudioEngine();
   damageIndicators = updateDamageIndicators(damageIndicators, elapsedTimeSeconds);
+  battleHighlights = updateBattleHighlights(battleHighlights, elapsedTimeSeconds);
+  matchVariantNotices = updateMatchVariantNotices(matchVariantNotices, elapsedTimeSeconds);
   draw();
   requestAnimationFrame(gameLoop);
 }
@@ -3440,6 +4048,7 @@ function update(deltaTime, currentTime) {
     resolveBallCollision(ballA, ballB, currentTime);
   });
   if (isCurrentClassicMode()) {
+    updateMatchVariantEvents(currentTime);
     updateNeutralSceneObjects(currentTime);
   } else {
     neutralSceneObjects = [];
@@ -3506,6 +4115,14 @@ function getFrameOrderedAliveBalls(currentTime) {
 
 function updateDamageIndicators(indicators, currentTime) {
   return indicators.filter((indicator) => indicator.expiresAt > currentTime);
+}
+
+function updateBattleHighlights(highlights, currentTime) {
+  return highlights.filter((highlight) => highlight.expiresAt > currentTime);
+}
+
+function updateMatchVariantNotices(notices, currentTime) {
+  return notices.filter((notice) => notice.expiresAt > currentTime);
 }
 
 function updateHeroMode(currentTime) {
@@ -6543,7 +7160,7 @@ function getCurrentMoveSpeed(ball) {
     ball.slowMultiplier = 1;
   }
 
-  return ball.config.moveSpeed * getSpeedMultiplier(matchElapsedTimeSeconds) * slowMultiplier;
+  return ball.config.moveSpeed * getSpeedMultiplier(matchElapsedTimeSeconds) * slowMultiplier * getMatchVariantSpeedMultiplier();
 }
 
 function getAttackProgress(ball, currentTime) {
@@ -7013,6 +7630,11 @@ function createMatchResultInsight(winnerSide) {
   const loserAttacks = winnerSide === sideB ? sideAAttacks : sideBAttacks;
   const topSource = winnerSide === "draw" ? null : getTopDamageSourceForSide(winnerSide);
   const topSourceLabel = topSource ? getHitSourceLabel(topSource.source) : "";
+  const winnerBall = winnerSide === "draw" ? null : balls.find((ball) => ball.label === winnerSide && isPrimaryCombatant(ball));
+  const loserSide = winnerSide === sideB ? sideA : sideB;
+  const loserSpecialAttempts = winnerSide === "draw" ? 0 : getSideMetric(matchTelemetry.specialAttemptsBySide, loserSide);
+  const loserSpecialHits = winnerSide === "draw" ? 0 : getSideMetric(matchTelemetry.specialHitsBySide, loserSide);
+  const winnerMaxDeficit = winnerSide === "draw" ? 0 : getSideMetric(matchTelemetry.maxDamageDeficitBySide, winnerSide);
   const reason = getMatchResultReason({
     winnerSide,
     winnerDamage,
@@ -7021,10 +7643,25 @@ function createMatchResultInsight(winnerSide) {
     loserAttacks,
     topSource,
     topSourceLabel,
+    topSourceIsSpecial: topSource ? isSpecialCombatSource(topSource.source, winnerBall) : false,
+    winnerHpRatio: winnerBall ? getCombatantHpRatio(winnerBall) : 0,
+    winnerMaxDeficit,
+    loserSpecialAttempts,
+    loserSpecialHits,
+  });
+  const lesson = getMatchResultLesson({
+    winnerSide,
+    winnerDamage,
+    loserDamage,
+    winnerAttacks,
+    loserAttacks,
+    loserSpecialAttempts,
+    loserSpecialHits,
   });
 
   return {
     reason,
+    lesson,
     stats: t("result.stats", {
       sideADamage,
       sideBDamage,
@@ -7035,14 +7672,47 @@ function createMatchResultInsight(winnerSide) {
   };
 }
 
-function getMatchResultReason({ winnerSide, winnerDamage, loserDamage, winnerAttacks, loserAttacks, topSource, topSourceLabel }) {
+function getMatchResultReason({
+  winnerSide,
+  winnerDamage,
+  loserDamage,
+  winnerAttacks,
+  loserAttacks,
+  topSource,
+  topSourceLabel,
+  topSourceIsSpecial,
+  winnerHpRatio,
+  winnerMaxDeficit,
+  loserSpecialAttempts,
+  loserSpecialHits,
+}) {
   if (winnerSide === "draw") {
+    if (winnerDamage + loserDamage <= 46 || Math.abs(winnerAttacks - loserAttacks) <= 1) {
+      return getResultReasonLine("reasonScrappy");
+    }
     return getResultReasonLine("reasonDraw");
   }
 
   const side = getSideLabel(winnerSide);
+  const loserSkillMisses = Math.max(0, loserSpecialAttempts - loserSpecialHits);
+  if (loserSkillMisses >= 3 && loserSpecialHits <= 1) {
+    return getResultReasonLine("reasonSkillWhiff", { side });
+  }
+
+  if (winnerMaxDeficit >= 18 && winnerDamage >= loserDamage - 8) {
+    return getResultReasonLine("reasonComeback", { side });
+  }
+
+  if (winnerDamage >= loserDamage + 30 || (winnerDamage >= 32 && loserDamage <= 12)) {
+    return getResultReasonLine("reasonStomp", { side, damage: winnerDamage });
+  }
+
+  if (winnerHpRatio > 0 && winnerHpRatio <= 0.24) {
+    return getResultReasonLine("reasonClutch", { side });
+  }
+
   if (topSource?.damage >= Math.max(12, winnerDamage * 0.36) && topSourceLabel) {
-    return getResultReasonLine(isSpecialHitSource(topSource.source) ? "reasonSpecial" : "reasonSource", {
+    return getResultReasonLine(topSourceIsSpecial ? "reasonSpecial" : "reasonSource", {
       side,
       source: topSourceLabel,
     });
@@ -7063,12 +7733,53 @@ function getMatchResultReason({ winnerSide, winnerDamage, loserDamage, winnerAtt
   return getResultReasonLine("reasonClose", { side });
 }
 
+function getMatchResultLesson({
+  winnerSide,
+  winnerDamage,
+  loserDamage,
+  winnerAttacks,
+  loserAttacks,
+  loserSpecialAttempts,
+  loserSpecialHits,
+}) {
+  if (winnerSide === "draw") {
+    return getResultReasonLine("lessonDraw");
+  }
+
+  const loserSide = winnerSide === "A" ? "B" : "A";
+  const side = getSideLabel(loserSide);
+  const skillMisses = Math.max(0, loserSpecialAttempts - loserSpecialHits);
+  if (skillMisses >= 3 && loserSpecialHits <= 1) {
+    return getResultReasonLine("lessonSkillWhiff", { side });
+  }
+  if (winnerDamage >= loserDamage + 30) {
+    return getResultReasonLine("lessonStomp", { side });
+  }
+  if (loserAttacks <= winnerAttacks - 3) {
+    return getResultReasonLine("lessonTempo", { side });
+  }
+  if (Math.abs(winnerDamage - loserDamage) <= 10) {
+    return getResultReasonLine("lessonClose", { side });
+  }
+  return getResultReasonLine("lessonPressure", { side });
+}
+
 function getResultReasonLine(reasonKey, replacements = {}) {
-  const variantCount = 3;
+  const variantCount = getResultReasonVariantCount(reasonKey);
   const index = getResultReasonVariantIndex(reasonKey, variantCount);
   const variantKey = `result.${reasonKey}.${index}`;
   const variant = t(variantKey, replacements);
   return variant === variantKey ? t(`result.${reasonKey}`, replacements) : variant;
+}
+
+function getResultReasonVariantCount(reasonKey) {
+  for (let index = 0; index < 8; index += 1) {
+    if (t(`result.${reasonKey}.${index}`) === `result.${reasonKey}.${index}`) {
+      return Math.max(1, index);
+    }
+  }
+
+  return 8;
 }
 
 function getResultReasonVariantIndex(reasonKey, variantCount) {
@@ -7095,6 +7806,25 @@ function getTopDamageSourceForSide(side) {
 
 function isSpecialHitSource(source) {
   return source.startsWith("hero_") || source.startsWith("item_") || source.includes("spell") || source.includes("explosion");
+}
+
+function isSpecialCombatSource(source, attacker = null) {
+  if (isSpecialHitSource(source)) {
+    return true;
+  }
+
+  const specialAttackModes = new Set([
+    "chainSpin",
+    "cone",
+    "frostOrbit",
+    "projectile",
+    "spell",
+    "staff",
+    "staticCharge",
+    "summonBear",
+    "yoyo",
+  ]);
+  return Boolean(attacker?.config?.attackMode && specialAttackModes.has(attacker.config.attackMode));
 }
 
 function getHitSourceLabel(source) {
@@ -7158,6 +7888,9 @@ function draw() {
     case Screen.MAIN_MENU:
       drawMainMenuScreen();
       break;
+    case Screen.REPORTS:
+      drawReportHistoryScreen();
+      break;
     case Screen.PROFESSION_SELECT:
       drawProfessionSelectScreen();
       break;
@@ -7170,6 +7903,7 @@ function draw() {
       drawShakeArenaButton();
       drawBattleBannerAd();
       drawBattleIntroOverlay();
+      drawPlayingBeginnerGuide();
       break;
     case Screen.PAUSED:
       drawHud(t("status.paused"));
@@ -7996,26 +8730,40 @@ function drawConsentScreen() {
 }
 
 function drawMainMenuScreen() {
-  const panel = getPanelRect(620, 440);
-  drawAppTitle(panel.y - 22, t("main.subtitle"));
+  const panel = getPanelRect(660, 600);
+  const compact = panel.height < 540 || panel.width < 430;
+  if (!compact) {
+    drawAppTitle(panel.y - 22, t("main.subtitle"));
+  }
   drawPanel(panel);
 
-  let y = panel.y + 26;
+  let y = panel.y + (compact ? 22 : 26);
   drawPanelTitle(t("main.title"), panel.x + 28, y, panel.width - 56);
-  y += 34;
-  y = drawWrappedText(getMainMenuSummary(), panel.x + 28, y, panel.width - 56, 18, COLORS.muted, 13);
-  y += 14;
+  y += compact ? 30 : 34;
+  if (compact) {
+    drawSingleLineNotice(getMainMenuSummary(), panel.x + 28, y, panel.width - 56, 12, COLORS.muted);
+    y += 20;
+  } else {
+    y = drawWrappedText(getMainMenuSummary(), panel.x + 28, y, panel.width - 56, 18, COLORS.muted, 13);
+    y += 14;
+  }
 
-  drawButton(t("main.quickStart"), panel.x + 28, y, panel.width - 56, 52, quickStartGame, { id: "main-quick-start" });
-  y += 64;
+  const quickStartRect = { x: panel.x + 28, y, width: panel.width - 56, height: compact ? 46 : 52 };
+  drawButton(t("main.quickStart"), quickStartRect.x, quickStartRect.y, quickStartRect.width, quickStartRect.height, quickStartGame, { id: "main-quick-start" });
+  drawMainMenuBeginnerGuide(quickStartRect);
+  y += compact ? 54 : 64;
 
-  const halfButtonWidth = (panel.width - 68) / 2;
-  drawButton(t("main.start"), panel.x + 28, y, halfButtonWidth, 44, openMatchSetup, { id: "main-start" });
-  drawButton(t("main.settings"), panel.x + 40 + halfButtonWidth, y, halfButtonWidth, 44, openMainSettings, { id: "main-settings" });
-  y += 62;
+  y = drawTodayPlaylist(panel.x + 28, y, panel.width - 56, compact);
+  y += compact ? 8 : 12;
 
-  y = drawMainMenuProgress(panel.x + 28, y, panel.width - 56);
-  drawSmallNotice(panel.x + 28, Math.min(panel.y + panel.height - 48, y + 6), panel.width - 56, serviceMessage || t("main.notice"));
+  y = drawMainMenuActionButtons(panel.x + 28, y, panel.width - 56, compact);
+  y += compact ? 10 : 14;
+
+  y = drawMainMenuProgress(panel.x + 28, y, panel.width - 56, compact);
+  const noticeY = Math.min(panel.y + panel.height - (compact ? 34 : 48), y + 6);
+  if (!compact || serviceMessage) {
+    drawSmallNotice(panel.x + 28, noticeY, panel.width - 56, serviceMessage || t("main.notice"));
+  }
 }
 
 function getMainMenuSummary() {
@@ -8034,15 +8782,137 @@ function getMainMenuSummary() {
   });
 }
 
-function drawMainMenuProgress(x, y, width) {
+function drawTodayPlaylist(x, y, width, compact) {
+  drawListHeader(t("playlist.title"), x, y, width);
+  y += compact ? 22 : 26;
+
+  const entries = getTodayPlaylistEntries();
+  const gap = 8;
+  const buttonHeight = compact ? 42 : 48;
+  const buttonWidth = (width - gap * (entries.length - 1)) / entries.length;
+  entries.forEach((entry, index) => {
+    drawDailyPlaylistButton(entry, x + index * (buttonWidth + gap), y, buttonWidth, buttonHeight, index);
+  });
+
+  return y + buttonHeight;
+}
+
+function drawDailyPlaylistButton(entry, x, y, width, height, index) {
+  const isPressed = pointerDownElementId === `playlist-${entry.id}`;
+  ctx.save();
+  drawPixelFrame(x, y, width, height, {
+    fill: isPressed ? "#fff6d6" : index === 0 ? "#1f4f70" : "#263249",
+    border: index === 0 ? "#8be8ff" : "#050711",
+    shadow: "#050711",
+    inset: index === 0 ? "#37d7ff" : "#fff6d6",
+    texture: index === 0 ? voxelAssets.blocks.glowstone : voxelAssets.blocks.plank,
+  });
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(getFittedFontSize(t(entry.titleKey), width - 14, 13, 9, 900), 900);
+  ctx.fillText(t(entry.titleKey), x + width / 2, y + height * 0.38);
+  ctx.fillStyle = index === 0 ? "#dff7ff" : "#c6d0e0";
+  ctx.font = canvasFont(getFittedFontSize(`${getProfessionName(entry.a)} vs ${getProfessionName(entry.b)}`, width - 16, 10, 8, 800), 800);
+  ctx.fillText(`${getProfessionName(entry.a)} vs ${getProfessionName(entry.b)}`, x + width / 2, y + height * 0.68);
+  ctx.restore();
+
+  addInteractiveElement({
+    id: `playlist-${entry.id}`,
+    rect: { x, y, width, height },
+    action: () => startDailyPlaylistMatch(entry),
+  });
+}
+
+function drawMainMenuActionButtons(x, y, width, compact) {
+  const gap = 10;
+  const buttonHeight = compact ? 38 : 42;
+  if (width >= 500 || compact) {
+    const buttonWidth = (width - gap * 2) / 3;
+    drawButton(t("main.start"), x, y, buttonWidth, buttonHeight, openMatchSetup, { id: "main-start" });
+    drawButton(t("main.reports"), x + buttonWidth + gap, y, buttonWidth, buttonHeight, openReportHistory, { id: "main-reports" });
+    drawButton(t("main.settings"), x + (buttonWidth + gap) * 2, y, buttonWidth, buttonHeight, openMainSettings, { id: "main-settings" });
+    return y + buttonHeight;
+  }
+
+  const halfWidth = (width - gap) / 2;
+  drawButton(t("main.start"), x, y, halfWidth, buttonHeight, openMatchSetup, { id: "main-start" });
+  drawButton(t("main.reports"), x + halfWidth + gap, y, halfWidth, buttonHeight, openReportHistory, { id: "main-reports" });
+  y += buttonHeight + gap;
+  drawButton(t("main.settings"), x, y, width, buttonHeight, openMainSettings, { id: "main-settings" });
+  return y + buttonHeight;
+}
+
+function drawMainMenuBeginnerGuide(anchorRect) {
+  if (getCurrentPlayerProgress().lifetime.matches > 0) {
+    return;
+  }
+
+  const guideWidth = Math.min(anchorRect.width - 24, 270);
+  const guideX = isRtlLocale(currentLocale)
+    ? anchorRect.x + 12
+    : anchorRect.x + anchorRect.width - guideWidth - 12;
+  drawGuideBubble(t("guide.quickStart"), guideX, anchorRect.y - 50, guideWidth, {
+    align: isRtlLocale(currentLocale) ? "left" : "right",
+  });
+}
+
+function drawPlayingBeginnerGuide() {
   const progress = getCurrentPlayerProgress();
-  const titleText = t("main.dailyProgressTitle");
-  drawListHeader(titleText, x, y, width);
-  y += 26;
-  y = drawProgressMeter(t("main.dailyWins"), progress.daily.wins, DAILY_WIN_GOAL, x, y, width);
-  y = drawProgressMeter(t("main.dailyMatches"), progress.daily.matches, DAILY_MATCH_GOAL, x, y, width);
+  if (progress.lifetime.matches >= 2 || matchElapsedTimeSeconds < BATTLE_INTRO_DURATION_SECONDS + 0.15 || matchElapsedTimeSeconds > 8.5) {
+    return;
+  }
+
+  const guideText = progress.lifetime.matches === 0 ? t("guide.autoBattle") : t("guide.watchHighlights");
+  const guideWidth = Math.min(layout.arenaControls.width, 360, viewport.width - 32);
+  const guideX = Math.max(16, Math.min(viewport.width - guideWidth - 16, layout.arena.x + (layout.arena.size - guideWidth) / 2));
+  const guideY = Math.max(layout.status.y + 22, layout.arena.y + 10);
+  drawGuideBubble(guideText, guideX, guideY, guideWidth);
+}
+
+function drawGuideBubble(text, x, y, width, options = {}) {
+  const fontSize = 12;
+  const lineHeight = 16;
+  const lines = wrapTextLines(text, width - 22, canvasFont(fontSize, 800)).slice(0, 2);
+  const height = 18 + lines.length * lineHeight;
+  const safeY = clamp(y, 16, viewport.height - height - 16);
+
+  ctx.save();
+  drawPixelFrame(x, safeY, width, height, {
+    fill: "rgba(21, 30, 48, 0.92)",
+    border: "#ffd166",
+    shadow: "rgba(5, 7, 17, 0.72)",
+    inset: "rgba(255, 246, 214, 0.28)",
+    texture: voxelAssets.blocks.glowstone,
+  });
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(fontSize, 800);
+  setCanvasDirection(ctx);
+  ctx.textAlign = options.align === "right" ? "right" : getTextAlignStart();
+  ctx.textBaseline = "top";
+  const textX = options.align === "right" ? x + width - 12 : getTextStartX(x + 11, width - 22);
+  let textY = safeY + 11;
+  for (const line of lines) {
+    ctx.fillText(line, textX, textY);
+    textY += lineHeight;
+  }
+  ctx.restore();
+}
+
+function drawMainMenuProgress(x, y, width, compact = false) {
+  const progress = getCurrentPlayerProgress();
+  drawListHeader(t("collection.title"), x, y, width);
+  y += compact ? 22 : 26;
 
   const masteryEntry = getFeaturedMasteryEntry(progress);
+  const titleLine = t("collection.identityLine", {
+    title: getPlayerCollectionTitle(progress),
+    streak: progress.lifetime.currentStreak,
+    best: progress.lifetime.bestStreak,
+  });
+  y = drawWrappedTextLinesLimited(titleLine, x, y, width, compact ? 15 : 17, COLORS.text, compact ? 11 : 12, compact ? 1 : 2);
+
   const masteryText = masteryEntry
     ? t("main.masteryLine", {
         role: getProfessionName(masteryEntry.roleId),
@@ -8050,10 +8920,22 @@ function drawMainMenuProgress(x, y, width) {
         matches: masteryEntry.matches,
       })
     : t("main.masteryEmpty");
-  y = drawWrappedText(`${t("main.masteryTitle")}: ${masteryText}`, x, y + 2, width, 18, COLORS.text, 13);
+  drawSingleLineNotice(`${t("main.masteryTitle")}: ${masteryText}`, x, y + 2, width, compact ? 11 : 12, COLORS.muted);
+  y += compact ? 18 : 20;
 
-  if (progress.lastResult?.reason) {
-    y = drawWrappedText(`${t("main.lastResultTitle")}: ${progress.lastResult.reason}`, x, y + 4, width, 18, COLORS.muted, 12);
+  const badges = getUnlockedCollectionBadges(progress);
+  const badgeText = badges.length
+    ? badges.slice(0, COLLECTION_BADGE_LIMIT).map((badge) => badge.label).join(" · ")
+    : t("collection.badges.empty");
+  drawSingleLineNotice(`${t("collection.badges.title")}: ${badgeText}`, x, y, width, compact ? 11 : 12, COLORS.muted);
+  y += compact ? 18 : 20;
+
+  if (!compact) {
+    y = drawProgressMeter(t("main.dailyWins"), progress.daily.wins, DAILY_WIN_GOAL, x, y + 2, width);
+    y = drawProgressMeter(t("main.dailyMatches"), progress.daily.matches, DAILY_MATCH_GOAL, x, y, width);
+  } else if (progress.lastResult?.reason) {
+    drawSingleLineNotice(`${t("main.lastResultTitle")}: ${progress.lastResult.reason}`, x, y, width, 11, COLORS.muted);
+    y += 18;
   }
 
   if (progress.totalMatches > 0) {
@@ -8118,6 +9000,157 @@ function drawProgressMeter(label, value, goal, x, y, width) {
   ctx.strokeRect(x + 0.5, barY + 0.5, width - 1, barHeight - 1);
   ctx.restore();
   return y + 36;
+}
+
+function drawReportHistoryScreen() {
+  const panel = getPanelRect(680, 620);
+  const compact = panel.height < 530 || panel.width < 430;
+  const padding = compact ? 22 : 28;
+  if (!compact) {
+    drawAppTitle(panel.y - 22, t("reports.subtitle"));
+  }
+  drawPanel(panel);
+
+  let y = panel.y + (compact ? 22 : 26);
+  drawPanelTitle(t("reports.title"), panel.x + padding, y, panel.width - padding * 2 - 112);
+  const backWidth = compact ? 82 : 96;
+  drawButton(t("reports.back"), panel.x + panel.width - padding - backWidth, y - 4, backWidth, compact ? 34 : 38, () => setScreen(Screen.MAIN_MENU), {
+    id: "reports-back",
+  });
+  y += compact ? 34 : 44;
+
+  const progress = getCurrentPlayerProgress();
+  y = drawReportCollectionBlock(panel.x + padding, y, panel.width - padding * 2, progress, compact);
+  y += compact ? 6 : 12;
+  y = drawReportStatsBlock(panel.x + padding, y, panel.width - padding * 2, progress, compact);
+  y += compact ? 6 : 12;
+  drawReportHistoryBlock(panel.x + padding, y, panel.width - padding * 2, progress, compact, panel.y + panel.height - (compact ? 18 : 64));
+
+  if (!compact) {
+    drawSmallNotice(
+      panel.x + padding,
+      panel.y + panel.height - 42,
+      panel.width - padding * 2,
+      progress.history.length ? t("reports.notice") : t("reports.emptyNotice"),
+    );
+  }
+}
+
+function drawReportCollectionBlock(x, y, width, progress, compact) {
+  if (!compact) {
+    drawListHeader(t("collection.title"), x, y, width);
+    y += 26;
+  }
+  const badges = getUnlockedCollectionBadges(progress);
+  drawSingleLineNotice(t("collection.identityLine", {
+    title: getPlayerCollectionTitle(progress),
+    streak: progress.lifetime.currentStreak,
+    best: progress.lifetime.bestStreak,
+  }), x, y, width, compact ? 11 : 12, COLORS.text);
+  y += compact ? 16 : 20;
+  drawSingleLineNotice(
+    `${t("collection.badges.title")}: ${badges.length ? badges.map((badge) => badge.label).join(" · ") : t("collection.badges.empty")}`,
+    x,
+    y,
+    width,
+    compact ? 11 : 12,
+    COLORS.muted,
+  );
+  return y + (compact ? 16 : 20);
+}
+
+function drawReportStatsBlock(x, y, width, progress, compact) {
+  if (!compact) {
+    drawListHeader(t("reports.statsTitle"), x, y, width);
+    y += 26;
+  } else {
+    drawSingleLineNotice(t("reports.statsTitle"), x, y, width, 12, COLORS.text);
+    y += 17;
+  }
+
+  const masteryEntry = getFeaturedMasteryEntry(progress);
+  const mostWinningRole = getMostWinningRoleEntry(progress);
+  const worstDefeat = getWorstDefeatEntry(progress);
+  const masteryText = masteryEntry
+    ? t("reports.masteryStat", {
+        role: getProfessionName(masteryEntry.roleId),
+        level: masteryEntry.level,
+        matches: masteryEntry.matches,
+      })
+    : t("reports.noMastery");
+  const winningRoleText = mostWinningRole
+    ? t("reports.winningRoleStat", {
+        role: getProfessionName(mostWinningRole.roleId),
+        wins: mostWinningRole.wins,
+      })
+    : t("reports.noWinningRole");
+  const worstText = worstDefeat
+    ? t("reports.worstDefeatStat", {
+        role: getRoleDisplayName(worstDefeat.ownRole),
+        damage: `${worstDefeat.ownDamage}/${worstDefeat.opponentDamage}`,
+      })
+    : t("reports.noWorstDefeat");
+
+  const lines = compact ? [winningRoleText, worstText] : [masteryText, winningRoleText, worstText];
+  for (const line of lines) {
+    drawSingleLineNotice(line, x, y, width, compact ? 11 : 12, COLORS.muted);
+    y += compact ? 17 : 19;
+  }
+  return y;
+}
+
+function drawReportHistoryBlock(x, y, width, progress, compact, maxY) {
+  drawListHeader(t("reports.historyTitle"), x, y, width);
+  y += compact ? 22 : 26;
+
+  if (!progress.history.length) {
+    y = drawWrappedTextLinesLimited(t("reports.historyEmpty"), x, y, width, compact ? 16 : 18, COLORS.muted, compact ? 11 : 12, 2);
+    return y;
+  }
+
+  const rowHeight = compact ? 23 : 38;
+  const visibleCount = Math.min(REPORT_HISTORY_LIMIT, progress.history.length, Math.max(1, Math.floor((maxY - y) / rowHeight)));
+  progress.history.slice(0, visibleCount).forEach((entry, index) => {
+    drawReportHistoryRow(entry, index, x, y, width, rowHeight, compact);
+    y += rowHeight;
+  });
+  return y;
+}
+
+function drawReportHistoryRow(entry, index, x, y, width, height, compact) {
+  const resultColor = entry.ownResult === "win" ? "#8be8ff" : entry.ownResult === "loss" ? "#ffb3a6" : "#ffd166";
+  const label = t(`reports.results.${entry.ownResult}`);
+  const title = t("reports.historyLine", {
+    index: index + 1,
+    result: label,
+    ownRole: getRoleDisplayName(entry.ownRole),
+    opponentRole: getRoleDisplayName(entry.opponentRole),
+    damage: `${entry.ownDamage}/${entry.opponentDamage}`,
+  });
+  const meta = entry.playlistTitle || entry.variantTitle
+    ? t("reports.historyMeta", {
+        playlist: entry.playlistTitle || t("reports.customMatch"),
+        variant: entry.variantTitle || t("reports.noVariant"),
+      })
+    : entry.reason;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(5, 7, 17, 0.24)";
+  ctx.fillRect(x, y + 2, width, height - 6);
+  ctx.fillStyle = resultColor;
+  ctx.fillRect(isRtlLocale(currentLocale) ? x + width - 4 : x, y + 6, 4, height - 14);
+  ctx.fillStyle = COLORS.text;
+  ctx.font = canvasFont(compact ? 11 : 12, 900);
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "top";
+  drawSingleLineText(title, x + 10, y + 6, width - 20);
+  if (!compact) {
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = canvasFont(11, 700);
+    drawSingleLineText(meta, x + 10, y + 22, width - 20);
+  }
+  ctx.restore();
 }
 
 function drawProfessionSelectScreen() {
@@ -8636,14 +9669,17 @@ function drawResultInsight(x, y, width, maxHeight = Infinity, options = {}) {
   const compactReport = Boolean(settings.compactReportEnabled);
   const titleFontSize = compact ? 15 : 17;
   const reasonFontSize = compact ? 12 : 13;
+  const lessonFontSize = compact ? 11 : 12;
   const statsFontSize = compact ? 11 : 12;
   const reasonLineHeight = compact ? 16 : 18;
+  const lessonLineHeight = compact ? 15 : 17;
   const statsLineHeight = compact ? 15 : 17;
   const titleHeight = compact ? 20 : 24;
   const statsReservedHeight = compactReport ? 0 : statsLineHeight + 4;
+  const lessonReservedHeight = compactReport || !insight.lesson ? 0 : lessonLineHeight;
   const maxReasonLines = compactReport
     ? 1
-    : Math.max(1, Math.min(compact ? 2 : 3, Math.floor((maxHeight - titleHeight - statsReservedHeight) / reasonLineHeight)));
+    : Math.max(1, Math.min(compact ? 2 : 3, Math.floor((maxHeight - titleHeight - lessonReservedHeight - statsReservedHeight) / reasonLineHeight)));
 
   drawResultSectionHeader(t("result.analysisTitle"), x, y, width, titleFontSize);
   y += titleHeight;
@@ -8652,6 +9688,9 @@ function drawResultInsight(x, y, width, maxHeight = Infinity, options = {}) {
     return y;
   }
 
+  if (insight.lesson) {
+    y = drawWrappedTextLinesLimited(insight.lesson, x, y + (compact ? 1 : 2), width, lessonLineHeight, COLORS.muted, lessonFontSize, 1);
+  }
   y += compact ? 2 : 4;
   drawSingleLineNotice(insight.stats, x, y, width, statsFontSize, COLORS.muted);
   return y;
@@ -12369,6 +13408,43 @@ function drawDamageIndicators(ctx, currentTime) {
   }
 }
 
+function drawBattleHighlights(ctx, currentTime) {
+  for (const highlight of battleHighlights) {
+    const progress = clamp((currentTime - highlight.createdAt) / BATTLE_HIGHLIGHT_DURATION_SECONDS, 0, 1);
+    const alpha = 1 - easeInCubic(progress);
+    const lift = 18 + progress * 24;
+    const fontSize = highlight.priority >= 3 ? 20 : 17;
+    const maxTextWidth = ARENA_SIZE - 88;
+    const text = fitTextWithEllipsis(highlight.text, maxTextWidth, canvasFont(fontSize, 900));
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = canvasFont(fontSize, 900);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const textWidth = Math.min(ARENA_SIZE - 60, ctx.measureText(text).width + 28);
+    const boxWidth = Math.max(116, textWidth);
+    const boxHeight = fontSize + 18;
+    const x = clamp(highlight.position.x, boxWidth / 2 + 14, ARENA_SIZE - boxWidth / 2 - 14);
+    const y = clamp(highlight.position.y - lift, boxHeight / 2 + 14, ARENA_SIZE - boxHeight / 2 - 14);
+    const scaleAmount = 1 + (1 - progress) * 0.08;
+    ctx.translate(x, y);
+    ctx.scale(scaleAmount, scaleAmount);
+    ctx.fillStyle = "rgba(5, 7, 17, 0.82)";
+    roundRect(ctx, -boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, 8);
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = highlight.color;
+    ctx.stroke();
+    ctx.fillStyle = COLORS.text;
+    ctx.strokeStyle = "#050711";
+    ctx.lineWidth = 5;
+    ctx.strokeText(text, 0, 1);
+    ctx.fillText(text, 0, 0);
+    ctx.restore();
+  }
+}
+
 function formatDamageAmount(amount) {
   return String(Math.max(1, Math.round(amount)));
 }
@@ -13261,6 +14337,7 @@ function drawArenaScene() {
   ctx.translate(layout.arena.x + shakeOffset.x, layout.arena.y + shakeOffset.y);
   ctx.scale(layout.arena.scale, layout.arena.scale);
   drawArena();
+  drawMatchVariantArenaEffects(ctx, elapsedTimeSeconds);
   drawNeutralSceneObjects(ctx, elapsedTimeSeconds);
   drawDroppedItems(ctx, elapsedTimeSeconds);
   drawFlameTrails(ctx, elapsedTimeSeconds);
@@ -13280,7 +14357,121 @@ function drawArenaScene() {
   drawHeroEffects(ctx, elapsedTimeSeconds);
   renderAttackEffectInstances(ctx, attackEffectInstances, elapsedTimeSeconds);
   drawDamageIndicators(ctx, elapsedTimeSeconds);
+  drawBattleHighlights(ctx, elapsedTimeSeconds);
+  drawMatchVariantBadge(ctx, elapsedTimeSeconds);
+  drawMatchVariantNotices(ctx, elapsedTimeSeconds);
   ctx.restore();
+}
+
+function drawMatchVariantArenaEffects(context, currentTime) {
+  if (!activeMatchVariant) {
+    return;
+  }
+
+  if (activeMatchVariant.id === "crosswind") {
+    drawCrosswindEffect(context, currentTime);
+  } else if (activeMatchVariant.id === "rainyMud") {
+    drawRainyMudEffect(context, currentTime);
+  }
+}
+
+function drawCrosswindEffect(context, currentTime) {
+  const seed = activeMatchVariant?.seed || 1;
+  context.save();
+  context.globalAlpha = 0.22;
+  for (let index = 0; index < 16; index += 1) {
+    const baseY = (terrainNoise(seed, index, 0, 1601) * ARENA_SIZE + currentTime * (18 + index % 4)) % ARENA_SIZE;
+    const baseX = (terrainNoise(seed, index, 1, 1607) * ARENA_SIZE + Math.sin(currentTime * 0.8 + index) * 48) % ARENA_SIZE;
+    const start = { x: baseX - 44, y: baseY + Math.sin(currentTime + index) * 10 };
+    const end = { x: start.x + 88, y: start.y - 16 };
+    drawPixelLine(context, start, end, index % 3 === 0 ? 5 : 3, "#8be8ff");
+  }
+  context.restore();
+}
+
+function drawRainyMudEffect(context, currentTime) {
+  const seed = activeMatchVariant?.seed || 1;
+  const active = getMatchVariantSpeedMultiplier(currentTime) < 1;
+  context.save();
+  context.globalAlpha = active ? 0.26 : 0.12;
+  context.fillStyle = "#1f2937";
+  for (let index = 0; index < 18; index += 1) {
+    const x = (terrainNoise(seed, index, 0, 1621) * ARENA_SIZE + currentTime * 18) % ARENA_SIZE;
+    const y = (terrainNoise(seed, index, 1, 1627) * ARENA_SIZE + currentTime * (82 + index % 5)) % ARENA_SIZE;
+    context.fillRect(Math.round(x), Math.round(y), 4, 22);
+  }
+  context.globalAlpha = active ? 0.18 : 0.08;
+  context.fillStyle = "#7c5f37";
+  for (let index = 0; index < 8; index += 1) {
+    const x = terrainNoise(seed, index, 2, 1637) * (ARENA_SIZE - 120) + 60;
+    const y = terrainNoise(seed, index, 3, 1643) * (ARENA_SIZE - 120) + 60;
+    context.fillRect(Math.round(x - 28), Math.round(y - 10), 56, 20);
+  }
+  context.restore();
+}
+
+function drawMatchVariantBadge(context, currentTime) {
+  if (!activeMatchVariant) {
+    return;
+  }
+
+  const badgeWidth = 228;
+  const badgeHeight = 34;
+  const x = 28;
+  const y = 28;
+  context.save();
+  context.globalAlpha = 0.82;
+  drawPixelFrame(x, y, badgeWidth, badgeHeight, {
+    fill: "rgba(18, 28, 42, 0.86)",
+    border: "#8be8ff",
+    shadow: "rgba(5, 7, 17, 0.66)",
+    inset: "rgba(255, 246, 214, 0.22)",
+    texture: voxelAssets.blocks.deepslate,
+  });
+  context.globalAlpha = 1;
+  context.fillStyle = COLORS.text;
+  context.font = canvasFont(12, 900);
+  setCanvasDirection(context);
+  context.textAlign = getTextAlignStart();
+  context.textBaseline = "middle";
+  drawSingleLineText(activeMatchVariant.title, x + 14, y + badgeHeight / 2, badgeWidth - 28);
+  context.restore();
+}
+
+function drawMatchVariantNotices(context, currentTime) {
+  if (!matchVariantNotices.length) {
+    return;
+  }
+
+  const notice = matchVariantNotices[matchVariantNotices.length - 1];
+  const progress = clamp((currentTime - notice.createdAt) / Math.max(0.001, notice.expiresAt - notice.createdAt), 0, 1);
+  const alpha = 1 - easeInCubic(Math.max(0, progress - 0.68) / 0.32);
+  const width = 450;
+  const height = notice.description ? 66 : 46;
+  const x = (ARENA_SIZE - width) / 2;
+  const y = 86 + Math.sin(currentTime * 5) * 2;
+
+  context.save();
+  context.globalAlpha = alpha;
+  drawPixelFrame(x, y, width, height, {
+    fill: "rgba(21, 30, 48, 0.94)",
+    border: "#ffd166",
+    shadow: "rgba(5, 7, 17, 0.78)",
+    inset: "rgba(255, 246, 214, 0.3)",
+    texture: voxelAssets.blocks.glowstone,
+  });
+  setCanvasDirection(context);
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillStyle = COLORS.text;
+  context.font = canvasFont(getFittedFontSize(notice.title, width - 36, 18, 12, 900), 900);
+  context.fillText(notice.title, x + width / 2, y + (notice.description ? 24 : height / 2));
+  if (notice.description) {
+    context.fillStyle = COLORS.muted;
+    context.font = canvasFont(getFittedFontSize(notice.description, width - 40, 12, 9, 800), 800);
+    context.fillText(notice.description, x + width / 2, y + 47);
+  }
+  context.restore();
 }
 
 function getNearestAliveOpponent(ball) {
@@ -13464,6 +14655,8 @@ function handleKeyDown(event) {
       resumeGame();
     } else if (screen === Screen.SETTINGS) {
       setScreen(settingsReturnScreen);
+    } else if (screen === Screen.REPORTS) {
+      setScreen(Screen.MAIN_MENU);
     } else if (screen === Screen.PROFESSION_SELECT) {
       setScreen(Screen.MAIN_MENU);
     }
