@@ -574,7 +574,7 @@ export const HeroConfig = {
   minotaur: {
     id: "minotaur",
     nameKey: "heroes.minotaur.name",
-    maxHp: 112,
+    maxHp: 108,
     maxMp: 74,
     manaRegen: 3.2,
     radius: 29,
@@ -612,6 +612,7 @@ export const HeroConfig = {
         manaCost: 0,
         cooldown: Infinity,
         oncePerMatch: true,
+        reviveHpRatio: 0.82,
       },
     ],
     getDamage() {
@@ -757,7 +758,7 @@ export const HeroConfig = {
     manaRegen: 4,
     radius: 27,
     moveSpeed: 184,
-    attackDamage: 14,
+    attackDamage: 15,
     attackCooldown: 0.68,
     weaponRange: 48,
     attackMode: "claw",

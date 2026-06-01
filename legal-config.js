@@ -74,6 +74,19 @@ export function getLegalVersionKey(config = LegalConfig) {
   return `${config.version}`;
 }
 
+export function getDeveloperContactMailtoUrl(config = LegalConfig) {
+  const subject = `${config.appName} Support`;
+  const body = [
+    "请描述你遇到的问题：",
+    "",
+    "设备/系统：",
+    "应用版本：",
+    "复现步骤：",
+  ].join("\n");
+
+  return `mailto:${config.contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 export function getLegalDocument(type, config = LegalConfig, locale = "zh") {
   return getLocalizedLegalDocument(locale, type, {
     appName: translate(locale, "app.name"),

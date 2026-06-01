@@ -28,7 +28,7 @@ import {
   isHeroScene,
   isItemScene,
 } from "./game-config.js";
-import { LegalConfig, getLegalDocument } from "./legal-config.js";
+import { LegalConfig, getDeveloperContactMailtoUrl, getLegalDocument } from "./legal-config.js";
 import { GamePlatform, initializePlatform } from "./platform.js";
 import { AnalyticsEvents, ads, analytics, iap } from "./services.js";
 import {
@@ -2122,6 +2122,38 @@ async function restorePurchases() {
   const result = await iap.restorePurchases();
   serviceMessage = result.restored ? t("messages.purchaseRestored") : t("messages.purchaseUnavailable");
   analytics.track(AnalyticsEvents.restorePurchases, result);
+}
+
+function openDeveloperContact() {
+  const mailtoUrl = getDeveloperContactMailtoUrl(LegalConfig);
+  const didOpen = openExternalHref(mailtoUrl);
+  serviceMessage = t(didOpen ? "messages.contactOpened" : "messages.contactOpenFailed", {
+    email: LegalConfig.contactEmail,
+  });
+  trackSettingSelect("contact_developer", didOpen ? "email_opened" : "email_failed", {
+    contact_email: LegalConfig.contactEmail,
+  });
+}
+
+function openExternalHref(href) {
+  try {
+    if (globalThis.Capacitor?.isNativePlatform?.()) {
+      globalThis.location.href = href;
+      return true;
+    }
+
+    const link = document.createElement("a");
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    return true;
+  } catch (error) {
+    console.warn("Failed to open external link.", error);
+    return false;
+  }
 }
 
 function getCurrentPlayerProgress() {
@@ -6758,7 +6790,7 @@ function tryHeroRebirth(ball, currentTime) {
   }
 
   ball.rebirthUsed = true;
-  ball.hp = ball.maxHp;
+  ball.hp = ball.maxHp * (skill.reviveHpRatio || 1);
   ball.mp = Math.min(ball.maxMp, Math.max(ball.mp, ball.maxMp * 0.35));
   ball.frozenUntil = 0;
   ball.paralyzedUntil = 0;
@@ -8942,6 +8974,11 @@ function drawSettingsScreen() {
   );
   y += 14;
 
+  drawButton(t("settings.contactDeveloper"), panel.x + 28, y, panel.width - 56, 42, openDeveloperContact, {
+    id: "settings-contact-developer",
+  });
+  y += 54;
+
   const analyticsEnabled = Boolean(settings.analyticsEnabled);
   const adsEnabled = Boolean(settings.adsEnabled);
   const settingToggleWidth = (panel.width - 68) / 2;
@@ -9005,9 +9042,12 @@ function drawSettingsScreen() {
     15,
   );
   y += 14;
-  drawSmallNotice(panel.x + 28, y, panel.width - 56, serviceMessage || t("settings.sdkNotice"));
+  const backButtonY = panel.y + panel.height - 70;
+  if (y <= backButtonY - 24) {
+    drawSmallNotice(panel.x + 28, y, panel.width - 56, serviceMessage || t("settings.sdkNotice"));
+  }
   const backLabel = settingsReturnScreen === Screen.PAUSED ? t("pause.backToPause") : t("settings.backMain");
-  drawButton(backLabel, panel.x + 28, panel.y + panel.height - 70, panel.width - 56, 46, () => {
+  drawButton(backLabel, panel.x + 28, backButtonY, panel.width - 56, 46, () => {
     serviceMessage = "";
     setScreen(settingsReturnScreen);
   }, { id: "settings-back" });
@@ -9485,7 +9525,7 @@ function drawFeedbackSettings(x, y, width) {
   ];
   const gap = 10;
   const buttonHeight = 38;
-  const columns = width >= 540 ? 3 : width >= 400 ? 2 : 1;
+  const columns = width >= 540 ? 3 : width >= 300 ? 2 : 1;
   const rows = Math.ceil(options.length / columns);
   const buttonWidth = (width - gap * (columns - 1)) / columns;
 

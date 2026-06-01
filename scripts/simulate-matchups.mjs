@@ -2870,7 +2870,7 @@ function tryHeroRebirth(ball, currentTime) {
   }
 
   ball.rebirthUsed = true;
-  ball.hp = ball.maxHp;
+  ball.hp = ball.maxHp * (skill.reviveHpRatio || 1);
   ball.mp = Math.min(ball.maxMp, Math.max(ball.mp, ball.maxMp * 0.35));
   ball.frozenUntil = 0;
   ball.paralyzedUntil = 0;

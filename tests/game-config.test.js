@@ -134,6 +134,10 @@ test("hero mode config exposes health, mana, weapons, and skill contracts", () =
   assert.equal(HeroConfig.dwarfKing.skills.some((skill) => skill.type === "groundSlam" && skill.slowDuration > 0), true);
   assert.equal(HeroConfig.minotaur.coneAngle, Math.PI / 2);
   assert.equal(HeroConfig.minotaur.skills.some((skill) => skill.oncePerMatch), true);
+  assert.equal(
+    HeroConfig.minotaur.skills.some((skill) => skill.type === "rebirth" && skill.reviveHpRatio > 0 && skill.reviveHpRatio <= 1),
+    true,
+  );
   assert.equal(HeroConfig.elfKing.attackMode, "projectile");
   assert.equal(HeroConfig.elfKing.skills.some((skill) => skill.type === "empoweredProjectile" && skill.manaCost > 0), true);
   assert.equal(HeroConfig.elfKing.skills.some((skill) => skill.type === "heal" && skill.heal > 0), true);
