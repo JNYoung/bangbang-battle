@@ -1,6 +1,6 @@
 # Analytics Events
 
-The Android build sends game telemetry through Firebase Analytics via the native `GameAnalytics` Capacitor plugin. Collection is disabled by default and starts only after the user accepts the current privacy policy and user agreement.
+The Android build sends game telemetry through Firebase Analytics and Facebook App Events via the native `GameAnalytics` Capacitor plugin. Collection is disabled by default and starts only after the user accepts the current privacy policy and user agreement.
 
 ## GA/Firebase Configuration
 
@@ -20,6 +20,16 @@ Useful console links:
 - DebugView: `https://console.firebase.google.com/project/profession-ball-arena/analytics/debugview`
 
 When creating a replacement Firebase project, keep the Android package name as `com.professionballarena.game`, download a fresh `google-services.json`, replace `android/app/google-services.json`, then rebuild and reinstall the Android app before validating events.
+
+## Facebook App Events Configuration
+
+The same normalized events listed below are also forwarded to Facebook App Events after analytics consent is granted. The app initializes the Facebook SDK from the configured `facebookAppId` and `facebookClientToken`, keeps automatic app event logging disabled, and keeps advertiser ID collection disabled.
+
+Validation evidence to look for in logcat:
+
+- `GameAnalytics: setCollectionEnabled: true`
+- Capacitor callback result containing `facebook_app_events_sent=true`
+- app process traffic to `https://graph.facebook.com/.../<facebookAppId>/activities`
 
 ## Daily GA Validation
 
@@ -53,8 +63,15 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 | `ad_click` | A mock ad slot or native ad is tapped | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, optional `match_id`, `source` |
 | `ad_close` | An app-open ad closes, auto-closes, or fails to show | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, `reason`, optional `source` |
 | `game_init_success` | App boot finishes platform initialization | `scene`, `locale`, `surface`, `analytics_enabled` |
-| `game_start` | A match starts | `match_id`, `scene`, `ball_count`, `own_side`, `opponent_side`, `own_role`, `opponent_role`, `locale`, `surface` |
-| `game_end` | A match reaches the result screen | `match_id`, `scene`, `ball_count`, `own_role`, `opponent_role`, `duration_sec`, `result`, `winner_side`, `own_result`, `own_attack_count`, `opponent_attack_count`, `own_attacked_count`, `opponent_attacked_count`, `own_damage_dealt`, `opponent_damage_dealt`, `own_damage_taken`, `opponent_damage_taken`, `total_attack_count`, `total_attacked_count` |
+| `game_start` | A match starts | `match_id`, `scene`, `ball_count`, `own_side`, `opponent_side`, `own_role`, `opponent_role`, `locale`, `surface`, `start_source`, `daily_match_index`, `total_matches_before` |
+| `game_end` | A match reaches the result screen | `match_id`, `scene`, `ball_count`, `own_role`, `opponent_role`, `duration_sec`, `result`, `winner_side`, `own_result`, `own_attack_count`, `opponent_attack_count`, `own_attacked_count`, `opponent_attacked_count`, `own_damage_dealt`, `opponent_damage_dealt`, `own_damage_taken`, `opponent_damage_taken`, `own_map_event_victim_count`, `opponent_map_event_victim_count`, `total_map_event_victim_count`, `total_attack_count`, `total_attacked_count` |
+| `first_battle_start` | The user's first local match starts | `match_id`, match base parameters, `start_source`, `daily_match_index`, `total_matches_before` |
+| `first_battle_complete` | The user's first local match reaches the result screen | `match_id`, match base parameters, `daily_match_count`, `daily_win_count`, `total_matches`, `winner_side`, `own_result`, `duration_sec` |
+| `second_battle_start` | The user's second local match starts | `match_id`, match base parameters, `start_source`, `daily_match_index`, `total_matches_before` |
+| `daily_match_complete` | Any match completes, with daily progress context | `match_id`, match base parameters, `daily_match_count`, `daily_win_count`, `total_matches`, `winner_side`, `own_result`, `duration_sec`, `daily_goal_reached` |
+| `report_card_click` | The result screen battle-report image button is clicked | `match_id`, match base parameters, `winner_side`, `own_result`, `daily_match_count`, `total_matches` |
+| `next_match_recommend_click` | The result screen recommended-next-match button is clicked | `match_id`, match base parameters, `recommendation_reason`, `recommended_matchup`, `winner_side`, `own_result` |
+| `next_day_return` | A returning user opens the app on a later local date | `previous_date`, `current_date`, `days_elapsed`, `previous_daily_matches`, `previous_daily_wins`, `total_matches`, `scene`, `locale`, `surface` |
 | `performance_snapshot` | A throttled performance sample is captured during a match or at match end | `match_id`, `sample_type`, `sample_frames`, `match_time_sec`, `wall_time_sec`, `fps_avg`, `frame_ms_avg`, `frame_ms_p95`, `frame_ms_max`, `long_frame_pct`, `jank_frame_pct`, `match_fps_avg`, `match_jank_pct`, `memory_mb`, plus match base parameters |
 | `setting_select` | A configurable option changes | `setting_name`, `setting_value`, `previous_value`, `scene`, `locale` |
 

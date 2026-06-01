@@ -1,7 +1,11 @@
 package com.professionballarena.game;
 
+import android.content.Context;
 import android.os.Bundle;
+import android.util.Log;
 
+import com.facebook.FacebookSdk;
+import com.facebook.appevents.AppEventsLogger;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -11,19 +15,21 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.analytics.FirebaseAnalytics;
 
-import android.util.Log;
-
 import java.util.Iterator;
 
 @CapacitorPlugin(name = "GameAnalytics")
 public class GameAnalyticsPlugin extends Plugin {
     private static final String TAG = "GameAnalytics";
     private FirebaseAnalytics firebaseAnalytics;
+    private AppEventsLogger facebookAppEventsLogger;
+    private boolean facebookCollectionEnabled;
 
     @Override
     public void load() {
         firebaseAnalytics = FirebaseAnalytics.getInstance(getContext());
-        Log.d(TAG, "GameAnalyticsPlugin loaded, FirebaseAnalytics instance obtained, " + getFirebaseStatusLog());
+        setFacebookCollectionEnabled(false);
+        Log.d(TAG, "GameAnalyticsPlugin loaded, FirebaseAnalytics instance obtained, "
+                + getFirebaseStatusLog() + ", " + getFacebookStatusLog());
     }
 
     @PluginMethod
@@ -44,10 +50,12 @@ public class GameAnalyticsPlugin extends Plugin {
 
         Log.d(TAG, "logEvent: " + name + " params=" + bundle);
         firebaseAnalytics.logEvent(name, bundle);
+        boolean facebookSent = logFacebookEvent(name, bundle);
 
         JSObject result = new JSObject();
         result.put("sent", true);
         result.put("transport", "firebase_native");
+        result.put("facebook_app_events_sent", facebookSent);
         call.resolve(result);
     }
 
@@ -57,9 +65,11 @@ public class GameAnalyticsPlugin extends Plugin {
         boolean effectiveEnabled = enabled == null || enabled;
         Log.d(TAG, "setCollectionEnabled: " + effectiveEnabled + ", " + getFirebaseStatusLog());
         firebaseAnalytics.setAnalyticsCollectionEnabled(effectiveEnabled);
+        setFacebookCollectionEnabled(effectiveEnabled);
         JSObject result = new JSObject();
         result.put("enabled", effectiveEnabled);
         putFirebaseStatus(result);
+        putFacebookStatus(result);
         call.resolve(result);
     }
 
@@ -68,6 +78,7 @@ public class GameAnalyticsPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("available", firebaseAnalytics != null);
         putFirebaseStatus(result);
+        putFacebookStatus(result);
         call.resolve(result);
     }
 
@@ -94,6 +105,70 @@ public class GameAnalyticsPlugin extends Plugin {
         bundle.putString(key, String.valueOf(value));
     }
 
+    private boolean logFacebookEvent(String name, Bundle params) {
+        if (!facebookCollectionEnabled || !ensureFacebookLogger()) {
+            return false;
+        }
+
+        try {
+            facebookAppEventsLogger.logEvent(name, params);
+            return true;
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Facebook App Event failed: " + name, error);
+            return false;
+        }
+    }
+
+    private void setFacebookCollectionEnabled(boolean enabled) {
+        facebookCollectionEnabled = enabled;
+        FacebookSdk.setAdvertiserIDCollectionEnabled(false);
+        FacebookSdk.setAutoLogAppEventsEnabled(false);
+        FacebookSdk.setLimitEventAndDataUsage(getContext().getApplicationContext(), !enabled);
+
+        if (enabled) {
+            ensureFacebookLogger();
+        }
+    }
+
+    private boolean ensureFacebookLogger() {
+        if (!isFacebookConfigured()) {
+            return false;
+        }
+
+        try {
+            if (!FacebookSdk.isInitialized()) {
+                FacebookSdk.setApplicationId(getStringResource("facebook_app_id"));
+                FacebookSdk.setClientToken(getStringResource("facebook_client_token"));
+                FacebookSdk.sdkInitialize(getContext().getApplicationContext());
+            }
+            FacebookSdk.fullyInitialize();
+
+            if (facebookAppEventsLogger == null) {
+                facebookAppEventsLogger = AppEventsLogger.newLogger(getContext());
+            }
+            return true;
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Facebook App Events initialization failed", error);
+            return false;
+        }
+    }
+
+    private boolean isFacebookConfigured() {
+        String appId = getStringResource("facebook_app_id");
+        String clientToken = getStringResource("facebook_client_token");
+        return appId != null && !appId.isEmpty() && !"0".equals(appId)
+                && clientToken != null && !clientToken.isEmpty();
+    }
+
+    private String getStringResource(String name) {
+        Context context = getContext();
+        int resourceId = context.getResources().getIdentifier(name, "string", context.getPackageName());
+        if (resourceId == 0) {
+            return "";
+        }
+        return context.getString(resourceId).trim();
+    }
+
     private String getFirebaseStatusLog() {
         FirebaseOptions options = getFirebaseOptions();
         if (options == null) {
@@ -117,6 +192,18 @@ public class GameAnalyticsPlugin extends Plugin {
         result.put("firebase_app_id", safeValue(options.getApplicationId()));
         result.put("gcm_sender_id", safeValue(options.getGcmSenderId()));
         result.put("project_id", safeValue(options.getProjectId()));
+    }
+
+    private String getFacebookStatusLog() {
+        return "facebook_app_events_configured=" + isFacebookConfigured()
+                + ", facebook_collection_enabled=" + facebookCollectionEnabled
+                + ", facebook_sdk_initialized=" + FacebookSdk.isInitialized();
+    }
+
+    private void putFacebookStatus(JSObject result) {
+        result.put("facebook_app_events_configured", isFacebookConfigured());
+        result.put("facebook_collection_enabled", facebookCollectionEnabled);
+        result.put("facebook_sdk_initialized", FacebookSdk.isInitialized());
     }
 
     private FirebaseOptions getFirebaseOptions() {

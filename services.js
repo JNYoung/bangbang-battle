@@ -60,6 +60,10 @@ const GAME_AD_CONTEXT = Object.freeze({
   category: "games",
   keywords: ["arcade game", "mobile game", "battle game", "pixel game"],
 });
+const DEFAULT_SHARE_BASE_URL = "https://professionballarena.top";
+const BATTLE_SHARE_PATH = "/battle/";
+const CUSTOM_DEEP_LINK_SCHEME = "professionballarena:";
+const BATTLE_REPLAY_SEED_MAX = 0xffffffff;
 let analyticsCollectionEnabled = false;
 const adMobState = {
   importPromise: null,
@@ -78,10 +82,17 @@ export const AnalyticsEvents = Object.freeze({
   adClose: "ad_close",
   adRequest: "ad_request",
   adShow: "ad_show",
+  dailyMatchComplete: "daily_match_complete",
+  firstBattleComplete: "first_battle_complete",
+  firstBattleStart: "first_battle_start",
   gameInitSuccess: "game_init_success",
   gameStart: "game_start",
   gameEnd: "game_end",
+  nextDayReturn: "next_day_return",
+  nextMatchRecommendClick: "next_match_recommend_click",
   performanceSnapshot: "performance_snapshot",
+  reportCardClick: "report_card_click",
+  secondBattleStart: "second_battle_start",
   settingSelect: "setting_select",
   legalAccept: "legal_accept",
   restorePurchases: "restore_purchases",
@@ -281,8 +292,146 @@ function getNativeAdsPlugin() {
   return globalThis.Capacitor?.Plugins?.GameAds || null;
 }
 
+function getNativeSocialPlugin() {
+  return globalThis.Capacitor?.Plugins?.GameSocial || null;
+}
+
 function getGtag() {
   return typeof globalThis.gtag === "function" ? globalThis.gtag : null;
+}
+
+export const ShareTargets = Object.freeze({
+  system: "system",
+  facebook: "facebook",
+  tiktok: "tiktok",
+});
+
+export function createBattleReplaySeed() {
+  return Math.floor(Math.random() * BATTLE_REPLAY_SEED_MAX) >>> 0;
+}
+
+export function normalizeBattleReplaySeed(seed) {
+  const parsedSeed = Number.parseInt(seed, 10);
+  if (!Number.isFinite(parsedSeed)) {
+    return null;
+  }
+
+  return Math.min(Math.max(parsedSeed, 1), BATTLE_REPLAY_SEED_MAX) >>> 0;
+}
+
+export function createBattleReplayShareUrl(payload = {}) {
+  const baseUrl = getBuildEnvValue("VITE_SHARE_BASE_URL") || DEFAULT_SHARE_BASE_URL;
+  const shareUrl = new URL(BATTLE_SHARE_PATH, baseUrl);
+  const entries = {
+    scene: payload.scene,
+    a: payload.a,
+    b: payload.b,
+    count: payload.ballCount,
+    seed: normalizeBattleReplaySeed(payload.seed),
+    match: payload.matchId,
+    auto: "play",
+  };
+
+  for (const [key, value] of Object.entries(entries)) {
+    if (value !== null && value !== undefined && value !== "") {
+      shareUrl.searchParams.set(key, String(value));
+    }
+  }
+
+  return shareUrl.toString();
+}
+
+export function parseBattleReplayLink(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") {
+    return null;
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl, DEFAULT_SHARE_BASE_URL);
+  } catch {
+    return null;
+  }
+
+  const isCustomScheme = parsedUrl.protocol === CUSTOM_DEEP_LINK_SCHEME;
+  const isHttpsBattlePath = /^https?:$/.test(parsedUrl.protocol) && parsedUrl.pathname.startsWith(BATTLE_SHARE_PATH);
+  const isLocalQueryOverride = parsedUrl.searchParams.has("scene") || parsedUrl.searchParams.has("seed");
+  if (!isCustomScheme && !isHttpsBattlePath && !isLocalQueryOverride) {
+    return null;
+  }
+
+  const autoValue = String(parsedUrl.searchParams.get("auto") || "").toLowerCase();
+  return {
+    rawUrl: parsedUrl.toString(),
+    source: parsedUrl.searchParams.get("source") || "deeplink",
+    autoStart: isCustomScheme || ["1", "true", "play", "replay"].includes(autoValue),
+    scene: parsedUrl.searchParams.get("scene"),
+    a: parsedUrl.searchParams.get("a"),
+    b: parsedUrl.searchParams.get("b"),
+    ballCount: parsedUrl.searchParams.get("count") || parsedUrl.searchParams.get("ballCount"),
+    replaySeed: normalizeBattleReplaySeed(parsedUrl.searchParams.get("seed")),
+    matchId: parsedUrl.searchParams.get("match"),
+  };
+}
+
+export const deepLinks = {
+  async getLaunchUrl() {
+    const nativePlugin = getNativeSocialPlugin();
+    if (nativePlugin?.getLaunchDeepLink) {
+      try {
+        return nativePlugin.getLaunchDeepLink();
+      } catch (error) {
+        console.warn("Launch deep link lookup failed", error);
+      }
+    }
+
+    const webUrl = globalThis.location?.href || "";
+    return {
+      url: webUrl,
+      source: "web_location",
+      native: false,
+    };
+  },
+
+  addListener(callback) {
+    const nativePlugin = getNativeSocialPlugin();
+    if (!nativePlugin?.addListener || typeof callback !== "function") {
+      return null;
+    }
+
+    return nativePlugin.addListener("deepLinkOpen", callback);
+  },
+};
+
+export const socialShare = {
+  isNativeAvailable() {
+    return Boolean(getNativeSocialPlugin()?.shareImage);
+  },
+
+  async shareImage(options = {}) {
+    const nativePlugin = getNativeSocialPlugin();
+    if (!nativePlugin?.shareImage) {
+      return {
+        shared: false,
+        target: options.target || ShareTargets.system,
+        reason: "native_social_unavailable",
+      };
+    }
+
+    return nativePlugin.shareImage({
+      target: normalizeShareTarget(options.target),
+      fileName: options.fileName,
+      contentType: options.contentType || "image/png",
+      base64Data: options.base64Data,
+      title: options.title,
+      text: options.text,
+      deepLinkUrl: options.deepLinkUrl,
+    });
+  },
+};
+
+function normalizeShareTarget(target) {
+  return Object.values(ShareTargets).includes(target) ? target : ShareTargets.system;
 }
 
 export const ads = {
