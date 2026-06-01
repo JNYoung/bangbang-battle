@@ -319,6 +319,15 @@ a {
   border-bottom: 6px solid #6faf47;
 }
 
+.section.download-band {
+  background:
+    linear-gradient(90deg, rgba(38, 52, 58, 0.07) 1px, transparent 1px),
+    linear-gradient(rgba(38, 52, 58, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, #fff7df 0%, #e4f4ef 100%);
+  background-size: 20px 20px, 20px 20px, auto;
+  border-bottom: 6px solid var(--line);
+}
+
 .section.dark {
   background: var(--navy);
   color: #ffffff;
@@ -382,11 +391,18 @@ a {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.download-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
 .feature-card,
 .support-card,
 .doc-card,
 .step-card,
-.contact-card {
+.contact-card,
+.download-card {
   border: 3px solid var(--line);
   border-radius: var(--radius);
   background:
@@ -395,6 +411,109 @@ a {
     var(--surface);
   background-size: 12px 12px;
   box-shadow: var(--pixel-shadow);
+}
+
+.download-card {
+  padding: 28px;
+  position: relative;
+  overflow: hidden;
+}
+
+.download-card::before {
+  content: "";
+  display: block;
+  height: 8px;
+  margin: -28px -28px 24px;
+  background:
+    linear-gradient(90deg, var(--teal) 0 45%, var(--gold) 45% 72%, var(--coral) 72% 100%);
+  border-bottom: 3px solid var(--line);
+}
+
+.download-card h3 {
+  margin: 14px 0 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-family:
+    ui-monospace, "SFMono-Regular", Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+}
+
+.download-card p {
+  margin: 12px 0 0;
+  color: var(--ink-soft);
+}
+
+.platform-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border: 3px solid var(--line);
+  background: var(--teal);
+  color: #ffffff;
+  padding: 2px 10px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+  box-shadow: 3px 3px 0 rgba(38, 52, 58, 0.2);
+  font-family:
+    ui-monospace, "SFMono-Regular", Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+}
+
+.platform-tag.ios {
+  background: var(--coral);
+}
+
+.store-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.store-buttons .button {
+  box-shadow: 4px 4px 0 rgba(38, 52, 58, 0.24);
+}
+
+.path-list {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.path-list li {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 2px solid rgba(38, 52, 58, 0.28);
+  background: rgba(255, 255, 255, 0.54);
+  padding: 9px 10px;
+}
+
+.path-list strong {
+  color: var(--teal-dark);
+  font-size: 13px;
+}
+
+.path-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink-soft);
+  font-family:
+    ui-monospace, "SFMono-Regular", Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+  font-size: 13px;
+}
+
+.download-note {
+  max-width: 860px;
+  margin: 24px auto 0;
+  border-left: 8px solid var(--gold);
+  background: rgba(255, 253, 242, 0.78);
+  padding: 14px 18px;
+  color: var(--ink-soft);
+  font-weight: 700;
+  box-shadow: 4px 4px 0 rgba(38, 52, 58, 0.14);
 }
 
 .feature-card {
@@ -789,6 +908,7 @@ a {
 
   .feature-grid,
   .support-grid,
+  .download-grid,
   .doc-grid,
   .steps-grid,
   .legal-layout,
@@ -846,6 +966,10 @@ a {
   .doc-card header,
   .footer-bottom {
     flex-direction: column;
+  }
+
+  .path-list li {
+    grid-template-columns: 1fr;
   }
 
   .doc-card {

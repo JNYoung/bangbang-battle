@@ -15,6 +15,13 @@ def releaseStorePassword = signingValue('storePassword', 'ANDROID_KEYSTORE_PASSW
 def releaseKeyAlias = signingValue('keyAlias', 'ANDROID_KEY_ALIAS')
 def releaseKeyPassword = signingValue('keyPassword', 'ANDROID_KEY_PASSWORD')
 def releaseSigningReady = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+def socialValue = { propertyName, envName, fallbackValue = '' ->
+    project.findProperty(propertyName)?.toString() ?: System.getenv(envName) ?: fallbackValue
+}
+def facebookAppId = socialValue('facebookAppId', 'FACEBOOK_APP_ID')
+def facebookClientToken = socialValue('facebookClientToken', 'FACEBOOK_CLIENT_TOKEN')
+def tiktokClientKey = socialValue('tiktokClientKey', 'TIKTOK_CLIENT_KEY')
+def deepLinkHost = socialValue('deepLinkHost', 'BATTLE_DEEP_LINK_HOST', 'professionballarena.top')
 
 android {
     namespace = "com.professionballarena.game"
@@ -26,6 +33,13 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders = [
+            facebookAppId: facebookAppId ?: '0',
+            deepLinkHost: deepLinkHost,
+        ]
+        resValue "string", "facebook_app_id", facebookAppId
+        resValue "string", "facebook_client_token", facebookClientToken
+        resValue "string", "tiktok_client_key", tiktokClientKey
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -58,6 +72,7 @@ repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
+    maven { url "https://artifact.bytedance.com/repository/AwemeOpenSDK" }
 }
 
 dependencies {
@@ -68,6 +83,9 @@ dependencies {
     implementation project(':capacitor-android')
     implementation platform('com.google.firebase:firebase-bom:34.13.0')
     implementation 'com.google.firebase:firebase-analytics'
+    implementation 'com.facebook.android:facebook-share:18.2.3'
+    implementation 'com.tiktok.open.sdk:tiktok-open-sdk-core:2.4.0'
+    implementation 'com.tiktok.open.sdk:tiktok-open-sdk-share:2.4.0'
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

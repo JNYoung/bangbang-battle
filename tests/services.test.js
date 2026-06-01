@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ads, analytics, iap, normalizeAnalyticsName, normalizeAnalyticsPayload } from "../services.js";
+import {
+  ShareTargets,
+  ads,
+  analytics,
+  createBattleReplayShareUrl,
+  iap,
+  normalizeAnalyticsName,
+  normalizeAnalyticsPayload,
+  parseBattleReplayLink,
+  socialShare,
+} from "../services.js";
 
 function withBuildEnv(env, callback) {
   const previousEnv = globalThis.__BANGBANG_BUILD_ENV__;
@@ -296,6 +306,69 @@ test("native AdMob status keeps live ads explicit and testable", () => {
       assert.equal(status.liveAdMobEnabled, false);
       assert.equal(status.realAdUnitsConfigured, false);
     });
+  });
+});
+
+test("battle replay share URLs carry matchup and deterministic seed", () => {
+  withBuildEnv({ VITE_SHARE_BASE_URL: "https://example.test/root/" }, () => {
+    const shareUrl = createBattleReplayShareUrl({
+      scene: "classic",
+      a: "spear",
+      b: "blade",
+      ballCount: 4,
+      seed: 12345,
+      matchId: "match-1",
+    });
+
+    assert.equal(shareUrl, "https://example.test/battle/?scene=classic&a=spear&b=blade&count=4&seed=12345&match=match-1&auto=play");
+    assert.deepEqual(parseBattleReplayLink(shareUrl), {
+      rawUrl: shareUrl,
+      source: "deeplink",
+      autoStart: true,
+      scene: "classic",
+      a: "spear",
+      b: "blade",
+      ballCount: "4",
+      replaySeed: 12345,
+      matchId: "match-1",
+    });
+  });
+});
+
+test("custom battle deep links are parsed for native app opens", () => {
+  const link = parseBattleReplayLink("professionballarena://battle/replay?scene=items&count=6&seed=42");
+
+  assert.equal(link.autoStart, true);
+  assert.equal(link.scene, "items");
+  assert.equal(link.ballCount, "6");
+  assert.equal(link.replaySeed, 42);
+});
+
+test("social share delegates image payloads to the native bridge", async () => {
+  const calls = [];
+  await withCapacitor({
+    Plugins: {
+      GameSocial: {
+        shareImage(options) {
+          calls.push(options);
+          return { shared: true, transport: "android_sharesheet" };
+        },
+      },
+    },
+  }, async () => {
+    const result = await socialShare.shareImage({
+      target: ShareTargets.tiktok,
+      fileName: "report.png",
+      contentType: "image/png",
+      base64Data: "data:image/png;base64,AAAA",
+      title: "Report",
+      text: "Replay",
+      deepLinkUrl: "https://example.test/battle/?seed=1",
+    });
+
+    assert.equal(result.shared, true);
+    assert.equal(calls[0].target, "tiktok");
+    assert.equal(calls[0].deepLinkUrl, "https://example.test/battle/?seed=1");
   });
 });
 
