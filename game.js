@@ -128,6 +128,27 @@ const PERFORMANCE_STATS_CONFIG = Object.freeze({
   memorySampleIntervalMs: 2000,
   hudStorageKey: "bangbang.perfHud",
 });
+const RENDER_QUALITY_LEVELS = Object.freeze({
+  low: 0,
+  medium: 1,
+  high: 2,
+});
+const RENDER_QUALITY_CONFIG = Object.freeze({
+  forcedQueryKeys: ["renderQuality", "graphicsQuality"],
+  lowDeviceMemoryGb: 2,
+  mediumDeviceMemoryGb: 4,
+  lowHardwareConcurrency: 2,
+  mediumHardwareConcurrency: 4,
+  highDprThreshold: 2.5,
+  mediumDprCap: 1.5,
+  lowDprCap: 1,
+  runtimeMinSamples: 45,
+  runtimeCooldownMs: 10000,
+  mediumFrameP95Ms: 42,
+  mediumJankPct: 10,
+  lowFrameP95Ms: 58,
+  lowJankPct: 18,
+});
 const AD_CHAIN_CONFIG = Object.freeze({
   appOpen: {
     placement: "app_open",
@@ -413,6 +434,7 @@ let settings = complianceState.getSettings();
 let pendingNextDayReturnPayload = null;
 let matchTelemetry = createMatchTelemetryState();
 let performanceStats = createPerformanceStatsState();
+let renderQualityState = createRenderQualityState();
 let playerProgress = loadPlayerProgress();
 let resultInsight = null;
 let pendingPlaylistEntry = null;
@@ -1228,7 +1250,9 @@ class Ball {
   }
 
   draw(ctx, currentTime, target) {
-    renderBallPendants(ctx, this, currentTime);
+    if (shouldDrawCosmeticPendants()) {
+      renderBallPendants(ctx, this, currentTime);
+    }
     drawWeapon(ctx, this, currentTime, target);
     drawBallBody(ctx, this);
 
@@ -2696,6 +2720,92 @@ function createPerformanceStatsState(startedAtMs = getNowMs()) {
   };
 }
 
+function createRenderQualityState(startedAtMs = getNowMs()) {
+  const initialQuality = getInitialRenderQuality();
+  return {
+    level: initialQuality.level,
+    reason: initialQuality.reason,
+    locked: initialQuality.locked,
+    changedAtMs: startedAtMs,
+    changeCount: 0,
+  };
+}
+
+function getInitialRenderQuality() {
+  const forcedLevel = getForcedRenderQualityLevel();
+  if (forcedLevel) {
+    return {
+      level: forcedLevel,
+      reason: "forced_query",
+      locked: true,
+    };
+  }
+
+  const memoryGb = getDeviceMemoryGb();
+  const hardwareConcurrency = getHardwareConcurrency();
+  const dpr = Number(globalThis.devicePixelRatio || 1);
+
+  if (
+    (Number.isFinite(memoryGb) && memoryGb <= RENDER_QUALITY_CONFIG.lowDeviceMemoryGb) ||
+    (Number.isFinite(hardwareConcurrency) && hardwareConcurrency <= RENDER_QUALITY_CONFIG.lowHardwareConcurrency)
+  ) {
+    return {
+      level: "low",
+      reason: "device_low_end",
+      locked: false,
+    };
+  }
+
+  if (
+    (Number.isFinite(memoryGb) && memoryGb <= RENDER_QUALITY_CONFIG.mediumDeviceMemoryGb) ||
+    (Number.isFinite(hardwareConcurrency) && hardwareConcurrency <= RENDER_QUALITY_CONFIG.mediumHardwareConcurrency) ||
+    dpr >= RENDER_QUALITY_CONFIG.highDprThreshold
+  ) {
+    return {
+      level: "medium",
+      reason: "device_moderate",
+      locked: false,
+    };
+  }
+
+  return {
+    level: "high",
+    reason: "device_capable",
+    locked: false,
+  };
+}
+
+function getForcedRenderQualityLevel() {
+  try {
+    const params = new URLSearchParams(globalThis.location?.search || "");
+    for (const key of RENDER_QUALITY_CONFIG.forcedQueryKeys) {
+      const value = normalizeRenderQualityLevel(params.get(key));
+      if (value) {
+        return value;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function normalizeRenderQualityLevel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return Object.hasOwn(RENDER_QUALITY_LEVELS, normalized) ? normalized : null;
+}
+
+function getDeviceMemoryGb() {
+  const value = Number(globalThis.navigator?.deviceMemory);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function getHardwareConcurrency() {
+  const value = Number(globalThis.navigator?.hardwareConcurrency);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 function createAdSessionState() {
   return {
     appOpenShown: false,
@@ -2751,6 +2861,7 @@ function trackGameInitSuccess(consentSource = "boot") {
     scene: selectedProfessions.scene,
     locale: currentLocale,
     surface: getRuntimeSurface(),
+    ...getRenderQualityAnalyticsPayload(),
     analytics_enabled: analytics.enabled,
     analytics_consent: isAnalyticsConsentGranted() ? "granted" : "denied",
     consent_source: consentSource,
@@ -2970,6 +3081,7 @@ function recordPerformanceFrame(frameTimeMs, timestamp, isMatchActive) {
   }
 
   updateCurrentPerformanceStats(timestamp);
+  maybeDegradeRenderQuality(timestamp, isMatchActive);
 }
 
 function prunePerformanceDisplaySamples(timestamp) {
@@ -3000,6 +3112,112 @@ function updateCurrentPerformanceStats(timestamp) {
     jankFramePct: (jankFrameCount / frameTimes.length) * 100,
     memoryMb: getCachedPerformanceMemoryMb(timestamp),
   };
+}
+
+function maybeDegradeRenderQuality(timestamp, isMatchActive) {
+  if (!isMatchActive || renderQualityState.locked || performanceStats.displaySamples.length < RENDER_QUALITY_CONFIG.runtimeMinSamples) {
+    return;
+  }
+
+  if (timestamp - renderQualityState.changedAtMs < RENDER_QUALITY_CONFIG.runtimeCooldownMs) {
+    return;
+  }
+
+  const target = getRuntimeRenderQualityTarget(performanceStats.current);
+  if (!target || getRenderQualityRank(target.level) >= getRenderQualityRank(renderQualityState.level)) {
+    return;
+  }
+
+  setRenderQualityLevel(target.level, target.reason, timestamp);
+}
+
+function getRuntimeRenderQualityTarget(stats) {
+  if (stats.frameMsP95 >= RENDER_QUALITY_CONFIG.lowFrameP95Ms || stats.jankFramePct >= RENDER_QUALITY_CONFIG.lowJankPct) {
+    return {
+      level: "low",
+      reason: "runtime_jank_low",
+    };
+  }
+
+  if (
+    stats.frameMsP95 >= RENDER_QUALITY_CONFIG.mediumFrameP95Ms ||
+    stats.jankFramePct >= RENDER_QUALITY_CONFIG.mediumJankPct ||
+    stats.longFramePct >= 18
+  ) {
+    return {
+      level: "medium",
+      reason: "runtime_jank_medium",
+    };
+  }
+
+  return null;
+}
+
+function setRenderQualityLevel(level, reason, timestamp = getNowMs()) {
+  const nextLevel = normalizeRenderQualityLevel(level);
+  if (!nextLevel || nextLevel === renderQualityState.level) {
+    return false;
+  }
+
+  const previousLevel = renderQualityState.level;
+  renderQualityState.level = nextLevel;
+  renderQualityState.reason = reason || "runtime_jank";
+  renderQualityState.changedAtMs = timestamp;
+  renderQualityState.changeCount += 1;
+  scheduleCanvasResize();
+  trackRenderQualityChange(previousLevel, timestamp);
+  return true;
+}
+
+function trackRenderQualityChange(previousLevel, timestamp) {
+  analytics.track(AnalyticsEvents.renderQualityChange, {
+    ...getMatchBaseAnalyticsPayload(),
+    match_id: matchTelemetry.matchId,
+    previous_quality: previousLevel,
+    render_quality: renderQualityState.level,
+    render_reason: renderQualityState.reason,
+    render_dpr: roundAnalyticsNumber(viewport.dpr || getRenderQualityDprCap(), 2),
+    frame_ms_p95: roundAnalyticsNumber(performanceStats.current.frameMsP95, 1),
+    jank_frame_pct: roundAnalyticsNumber(performanceStats.current.jankFramePct, 1),
+    sample_frames: performanceStats.displaySamples.length,
+    match_time_sec: roundAnalyticsNumber(matchElapsedTimeSeconds, 1),
+    change_count: renderQualityState.changeCount,
+    surface: getRuntimeSurface(),
+  });
+}
+
+function getRenderQualityRank(level = renderQualityState.level) {
+  return RENDER_QUALITY_LEVELS[level] ?? RENDER_QUALITY_LEVELS.high;
+}
+
+function isLowRenderQuality() {
+  return renderQualityState.level === "low";
+}
+
+function shouldDrawAmbientEffects() {
+  return getRenderQualityRank() >= RENDER_QUALITY_LEVELS.medium;
+}
+
+function shouldDrawFullEffects() {
+  return getRenderQualityRank() >= RENDER_QUALITY_LEVELS.high;
+}
+
+function shouldDrawCosmeticPendants() {
+  return !isLowRenderQuality();
+}
+
+function shouldDrawAttackEffects() {
+  return !isLowRenderQuality();
+}
+
+function getRenderQualityDprCap(level = renderQualityState.level) {
+  if (level === "low") {
+    return RENDER_QUALITY_CONFIG.lowDprCap;
+  }
+  if (level === "medium") {
+    return Math.min(MAX_DEVICE_PIXEL_RATIO, RENDER_QUALITY_CONFIG.mediumDprCap);
+  }
+  return MAX_DEVICE_PIXEL_RATIO;
 }
 
 function maybeTrackPerformanceSnapshot(timestamp) {
@@ -3040,15 +3258,14 @@ function createPerformanceAnalyticsPayload(sampleType, timestamp, sampleFrameTim
   const longFrameCount = sampleFrameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.longFrameMs).length;
   const jankFrameCount = sampleFrameTimes.filter((frameTimeMs) => frameTimeMs >= PERFORMANCE_STATS_CONFIG.jankFrameMs).length;
   const matchAvgFrameMs = performanceStats.match.totalFrameMs / Math.max(1, performanceStats.match.totalFrames);
-  const memoryMb = getCachedPerformanceMemoryMb(timestamp);
 
   return {
     ...getMatchBaseAnalyticsPayload(),
     match_id: matchTelemetry.matchId,
+    ...getRenderQualityAnalyticsPayload(),
     sample_type: sampleType,
     sample_frames: sampleFrameTimes.length,
     match_time_sec: roundAnalyticsNumber(matchElapsedTimeSeconds, 1),
-    wall_time_sec: roundAnalyticsNumber((timestamp - performanceStats.match.startedAtMs) / 1000, 1),
     fps_avg: roundAnalyticsNumber(avgFrameMs > 0 ? 1000 / avgFrameMs : 0, 1),
     frame_ms_avg: roundAnalyticsNumber(avgFrameMs, 1),
     frame_ms_p95: roundAnalyticsNumber(percentile(sampleFrameTimes, 0.95), 1),
@@ -3057,7 +3274,6 @@ function createPerformanceAnalyticsPayload(sampleType, timestamp, sampleFrameTim
     jank_frame_pct: roundAnalyticsNumber((jankFrameCount / sampleFrameTimes.length) * 100, 1),
     match_fps_avg: roundAnalyticsNumber(matchAvgFrameMs > 0 ? 1000 / matchAvgFrameMs : 0, 1),
     match_jank_pct: roundAnalyticsNumber((performanceStats.match.jankFrames / Math.max(1, performanceStats.match.totalFrames)) * 100, 1),
-    memory_mb: memoryMb === null ? undefined : roundAnalyticsNumber(memoryMb, 1),
   };
 }
 
@@ -3078,6 +3294,7 @@ function getCachedPerformanceMemoryMb(timestamp) {
 function createGameStartAnalyticsPayload() {
   return {
     ...getMatchBaseAnalyticsPayload(),
+    ...getRenderQualityAnalyticsPayload(),
     match_id: matchTelemetry.matchId,
   };
 }
@@ -3176,6 +3393,14 @@ function getMatchBaseAnalyticsPayload() {
     match_variant: activeMatchVariant?.id || "none",
     locale: currentLocale,
     surface: getRuntimeSurface(),
+  };
+}
+
+function getRenderQualityAnalyticsPayload() {
+  return {
+    render_quality: renderQualityState.level,
+    render_reason: renderQualityState.reason,
+    render_dpr: roundAnalyticsNumber(viewport.dpr || getRenderQualityDprCap(), 2),
   };
 }
 
@@ -3869,7 +4094,7 @@ function getStableViewportSize() {
   const root = document.documentElement;
   const width = Math.max(320, Math.round(root.clientWidth || window.innerWidth || window.visualViewport?.width || 0));
   const height = Math.max(320, Math.round(root.clientHeight || window.innerHeight || window.visualViewport?.height || 0));
-  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DEVICE_PIXEL_RATIO);
+  const dpr = Math.min(window.devicePixelRatio || 1, getRenderQualityDprCap());
   return { width, height, dpr };
 }
 
@@ -7934,7 +8159,9 @@ function draw() {
       drawArenaScene();
       drawShakeArenaButton();
       drawBattleBannerAd();
-      drawBattleIntroOverlay();
+      if (shouldDrawAmbientEffects()) {
+        drawBattleIntroOverlay();
+      }
       drawPlayingBeginnerGuide();
       break;
     case Screen.PAUSED:
@@ -7956,7 +8183,21 @@ function draw() {
 }
 
 function drawBackground() {
-  const blockSize = BACKDROP_TERRAIN_TILE_SIZE;
+  if (isLowRenderQuality()) {
+    ctx.fillStyle = COLORS.backgroundBottom;
+    ctx.fillRect(0, 0, viewport.width, viewport.height);
+    ctx.fillStyle = "rgba(255, 244, 207, 0.035)";
+    const gridSize = 72;
+    for (let x = 0; x < viewport.width; x += gridSize) {
+      ctx.fillRect(x, 0, 1, viewport.height);
+    }
+    for (let y = 0; y < viewport.height; y += gridSize) {
+      ctx.fillRect(0, y, viewport.width, 1);
+    }
+    return;
+  }
+
+  const blockSize = shouldDrawFullEffects() ? BACKDROP_TERRAIN_TILE_SIZE : BACKDROP_TERRAIN_TILE_SIZE * 2;
   const columns = Math.ceil(viewport.width / blockSize) + 1;
   const rows = Math.ceil(viewport.height / blockSize) + 1;
 
@@ -8027,7 +8268,7 @@ function drawPerformanceHud() {
   const frameMs = Math.round(stats.frameMsAvg);
   const jankPct = Math.round(stats.jankFramePct);
   const qualityColor = getPerformanceQualityColor(stats);
-  const secondaryLabel = `${frameMs}ms  J${jankPct}%`;
+  const secondaryLabel = `${renderQualityState.level.toUpperCase()} ${frameMs}ms J${jankPct}%`;
 
   ctx.save();
   drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
@@ -9537,7 +9778,9 @@ function drawResultOverlay() {
   const celebrationAge = visualElapsedTimeSeconds - resultCelebrationStartedAt;
   const winnerVisual = resultWinnerSide === "draw" ? SIDE_VISUAL_CONFIG.F : getSideVisualConfig(resultWinnerSide);
 
-  drawVictoryFireworks(celebrationAge, winnerVisual);
+  if (shouldDrawAmbientEffects()) {
+    drawVictoryFireworks(celebrationAge, winnerVisual);
+  }
   const headlineY = compact ? Math.max(30, panelY - 18) : Math.max(52, panelY - 42);
   const headlineWidth = Math.min(viewport.width - 32, compact ? 360 : 520);
   const headlineFontSize = compact ? clamp(viewport.width * 0.068, 26, 42) : clamp(viewport.width * 0.082, 34, 64);
@@ -11343,7 +11586,7 @@ function drawItemBuilding(context, building, currentTime) {
   const center = snapVector(building.position, 4);
   context.save();
   context.globalAlpha = 0.58 + life * 0.38;
-  if (building.config.range > 0) {
+  if (building.config.range > 0 && shouldDrawAmbientEffects()) {
     context.strokeStyle = building.config.color;
     context.lineWidth = 2;
     context.setLineDash([8, 10]);
@@ -14150,12 +14393,14 @@ function drawTorchGroundFire(ctx, flame, currentTime, life) {
   ctx.arc(center.x, center.y, radius * 0.9, 0, Math.PI * 2);
   ctx.stroke();
 
-  for (let index = 0; index < 8; index += 1) {
-    const angle = (index * Math.PI * 2) / 8 + currentTime * 1.8;
-    const ember = add(center, scale(vectorFromAngle(angle), radius * (0.38 + (index % 3) * 0.12)));
-    const emberSize = 5 + (index % 2) * 3;
-    ctx.fillStyle = index % 2 === 0 ? "#ffd166" : "#ff6b24";
-    ctx.fillRect(ember.x - emberSize / 2, ember.y - emberSize / 2, emberSize, emberSize);
+  if (shouldDrawFullEffects()) {
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (index * Math.PI * 2) / 8 + currentTime * 1.8;
+      const ember = add(center, scale(vectorFromAngle(angle), radius * (0.38 + (index % 3) * 0.12)));
+      const emberSize = 5 + (index % 2) * 3;
+      ctx.fillStyle = index % 2 === 0 ? "#ffd166" : "#ff6b24";
+      ctx.fillRect(ember.x - emberSize / 2, ember.y - emberSize / 2, emberSize, emberSize);
+    }
   }
   ctx.restore();
 }
@@ -14436,7 +14681,9 @@ function drawArenaScene() {
   ctx.translate(layout.arena.x + shakeOffset.x, layout.arena.y + shakeOffset.y);
   ctx.scale(layout.arena.scale, layout.arena.scale);
   drawArena();
-  drawMatchVariantArenaEffects(ctx, elapsedTimeSeconds);
+  if (shouldDrawAmbientEffects()) {
+    drawMatchVariantArenaEffects(ctx, elapsedTimeSeconds);
+  }
   drawNeutralSceneObjects(ctx, elapsedTimeSeconds);
   drawDroppedItems(ctx, elapsedTimeSeconds);
   drawFlameTrails(ctx, elapsedTimeSeconds);
@@ -14452,11 +14699,19 @@ function drawArenaScene() {
   });
   drawProjectiles(ctx);
   drawSpellTrajectories(ctx, elapsedTimeSeconds);
-  drawItemExplosions(ctx, elapsedTimeSeconds);
-  drawHeroEffects(ctx, elapsedTimeSeconds);
-  renderAttackEffectInstances(ctx, attackEffectInstances, elapsedTimeSeconds);
+  if (shouldDrawAmbientEffects()) {
+    drawItemExplosions(ctx, elapsedTimeSeconds);
+    drawHeroEffects(ctx, elapsedTimeSeconds);
+  }
+  if (shouldDrawAttackEffects()) {
+    renderAttackEffectInstances(ctx, attackEffectInstances, elapsedTimeSeconds, {
+      stride: shouldDrawFullEffects() ? 1 : 2,
+    });
+  }
   drawDamageIndicators(ctx, elapsedTimeSeconds);
-  drawBattleHighlights(ctx, elapsedTimeSeconds);
+  if (shouldDrawAmbientEffects()) {
+    drawBattleHighlights(ctx, elapsedTimeSeconds);
+  }
   drawMatchVariantBadge(ctx, elapsedTimeSeconds);
   drawMatchVariantNotices(ctx, elapsedTimeSeconds);
   ctx.restore();
@@ -14592,6 +14847,11 @@ function getNearestAliveOpponent(ball) {
 }
 
 function drawArena() {
+  if (isLowRenderQuality()) {
+    drawSimplifiedArena();
+    return;
+  }
+
   ctx.save();
   const tileSize = ARENA_TERRAIN_TILE_SIZE;
   const terrainRows = terrainState.arenaTiles.length;
@@ -14607,14 +14867,16 @@ function drawArena() {
   }
 
   ctx.fillStyle = terrainState.arenaBiome === "super" ? "rgba(75, 207, 255, 0.06)" : terrainState.arenaBiome === "rock" ? "rgba(255, 244, 207, 0.035)" : "rgba(255, 244, 207, 0.045)";
-  for (let row = 0; row < terrainRows; row += 1) {
-    for (let column = 0; column < terrainColumns; column += 1) {
-      const sparkle = terrainNoise(terrainState.seed, column, row, 401);
-      if (sparkle > 0.86) {
-        const chipSize = sparkle > 0.95 ? 10 : 6;
-        const chipX = column * tileSize + 8 + Math.floor(terrainNoise(terrainState.seed, column, row, 409) * 18);
-        const chipY = row * tileSize + 8 + Math.floor(terrainNoise(terrainState.seed, column, row, 419) * 18);
-        ctx.fillRect(chipX, chipY, chipSize, chipSize);
+  if (shouldDrawFullEffects()) {
+    for (let row = 0; row < terrainRows; row += 1) {
+      for (let column = 0; column < terrainColumns; column += 1) {
+        const sparkle = terrainNoise(terrainState.seed, column, row, 401);
+        if (sparkle > 0.86) {
+          const chipSize = sparkle > 0.95 ? 10 : 6;
+          const chipX = column * tileSize + 8 + Math.floor(terrainNoise(terrainState.seed, column, row, 409) * 18);
+          const chipY = row * tileSize + 8 + Math.floor(terrainNoise(terrainState.seed, column, row, 419) * 18);
+          ctx.fillRect(chipX, chipY, chipSize, chipSize);
+        }
       }
     }
   }
@@ -14639,6 +14901,26 @@ function drawArena() {
   ctx.strokeStyle = terrainState.arenaBiome === "super" ? "#4bcfff" : "#9b7a3a";
   ctx.lineWidth = 3;
   ctx.strokeRect(border + 2, border + 2, ARENA_SIZE - border * 2 - 4, ARENA_SIZE - border * 2 - 4);
+  ctx.restore();
+}
+
+function drawSimplifiedArena() {
+  ctx.save();
+  const fillColor = terrainState.arenaBiome === "super" ? "#23354a" : terrainState.arenaBiome === "rock" ? "#4b4438" : COLORS.arena;
+  const gridColor = terrainState.arenaBiome === "super" ? "rgba(125, 211, 252, 0.22)" : "rgba(5, 7, 17, 0.24)";
+  ctx.fillStyle = fillColor;
+  ctx.fillRect(0, 0, ARENA_SIZE, ARENA_SIZE);
+  ctx.fillStyle = gridColor;
+  for (let i = ARENA_TERRAIN_TILE_SIZE; i < ARENA_SIZE; i += ARENA_TERRAIN_TILE_SIZE * 2) {
+    ctx.fillRect(i - 1, 0, 2, ARENA_SIZE);
+    ctx.fillRect(0, i - 1, ARENA_SIZE, 2);
+  }
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = "#050711";
+  ctx.strokeRect(5, 5, ARENA_SIZE - 10, ARENA_SIZE - 10);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = terrainState.arenaBiome === "super" ? "#4bcfff" : "#9b7a3a";
+  ctx.strokeRect(22, 22, ARENA_SIZE - 44, ARENA_SIZE - 44);
   ctx.restore();
 }
 
@@ -14964,14 +15246,14 @@ function drawRotatedVoxelSprite(context, sprite, point, width, angle, options = 
   const height = options.height || (width * sprite.height) / sprite.width;
   const anchorX = options.anchorX ?? 0.5;
   const anchorY = options.anchorY ?? 0.5;
-  const shadowOffset = options.shadowOffset ?? 3;
+  const shadowOffset = isLowRenderQuality() ? 0 : options.shadowOffset ?? 3;
 
   context.save();
   context.translate(point.x, point.y);
   context.rotate(angle);
   context.imageSmoothingEnabled = false;
 
-  if (options.shadow !== false) {
+  if (options.shadow !== false && shadowOffset > 0) {
     context.globalAlpha = (options.alpha ?? 1) * 0.38;
     context.fillStyle = "#050711";
     context.fillRect(-width * anchorX + shadowOffset, -height * anchorY + shadowOffset, width, height);

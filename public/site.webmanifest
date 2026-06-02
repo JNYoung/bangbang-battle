@@ -1,7 +1,7 @@
 {
-  "name": "职业球球斗技场",
-  "short_name": "球球斗技场",
-  "description": "职业球球斗技场移动端自动对战游戏。",
+  "name": "斗球球",
+  "short_name": "斗球球",
+  "description": "斗球球移动端自动对战游戏。",
   "icons": [
     {
       "src": "./icon-192.png",

@@ -726,9 +726,10 @@ export function renderBallPendants(ctx, ball, currentTime) {
   }
 }
 
-export function renderAttackEffectInstances(ctx, effectInstances, currentTime) {
-  for (const effect of effectInstances) {
-    renderAttackEffect(ctx, effect, currentTime);
+export function renderAttackEffectInstances(ctx, effectInstances, currentTime, options = {}) {
+  const stride = Math.max(1, Math.floor(options.stride || 1));
+  for (let index = 0; index < effectInstances.length; index += stride) {
+    renderAttackEffect(ctx, effectInstances[index], currentTime);
   }
 }
 

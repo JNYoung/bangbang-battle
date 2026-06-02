@@ -62,8 +62,8 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 | `ad_show` | An ad placement becomes visible or native SDK reports it shown | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, optional `match_id`, `source` |
 | `ad_click` | A mock ad slot or native ad is tapped | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, optional `match_id`, `source` |
 | `ad_close` | An app-open ad closes, auto-closes, or fails to show | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, `reason`, optional `source` |
-| `game_init_success` | App boot finishes platform initialization | `scene`, `locale`, `surface`, `analytics_enabled` |
-| `game_start` | A match starts | `match_id`, `scene`, `ball_count`, `own_side`, `opponent_side`, `own_role`, `opponent_role`, `locale`, `surface`, `start_source`, `daily_match_index`, `total_matches_before` |
+| `game_init_success` | App boot finishes platform initialization | `scene`, `locale`, `surface`, `analytics_enabled`, `render_quality`, `render_reason`, `render_dpr` |
+| `game_start` | A match starts | `match_id`, `scene`, `ball_count`, `own_side`, `opponent_side`, `own_role`, `opponent_role`, `locale`, `surface`, `start_source`, `daily_match_index`, `total_matches_before`, `render_quality`, `render_reason`, `render_dpr` |
 | `game_end` | A match reaches the result screen | `match_id`, `scene`, `ball_count`, `own_role`, `opponent_role`, `duration_sec`, `result`, `winner_side`, `own_result`, `own_attack_count`, `opponent_attack_count`, `own_attacked_count`, `opponent_attacked_count`, `own_damage_dealt`, `opponent_damage_dealt`, `own_damage_taken`, `opponent_damage_taken`, `own_map_event_victim_count`, `opponent_map_event_victim_count`, `total_map_event_victim_count`, `total_attack_count`, `total_attacked_count` |
 | `first_battle_start` | The user's first local match starts | `match_id`, match base parameters, `start_source`, `daily_match_index`, `total_matches_before` |
 | `first_battle_complete` | The user's first local match reaches the result screen | `match_id`, match base parameters, `daily_match_count`, `daily_win_count`, `total_matches`, `winner_side`, `own_result`, `duration_sec` |
@@ -72,7 +72,8 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 | `report_card_click` | The result screen battle-report image button is clicked | `match_id`, match base parameters, `winner_side`, `own_result`, `daily_match_count`, `total_matches` |
 | `next_match_recommend_click` | The result screen recommended-next-match button is clicked | `match_id`, match base parameters, `recommendation_reason`, `recommended_matchup`, `winner_side`, `own_result` |
 | `next_day_return` | A returning user opens the app on a later local date | `previous_date`, `current_date`, `days_elapsed`, `previous_daily_matches`, `previous_daily_wins`, `total_matches`, `scene`, `locale`, `surface` |
-| `performance_snapshot` | A throttled performance sample is captured during a match or at match end | `match_id`, `sample_type`, `sample_frames`, `match_time_sec`, `wall_time_sec`, `fps_avg`, `frame_ms_avg`, `frame_ms_p95`, `frame_ms_max`, `long_frame_pct`, `jank_frame_pct`, `match_fps_avg`, `match_jank_pct`, `memory_mb`, plus match base parameters |
+| `performance_snapshot` | A throttled performance sample is captured during a match or at match end | `match_id`, `sample_type`, `sample_frames`, `match_time_sec`, `fps_avg`, `frame_ms_avg`, `frame_ms_p95`, `frame_ms_max`, `long_frame_pct`, `jank_frame_pct`, `match_fps_avg`, `match_jank_pct`, `render_quality`, `render_reason`, `render_dpr`, plus match base parameters |
+| `render_quality_change` | Runtime performance triggers an automatic render-quality downgrade during a match | `match_id`, match base parameters, `previous_quality`, `render_quality`, `render_reason`, `render_dpr`, `frame_ms_p95`, `jank_frame_pct`, `sample_frames`, `match_time_sec`, `change_count` |
 | `setting_select` | A configurable option changes | `setting_name`, `setting_value`, `previous_value`, `scene`, `locale` |
 
 ## Definitions
@@ -84,7 +85,7 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 - Damage values are aggregated applied damage after health clamping.
 - `performance_snapshot` is throttled to avoid noisy analytics. Periodic samples are emitted about every 15 real seconds during active matches, and a final `sample_type=match_end` snapshot is emitted before `game_end` when enough frames were observed.
 - `long_frame_pct` uses frames at or above roughly 30 FPS frame time (`33.3ms`), while `jank_frame_pct` uses frames at or above `50ms`.
-- `memory_mb` is included only on runtimes that expose JavaScript heap usage.
+- Render quality starts from device hints (`navigator.deviceMemory`, `navigator.hardwareConcurrency`, and DPR) and can downgrade from `high` to `medium` or `low` when p95 frame time or jank rate stays high. Use `render_reason` to separate device-based defaults from runtime jank downgrades.
 - Browser ad events use the local game-themed mock ad chain (`ad_network=mock_game_ads`). Meta Instant Games builds use `ad_network=meta_instant_games`. Native Capacitor builds use `ad_network=admob` when the AdMob plugin is available, or `native_game_ads` if a custom bridge supplies the placement.
 
 ## Additional Events To Consider

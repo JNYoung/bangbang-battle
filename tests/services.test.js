@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  AnalyticsEvents,
   ShareTargets,
   ads,
   analytics,
@@ -122,6 +123,10 @@ test("analytics payload normalization keeps Firebase-compatible names and values
     attack_count: 12,
     muted: 0,
   });
+});
+
+test("analytics event names include render quality monitoring", () => {
+  assert.equal(AnalyticsEvents.renderQualityChange, "render_quality_change");
 });
 
 test("ads test chain returns mock placements safely", async () => {

@@ -7,7 +7,7 @@ const RTL_LOCALES = new Set(["ar"]);
 const translations = {
   zh: {
     language: { self: "中文" },
-    app: { name: "职业球球斗技场" },
+    app: { name: "斗球球" },
     side: { a: "球 A", b: "球 B" },
     common: {
       enabled: "已启用",
@@ -423,8 +423,8 @@ const translations = {
       todayTitleWitness: "前排吃瓜解说员",
       meta: "{scene} · {date}",
       footer: "长按保存，把这场小剧场发出去",
-      shareTitle: "职业球球斗技场战报",
-      shareText: "刚在《职业球球斗技场》打完一局：{winner}\n像素战报已生成，点开官网链接可下载 App 或打开这局回放：\n{link}",
+      shareTitle: "斗球球战报",
+      shareText: "刚在《斗球球》打完一局：{winner}\n像素战报已生成，点开官网链接可下载 App 或打开这局回放：\n{link}",
     },
     scenes: {
       classic: {

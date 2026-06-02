@@ -14,7 +14,7 @@ release/meta-instant/profession-ball-arena-meta.zip
 
 上传前先确认：
 
-- 游戏名：`Profession Ball Arena` / `职业球球斗技场`
+- 游戏名：`Profession Ball Arena` / `斗球球`
 - 官网：`https://professionballarena.top/`
 - 隐私政策：`https://professionballarena.top/privacy/`
 - 用户协议：`https://professionballarena.top/terms/`
