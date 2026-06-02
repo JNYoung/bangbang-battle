@@ -2,14 +2,14 @@
 
 Updated: 2026-05-29
 
-This document is the Google Play submission checklist for `职业球球斗技场` / `Profession Ball Arena`.
+This document is the Google Play submission checklist for `斗球球` / `Profession Ball Arena`.
 
 ## Current GP Readiness
 
 Status: ready for Play Console internal testing, pending manual Play Console account/app setup.
 
 - Package name: `com.professionballarena.game`
-- App label: `职业球球斗技场`
+- App label: `斗球球`
 - Version: `versionCode 1`, `versionName 1.0`
 - Min SDK: 24
 - Target SDK: 36
@@ -55,7 +55,7 @@ Use the Google Play metadata from `docs/aso-store-listing.md`.
 
 Recommended production listing:
 
-- App name: `职业球球斗技场`
+- App name: `斗球球`
 - Short description: `选择职业与道具，观看球球在像素竞技场自动开战。`
 - Full description: use the zh-CN Google Play full description from `docs/aso-store-listing.md`.
 - App category: Game

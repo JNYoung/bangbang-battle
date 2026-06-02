@@ -2,7 +2,7 @@
 
 Updated: 2026-05-29
 
-This pack prepares `职业球球斗技场` / `Profession Ball Arena` for Apple App Store, Google Play, and mobile launch review. It is based on the current app bundle id `com.professionballarena.game`, the public site `https://professionballarena.top/`, and the in-app compliance flow already present in this repo.
+This pack prepares `斗球球` / `Profession Ball Arena` for Apple App Store, Google Play, and mobile launch review. It is based on the current app bundle id `com.professionballarena.game`, the public site `https://professionballarena.top/`, and the in-app compliance flow already present in this repo.
 
 ## ASO Readiness Score
 
@@ -20,13 +20,13 @@ Recommended primary positioning:
 
 `A fast portrait auto-battle game where players choose professions, weapons, and heroes, then watch compact pixel-arena matches unfold.`
 
-Do not use `球球大作战` as the public app name, subtitle, keyword, or comparison term. It is likely to be interpreted as another game or trademark reference. Keep the public brand as `职业球球斗技场` / `Profession Ball Arena`.
+Do not use `球球大作战` as the public app name, subtitle, keyword, or comparison term. It is likely to be interpreted as another game or trademark reference. Keep the public brand as `斗球球` / `Profession Ball Arena`.
 
 ## Apple App Store Metadata
 
 ### zh-CN
 
-- App Name: `职业球球斗技场`
+- App Name: `斗球球`
 - Subtitle: `职业搭配的自动对战`
 - Primary Category: `Games`
 - Subcategories: `Action`, `Casual`
@@ -39,7 +39,7 @@ Do not use `球球大作战` as the public app name, subtitle, keyword, or compa
 Description:
 
 ```text
-职业球球斗技场是一款竖屏 2D 自动对战小游戏。你可以选择双方职业、切换道具或英雄模式，然后观看球球在像素竞技场里自动碰撞、释放技能、拾取武器并决出胜负。
+斗球球是一款竖屏 2D 自动对战小游戏。你可以选择双方职业、切换道具或英雄模式，然后观看球球在像素竞技场里自动碰撞、释放技能、拾取武器并决出胜负。
 
 核心特色：
 - 快速开局：轻量对局，适合碎片时间体验。
@@ -90,12 +90,12 @@ This game contains mild cartoon/fantasy combat and is not directed at children. 
 
 ### zh-CN
 
-- App name: `职业球球斗技场`
+- App name: `斗球球`
 - Short description: `选择职业与道具，观看球球在像素竞技场自动开战。`
 - Full description:
 
 ```text
-职业球球斗技场是一款竖屏 2D 自动对战小游戏，适合快速开一局、观察不同职业和道具组合的战斗结果。
+斗球球是一款竖屏 2D 自动对战小游戏，适合快速开一局、观察不同职业和道具组合的战斗结果。
 
 你可以选择双方职业，进入经典斗技场；也可以切换到道具模式，让球球随机拾取武器和建筑；还可以体验英雄模式，观看英雄生命、魔法和专属技能的对抗。
 

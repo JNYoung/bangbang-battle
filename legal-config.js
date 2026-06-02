@@ -4,7 +4,7 @@ export const LegalConfig = {
   version: "2026.05.29",
   developerName: "JN.Young",
   contactEmail: "j.n.young0209@gmail.com",
-  appName: "职业球球斗技场",
+  appName: "斗球球",
   ageRatingGuidance: "本游戏包含轻微卡通/幻想对战元素，不面向儿童定向投放。",
   privacyPolicy: {
     title: "隐私政策",
@@ -44,7 +44,7 @@ export const LegalConfig = {
       {
         title: "一、服务说明",
         body:
-          "欢迎使用《职业球球斗技场》。本游戏提供基于 Canvas 的 2D 自动对战体验，玩家可以选择双方职业并观看自动战斗结果。",
+          "欢迎使用《斗球球》。本游戏提供基于 Canvas 的 2D 自动对战体验，玩家可以选择双方职业并观看自动战斗结果。",
       },
       {
         title: "二、用户行为",

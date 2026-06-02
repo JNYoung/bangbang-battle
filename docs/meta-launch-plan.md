@@ -67,7 +67,7 @@
 - Meta Developer 账号登录权限。
 - 应用所属个人或 Business Manager 信息。
 - 应用英文名和中文名，建议先统一为：
-  - 中文：`职业球球斗技场`
+  - 中文：`斗球球`
   - 英文：`Profession Ball Arena`
 - Meta 应用 ID 和 App Secret。App Secret 不要写入仓库，只用于后台配置或私密环境变量。
 - 游戏分类、目标地区和支持语言。
