@@ -166,6 +166,12 @@ const AD_CHAIN_CONFIG = Object.freeze({
     refreshMs: 30000,
     failureRetryMs: 15000,
   },
+  rewardedVideo: {
+    placement: "rewarded_video",
+    dailyLimit: 3,
+    cooldownMs: 75 * 1000,
+    maxPendingPasses: 2,
+  },
 });
 const NEUTRAL_SCENE_SPAWN_CONFIG = Object.freeze({
   initialCount: 2,
@@ -344,6 +350,7 @@ const DAILY_PLAYLIST_SIZE = 3;
 const MATCH_VARIANT_NOTICE_DURATION = 2.8;
 const MATCH_VARIANT_EVENT_NOTICE_DURATION = 2.2;
 const MATCH_VARIANT_EVENT_TIMES = Object.freeze([6.4, 13.2, 20.4]);
+const REWARDED_ENCORE_VARIANT_IDS = Object.freeze(["supplyDrop", "hazardRush", "pillarMaze"]);
 const MATCH_VARIANT_CONFIG = Object.freeze([
   {
     id: "crosswind",
@@ -451,6 +458,7 @@ let matchVariantNotices = [];
 let nextMatchVariantEventIndex = 0;
 let activeAdOverlay = null;
 let adSessionState = createAdSessionState();
+let rewardedAdRequestPending = false;
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
 let shareTargetOverlayOpen = false;
 let deepLinkListenerHandle = null;
@@ -1630,6 +1638,11 @@ function createMatchVariant() {
     return null;
   }
 
+  const rewardedVariant = consumeRewardedEncoreVariant();
+  if (rewardedVariant) {
+    return rewardedVariant;
+  }
+
   const progress = getCurrentPlayerProgress();
   const seed = hashStringToInt([
     getLocalDateKey(),
@@ -1649,6 +1662,39 @@ function createMatchVariant() {
     seed,
     title: t(config.titleKey),
     description: t(config.descriptionKey),
+  };
+}
+
+function consumeRewardedEncoreVariant() {
+  const rewardState = complianceState.getRewardedAdState();
+  if (rewardState.pendingEncorePasses <= 0) {
+    return null;
+  }
+
+  complianceState.consumeRewardedEncorePass();
+  const seed = hashStringToInt([
+    "rewarded_encore",
+    getLocalDateKey(),
+    selectedProfessions.scene,
+    selectedProfessions.a,
+    selectedProfessions.b,
+    activeBattleReplaySeed || createBattleReplaySeed(),
+    rewardState.totalClaimCount,
+  ].join(":"));
+  const rewardConfigs = MATCH_VARIANT_CONFIG.filter((config) => REWARDED_ENCORE_VARIANT_IDS.includes(config.id));
+  const configPool = rewardConfigs.length ? rewardConfigs : MATCH_VARIANT_CONFIG;
+  const config = configPool[seed % configPool.length];
+  if (!config) {
+    return null;
+  }
+
+  const baseTitle = t(config.titleKey);
+  return {
+    ...config,
+    seed,
+    rewardSource: "rewarded_ad",
+    title: t("variants.rewardEncore.title", { variant: baseTitle }),
+    description: t("variants.rewardEncore.description", { description: t(config.descriptionKey) }),
   };
 }
 
@@ -2906,6 +2952,10 @@ function canShowBattleBannerAds() {
   return canShowAds() && ads.supportsPlacement(AD_CHAIN_CONFIG.battleBanner.placement, "banner");
 }
 
+function canShowRewardedVideoAds() {
+  return canShowAds() && ads.supportsPlacement(AD_CHAIN_CONFIG.rewardedVideo.placement, "rewarded");
+}
+
 async function initializeAdsIfAllowed() {
   if (!canShowAds()) {
     await ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
@@ -3083,6 +3133,194 @@ function trackBattleBannerShown(result) {
   trackAdEvent(AnalyticsEvents.adShow, AD_CHAIN_CONFIG.battleBanner.placement, result, {
     match_id: matchTelemetry.matchId,
   });
+}
+
+function getRewardedEncoreEligibility(nowMs = Date.now()) {
+  const dateKey = getLocalDateKey(new Date(nowMs));
+  const rewardState = complianceState.getRewardedAdState({ dateKey });
+  const pendingPassCount = rewardState.pendingEncorePasses;
+
+  if (!isCurrentClassicMode()) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "classic_only",
+      rewardState,
+    };
+  }
+
+  if (pendingPassCount > 0) {
+    return {
+      eligible: true,
+      hasPendingPass: true,
+      reason: "pending_pass_available",
+      rewardState,
+    };
+  }
+
+  if (!canShowRewardedVideoAds()) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "rewarded_ads_unavailable",
+      rewardState,
+    };
+  }
+
+  if (rewardState.dailyClaimCount >= AD_CHAIN_CONFIG.rewardedVideo.dailyLimit) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "daily_limit_reached",
+      rewardState,
+    };
+  }
+
+  const cooldownRemainingMs = Math.max(
+    0,
+    rewardState.lastClaimedAt + AD_CHAIN_CONFIG.rewardedVideo.cooldownMs - nowMs,
+  );
+  if (cooldownRemainingMs > 0) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "cooldown_active",
+      cooldownRemainingMs,
+      rewardState,
+    };
+  }
+
+  if (rewardState.pendingEncorePasses >= AD_CHAIN_CONFIG.rewardedVideo.maxPendingPasses) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "pending_pass_limit_reached",
+      rewardState,
+    };
+  }
+
+  return {
+    eligible: true,
+    hasPendingPass: false,
+    reason: "result_encore_offer",
+    rewardState,
+  };
+}
+
+function shouldDrawRewardedEncoreButton() {
+  const eligibility = getRewardedEncoreEligibility();
+  return rewardedAdRequestPending || eligibility.hasPendingPass || eligibility.eligible;
+}
+
+function getRewardedEncoreButtonLabel() {
+  if (rewardedAdRequestPending) {
+    return t("ads.rewardLoading");
+  }
+
+  const eligibility = getRewardedEncoreEligibility();
+  return eligibility.hasPendingPass ? t("result.rewardedEncoreStart") : t("result.rewardedEncoreWatch");
+}
+
+async function handleRewardedEncoreAction() {
+  if (rewardedAdRequestPending) {
+    return;
+  }
+
+  const pendingEligibility = getRewardedEncoreEligibility();
+  if (pendingEligibility.hasPendingPass) {
+    startRewardedEncoreMatch();
+    return;
+  }
+
+  if (!pendingEligibility.eligible) {
+    serviceMessage = getRewardedEncoreUnavailableMessage(pendingEligibility);
+    return;
+  }
+
+  const placement = AD_CHAIN_CONFIG.rewardedVideo.placement;
+  rewardedAdRequestPending = true;
+  trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "rewarded" }, {
+    source: "result_encore",
+    daily_claim_count: pendingEligibility.rewardState.dailyClaimCount,
+  });
+
+  try {
+    await initializeAdsIfAllowed();
+    const result = await ads.showRewardedVideo(placement);
+    if (!result?.shown) {
+      trackAdEvent(AnalyticsEvents.adClose, placement, result || { format: "rewarded" }, {
+        source: "result_encore",
+        reason: result?.reason || "not_shown",
+      });
+      serviceMessage = getRewardedEncoreUnavailableMessage({ reason: result?.reason || "not_shown" });
+      return;
+    }
+
+    trackAdEvent(AnalyticsEvents.adShow, placement, result, {
+      source: "result_encore",
+      reward_type: "encore_variant",
+    });
+    const rewardState = complianceState.recordRewardedAdClaim({
+      nowMs: Date.now(),
+      dateKey: getLocalDateKey(),
+      pendingEncorePasses: 1,
+    });
+    analytics.track(AnalyticsEvents.rewardedAdGrant, createFunnelAnalyticsPayload({
+      placement,
+      reward_type: "encore_variant",
+      daily_claim_count: rewardState.dailyClaimCount,
+      total_claim_count: rewardState.totalClaimCount,
+      pending_passes: rewardState.pendingEncorePasses,
+      ad_network: result.network || ads.mode || "unknown",
+      creative_id: result.creative_id || "unknown",
+    }));
+    serviceMessage = t("messages.rewardAdGranted", {
+      remaining: Math.max(0, AD_CHAIN_CONFIG.rewardedVideo.dailyLimit - rewardState.dailyClaimCount),
+    });
+  } catch (error) {
+    trackAdEvent(AnalyticsEvents.adClose, placement, { format: "rewarded", network: ads.mode }, {
+      source: "result_encore",
+      reason: "request_failed",
+    });
+    serviceMessage = getRewardedEncoreUnavailableMessage({ reason: "request_failed" });
+  } finally {
+    rewardedAdRequestPending = false;
+  }
+}
+
+function startRewardedEncoreMatch() {
+  const rewardState = complianceState.getRewardedAdState();
+  if (rewardState.pendingEncorePasses <= 0) {
+    serviceMessage = getRewardedEncoreUnavailableMessage({ reason: "no_pending_pass" });
+    return;
+  }
+
+  const recommendation = getResultNextRecommendation();
+  selectedProfessions = complianceState.saveSelectedProfessions(recommendation.selectedProfessions);
+  serviceMessage = t("messages.rewardEncoreStarted", { matchup: recommendation.matchupText });
+  analytics.track(AnalyticsEvents.nextMatchRecommendClick, createFunnelAnalyticsPayload({
+    recommendation_reason: "rewarded_encore",
+    recommended_matchup: recommendation.matchupText,
+    pending_passes: rewardState.pendingEncorePasses,
+    winner_side: resultWinnerSide,
+    own_result: getOwnResult(resultWinnerSide),
+  }));
+  startGame({ source: "rewarded_encore" });
+}
+
+function getRewardedEncoreUnavailableMessage(eligibility) {
+  const reason = eligibility?.reason || "rewarded_ads_unavailable";
+  if (reason === "daily_limit_reached") {
+    return t("messages.rewardAdDailyLimit");
+  }
+  if (reason === "cooldown_active") {
+    const seconds = Math.ceil((eligibility.cooldownRemainingMs || 0) / 1000);
+    return t("messages.rewardAdCooldown", { seconds });
+  }
+  if (reason === "classic_only") {
+    return t("messages.rewardAdClassicOnly");
+  }
+  return t("messages.rewardAdUnavailable");
 }
 
 function recordPerformanceFrame(frameTimeMs, timestamp, isMatchActive) {
@@ -3513,6 +3751,7 @@ function getMatchBaseAnalyticsPayload() {
     opponent_role: getAnalyticsRoleForSide("B"),
     playlist_id: activePlaylistEntry?.id || "custom",
     match_variant: activeMatchVariant?.id || "none",
+    reward_source: activeMatchVariant?.rewardSource || "none",
     locale: currentLocale,
     surface: getRuntimeSurface(),
   };
@@ -9947,9 +10186,18 @@ function drawResultOverlay() {
   const fullButtonWidth = panelWidth - padding * 2;
   const splitButtonWidth = (fullButtonWidth - buttonGap) / 2;
   const recommendation = getResultNextRecommendation();
+  const showRewardedEncore = shouldDrawRewardedEncoreButton();
   let currentButtonY = buttonY;
   drawButton(recommendation.buttonLabel, buttonX, currentButtonY, fullButtonWidth, buttonHeight, startRecommendedMatch, { id: "result-recommend-next", active: true });
   currentButtonY += buttonHeight + buttonGap;
+  if (showRewardedEncore) {
+    drawButton(getRewardedEncoreButtonLabel(), buttonX, currentButtonY, fullButtonWidth, buttonHeight, handleRewardedEncoreAction, {
+      id: "result-rewarded-encore",
+      active: getRewardedEncoreEligibility().hasPendingPass,
+      disabled: rewardedAdRequestPending,
+    });
+    currentButtonY += buttonHeight + buttonGap;
+  }
   drawButton(t("result.again"), buttonX, currentButtonY, splitButtonWidth, buttonHeight, () => startGame({ source: "result_again" }), { id: "result-again" });
   drawButton(t("result.shareCard"), buttonX + splitButtonWidth + buttonGap, currentButtonY, splitButtonWidth, buttonHeight, () => {
     shareTargetOverlayOpen = true;
@@ -10009,14 +10257,18 @@ function getResultOverlayLayout() {
   const availableWidth = Math.max(280, visibleWidth - safe.left - safe.right - 28);
   const availableHeight = Math.max(248, visibleHeight - safe.top - safe.bottom - 28);
   const panelWidth = Math.min(390, availableWidth);
-  const panelHeight = clamp(Math.min(350, availableHeight), 248, 350);
+  const showRewardedEncore = shouldDrawRewardedEncoreButton();
+  const maxPanelHeight = showRewardedEncore ? 390 : 350;
+  const minPanelHeight = showRewardedEncore ? 306 : 248;
+  const panelHeight = clamp(Math.min(maxPanelHeight, availableHeight), minPanelHeight, maxPanelHeight);
   const panelX = safe.left + (availableWidth - panelWidth) / 2 + 14;
   const panelY = safe.top + (availableHeight - panelHeight) / 2 + 14;
   const compact = panelHeight < 318 || panelWidth < 360;
   const padding = compact ? 20 : 28;
   const buttonHeight = compact ? 36 : 42;
   const buttonGap = compact ? 9 : 12;
-  const buttonBlockHeight = buttonHeight * 3 + buttonGap * 2;
+  const buttonRowCount = showRewardedEncore ? 4 : 3;
+  const buttonBlockHeight = buttonHeight * buttonRowCount + buttonGap * (buttonRowCount - 1);
   const bottomPadding = compact ? 18 : 24;
   const buttonY = panelY + panelHeight - bottomPadding - buttonBlockHeight;
 

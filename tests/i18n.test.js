@@ -44,6 +44,8 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "settings.rateApp"), "settings.rateApp");
     assert.notEqual(translate(locale, "messages.contactOpened", { email: "support@example.com" }), "messages.contactOpened");
     assert.notEqual(translate(locale, "messages.storeReviewOpened"), "messages.storeReviewOpened");
+    assert.notEqual(translate(locale, "messages.rewardAdGranted", { remaining: 2 }), "messages.rewardAdGranted");
+    assert.notEqual(translate(locale, "ads.rewardLoading"), "ads.rewardLoading");
     assert.notEqual(translate(locale, "settings.reducedShake"), "settings.reducedShake");
     assert.notEqual(translate(locale, "settings.highlightText"), "settings.highlightText");
     assert.notEqual(translate(locale, "settings.compactReport"), "settings.compactReport");
@@ -85,6 +87,8 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.match(translate(locale, "result.winner", { side: "A", profession: "Archer" }), /A|Archer|الكرة/);
     assert.match(translate(locale, "result.winnerNoProfession", { side: "A" }), /A|الكرة/);
     assert.notEqual(translate(locale, "result.nextChallenge", { role: "Shield" }), "result.nextChallenge");
+    assert.notEqual(translate(locale, "result.rewardedEncoreWatch"), "result.rewardedEncoreWatch");
+    assert.notEqual(translate(locale, "variants.rewardEncore.title", { variant: "Supply Drop" }), "variants.rewardEncore.title");
     assert.notEqual(translate(locale, "main.funStatsLine", {
       favorite: "Archer",
       flop: "Shield",

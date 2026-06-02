@@ -39,6 +39,7 @@ const translations = {
       battleTitle: "游戏补给广告位",
       cta: "继续体验",
       loading: "广告加载中",
+      rewardLoading: "激励广告加载中",
       testLabel: "游戏广告调试，不产生扣费",
     },
     messages: {
@@ -61,6 +62,12 @@ const translations = {
       recommendedMatch: "推荐下一场：{matchup}",
       storeReviewOpened: "已打开商店评价入口，欢迎按真实体验反馈",
       storeReviewUnavailable: "当前平台暂未配置商店评价入口，可通过邮件反馈",
+      rewardAdGranted: "已解锁高能连战，本日还可领取 {remaining} 次",
+      rewardAdUnavailable: "当前激励广告暂不可用，稍后再试",
+      rewardAdDailyLimit: "今日高能连战奖励已达上限",
+      rewardAdCooldown: "高能连战奖励冷却中，约 {seconds} 秒后可再领",
+      rewardAdClassicOnly: "高能连战奖励仅在经典场景结算页开放",
+      rewardEncoreStarted: "高能连战：{matchup}",
     },
     consent: {
       subtitle: "上架合规确认",
@@ -124,6 +131,7 @@ const translations = {
       },
     },
     variants: {
+      rewardEncore: { title: "高能连战：{variant}", description: "广告奖励已生效。{description}" },
       crosswind: { title: "横风天气", description: "场地吹起歪风，走位会轻轻偏航。" },
       rainyMud: { title: "临时雨幕", description: "雨落成泥，速度会间歇变慢。" },
       pillarMaze: { title: "石柱乱入", description: "场地多了几块硬障碍，直线追击没那么舒服。" },
@@ -222,7 +230,7 @@ const translations = {
           },
           {
             title: "二、本地保存",
-            body: "为了让你下次打开游戏时保留选择，本游戏会使用设备本地存储保存隐私政策版本、用户协议版本、球 A/球 B 的职业选择、设置项和评分提示节流状态。",
+            body: "为了让你下次打开游戏时保留选择，本游戏会使用设备本地存储保存隐私政策版本、用户协议版本、球 A/球 B 的职业选择、设置项、评分提示节流状态和激励广告奖励节流状态。",
           },
           {
             title: "三、统计、广告与支付",
@@ -393,6 +401,8 @@ const translations = {
       sourceFlame: "火焰路径",
       again: "再来一局",
       shareCard: "生成战报图",
+      rewardedEncoreWatch: "看广告解锁高能连战",
+      rewardedEncoreStart: "开启高能连战",
       nextChallenge: "挑战克星：{role}",
       nextRevenge: "复仇阵容：{role}",
       nextDrawBreaker: "破平局：{role}",
@@ -517,6 +527,7 @@ const translations = {
       battleTitle: "Game Supply Ad Slot",
       cta: "Continue",
       loading: "Loading ad",
+      rewardLoading: "Loading reward ad",
       testLabel: "Game ad debug, no charge",
     },
     messages: {
@@ -539,6 +550,12 @@ const translations = {
       recommendedMatch: "Recommended next: {matchup}",
       storeReviewOpened: "Store review page opened. Honest feedback is welcome",
       storeReviewUnavailable: "Store review is not configured on this platform. Email feedback is available",
+      rewardAdGranted: "Encore unlocked. {remaining} reward claims left today",
+      rewardAdUnavailable: "Rewarded ad is not available right now. Try again later",
+      rewardAdDailyLimit: "Today's encore reward limit has been reached",
+      rewardAdCooldown: "Encore reward cooling down. Try again in about {seconds}s",
+      rewardAdClassicOnly: "Encore rewards are available from classic match results only",
+      rewardEncoreStarted: "Reward encore: {matchup}",
     },
     consent: {
       subtitle: "Release compliance",
@@ -602,6 +619,7 @@ const translations = {
       },
     },
     variants: {
+      rewardEncore: { title: "Reward Encore: {variant}", description: "Ad reward active. {description}" },
       crosswind: { title: "Crosswind", description: "A crooked wind nudges movement across the arena." },
       rainyMud: { title: "Rainy Mud", description: "Rain turns the floor muddy and slows bursts in waves." },
       pillarMaze: { title: "Pillar Maze", description: "Hard obstacles break up straight-line chases." },
@@ -700,7 +718,7 @@ const translations = {
           },
           {
             title: "2. Local Storage",
-            body: "To keep your choices for the next launch, the game uses local device storage for policy versions, agreement versions, Ball A/B profession choices, settings, and review-prompt throttling state.",
+            body: "To keep your choices for the next launch, the game uses local device storage for policy versions, agreement versions, Ball A/B profession choices, settings, review-prompt throttling state, and rewarded-ad reward throttling state.",
           },
           {
             title: "3. Analytics, Ads, and Payments",
@@ -871,6 +889,8 @@ const translations = {
       sourceFlame: "flame trails",
       again: "Play Again",
       shareCard: "Share Card",
+      rewardedEncoreWatch: "Watch Ad for Encore",
+      rewardedEncoreStart: "Start Reward Encore",
       nextChallenge: "Counter Test: {role}",
       nextRevenge: "Revenge Pick: {role}",
       nextDrawBreaker: "Draw Breaker: {role}",

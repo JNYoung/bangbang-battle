@@ -4,11 +4,13 @@ import test from "node:test";
 import {
   ComplianceStorageKeys,
   DefaultReviewPromptState,
+  DefaultRewardedAdState,
   DefaultSettings,
   REVIEW_SESSION_MIN_GAP_MS,
   createComplianceState,
   createMemoryStorage,
   normalizeReviewPromptState,
+  normalizeRewardedAdState,
   normalizeSelectedProfessions,
 } from "../compliance-state.js";
 import { LegalConfig } from "../legal-config.js";
@@ -263,4 +265,45 @@ test("review session tracking counts separated launches only", () => {
   assert.equal(state.recordReviewSessionStarted({ nowMs: 1000 }).sessionCount, 1);
   assert.equal(state.recordReviewSessionStarted({ nowMs: 1000 + REVIEW_SESSION_MIN_GAP_MS - 1 }).sessionCount, 1);
   assert.equal(state.recordReviewSessionStarted({ nowMs: 1000 + REVIEW_SESSION_MIN_GAP_MS }).sessionCount, 2);
+});
+
+test("rewarded ad state tracks local daily claims and pending encore passes", () => {
+  const storage = createMemoryStorage();
+  const state = createComplianceState({ storage });
+
+  assert.deepEqual(state.getRewardedAdState(), DefaultRewardedAdState);
+  assert.deepEqual(normalizeRewardedAdState({
+    dateKey: 20260602,
+    dailyClaimCount: "2",
+    totalClaimCount: "5",
+    lastClaimedAt: "123.8",
+    pendingEncorePasses: "-1",
+  }), {
+    dateKey: "20260602",
+    dailyClaimCount: 2,
+    totalClaimCount: 5,
+    lastClaimedAt: 124,
+    pendingEncorePasses: 0,
+  });
+
+  const firstClaim = state.recordRewardedAdClaim({
+    nowMs: 1000,
+    dateKey: "2026-06-02",
+  });
+  assert.equal(firstClaim.dailyClaimCount, 1);
+  assert.equal(firstClaim.totalClaimCount, 1);
+  assert.equal(firstClaim.pendingEncorePasses, 1);
+
+  const secondClaim = state.recordRewardedAdClaim({
+    nowMs: 2000,
+    dateKey: "2026-06-02",
+    pendingEncorePasses: 2,
+  });
+  assert.equal(secondClaim.dailyClaimCount, 2);
+  assert.equal(secondClaim.totalClaimCount, 2);
+  assert.equal(secondClaim.pendingEncorePasses, 3);
+
+  assert.equal(state.getRewardedAdState({ dateKey: "2026-06-03" }).dailyClaimCount, 0);
+  assert.equal(state.getRewardedAdState({ dateKey: "2026-06-03" }).pendingEncorePasses, 3);
+  assert.equal(state.consumeRewardedEncorePass().pendingEncorePasses, 2);
 });

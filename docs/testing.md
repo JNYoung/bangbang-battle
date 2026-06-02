@@ -56,7 +56,7 @@ ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
 
 ## 差异化打包回归重点
 
-- Meta Instant Games 包必须只走 Meta 广告链路：`index.html` 注入 `FBInstant` SDK，广告服务使用 `FBInstant.getInterstitialAdAsync()`，可选激励视频使用 `FBInstant.getRewardedVideoAsync()`。
+- Meta Instant Games 包必须只走 Meta 广告链路：`index.html` 注入 `FBInstant` SDK，广告服务使用 `FBInstant.getInterstitialAdAsync()`，结果页激励连战使用 `FBInstant.getRewardedVideoAsync()`。
 - Meta 包不得包含 `@capacitor-community/admob` SDK 导入路径；`npm run test:artifacts` 会在 `.tmp/meta-instant/assets` 中检查这一点。
 - Meta 环境不支持 `battle_banner` 横幅位，布局不应为战斗横幅预留空间；广告请求应以 `meta_banner_not_supported` 安全跳过。
 - Android/iOS 原生构建仍应保留 AdMob 路径；调试和内测默认测试广告，正式发布通过 `VITE_ADMOB_MODE=real` 启用生产广告单元。

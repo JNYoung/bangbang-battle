@@ -128,10 +128,12 @@ test("analytics payload normalization keeps Firebase-compatible names and values
 
 test("analytics event names include render quality monitoring", () => {
   assert.equal(AnalyticsEvents.renderQualityChange, "render_quality_change");
+  assert.equal(AnalyticsEvents.rewardedAdGrant, "rewarded_ad_grant");
 });
 
 test("ads test chain returns mock placements safely", async () => {
   assert.equal(ads.isAvailable(), true);
+  assert.equal(ads.supportsPlacement("rewarded_video", "rewarded"), true);
 
   const result = await ads.showInterstitial("result");
   assert.equal(result.shown, true);
@@ -143,6 +145,11 @@ test("ads test chain returns mock placements safely", async () => {
   const banner = ads.getBanner("battle_banner");
   assert.equal(banner.available, true);
   assert.equal(banner.format, "banner");
+
+  const rewarded = await ads.showRewardedVideo("rewarded_video");
+  assert.equal(rewarded.shown, true);
+  assert.equal(rewarded.format, "rewarded");
+  assert.equal(rewarded.network, "mock_game_ads");
 });
 
 test("ads delegates to native game ad bridge with game context", async () => {
@@ -162,6 +169,10 @@ test("ads delegates to native game ad bridge with game context", async () => {
           calls.push(["showInterstitial", options]);
           return { shown: true, placement: options.placement, format: "interstitial", network: "native_game_ads" };
         },
+        showRewardedVideo(options) {
+          calls.push(["showRewardedVideo", options]);
+          return { shown: true, rewarded: true, placement: options.placement, format: "rewarded", network: "native_game_ads" };
+        },
         hideBanner(options) {
           calls.push(["hideBanner", options]);
           return { hidden: true, placement: options.placement };
@@ -174,11 +185,12 @@ test("ads delegates to native game ad bridge with game context", async () => {
     assert.equal(ads.mode, "native");
     assert.equal((await ads.initialize()).transport, "native_game_ads");
     assert.equal((await ads.showInterstitial("app_open")).network, "native_game_ads");
+    assert.equal((await ads.showRewardedVideo("rewarded_video")).rewarded, true);
     assert.equal((await ads.getBanner("battle_banner", { marginBottom: 24 })).network, "native_game_ads");
     assert.equal((await ads.hideBanner("battle_banner")).hidden, true);
-    assert.deepEqual(calls.map(([name]) => name), ["initialize", "showInterstitial", "getBanner", "hideBanner"]);
+    assert.deepEqual(calls.map(([name]) => name), ["initialize", "showInterstitial", "showRewardedVideo", "getBanner", "hideBanner"]);
     assert.equal(calls[1][1].context.category, "games");
-    assert.deepEqual(calls[2][1].context.keywords, ["arcade game", "mobile game", "battle game", "pixel game"]);
+    assert.deepEqual(calls[3][1].context.keywords, ["arcade game", "mobile game", "battle game", "pixel game"]);
   });
 });
 
@@ -282,6 +294,7 @@ test("native AdMob status keeps live ads explicit and testable", () => {
       assert.equal(status.testing, true);
       assert.equal(status.liveAdMobEnabled, false);
       assert.equal(status.realAdUnitsConfigured, true);
+      assert.equal(status.placements.rewarded_video, true);
     });
 
     withBuildEnv({ VITE_ADMOB_MODE: "real" }, () => {
@@ -290,6 +303,16 @@ test("native AdMob status keeps live ads explicit and testable", () => {
       assert.equal(status.resolvedAdMobMode, "real");
       assert.equal(status.testing, false);
       assert.equal(status.liveAdMobEnabled, true);
+      assert.equal(status.placements.rewarded_video, false);
+    });
+
+    withBuildEnv({
+      VITE_ADMOB_MODE: "real",
+      VITE_ADMOB_ANDROID_REWARDED_VIDEO_AD_UNIT_ID: "ca-app-pub-example/rewarded",
+    }, () => {
+      const status = ads.getStatus();
+      assert.equal(status.resolvedAdMobMode, "real");
+      assert.equal(status.placements.rewarded_video, true);
     });
 
     withBuildEnv({ VITE_ADMOB_TESTING: "false" }, () => {
