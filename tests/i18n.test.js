@@ -41,7 +41,9 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "settings.music"), "settings.music");
     assert.notEqual(translate(locale, "settings.soundEffects"), "settings.soundEffects");
     assert.notEqual(translate(locale, "settings.contactDeveloper"), "settings.contactDeveloper");
+    assert.notEqual(translate(locale, "settings.rateApp"), "settings.rateApp");
     assert.notEqual(translate(locale, "messages.contactOpened", { email: "support@example.com" }), "messages.contactOpened");
+    assert.notEqual(translate(locale, "messages.storeReviewOpened"), "messages.storeReviewOpened");
     assert.notEqual(translate(locale, "settings.reducedShake"), "settings.reducedShake");
     assert.notEqual(translate(locale, "settings.highlightText"), "settings.highlightText");
     assert.notEqual(translate(locale, "settings.compactReport"), "settings.compactReport");

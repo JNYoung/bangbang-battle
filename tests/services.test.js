@@ -11,6 +11,7 @@ import {
   normalizeAnalyticsName,
   normalizeAnalyticsPayload,
   parseBattleReplayLink,
+  reviews,
   socialShare,
 } from "../services.js";
 
@@ -374,6 +375,53 @@ test("social share delegates image payloads to the native bridge", async () => {
     assert.equal(result.shared, true);
     assert.equal(calls[0].target, "tiktok");
     assert.equal(calls[0].deepLinkUrl, "https://example.test/battle/?seed=1");
+  });
+});
+
+test("reviews delegate in-app review and store opens to the native bridge", async () => {
+  const calls = [];
+  await withCapacitor({
+    isNativePlatform: () => true,
+    getPlatform: () => "android",
+    getConfig: () => ({ appId: "com.example.game" }),
+    Plugins: {
+      GameReview: {
+        requestReview(options) {
+          calls.push(["requestReview", options]);
+          return { requested: true, transport: "google_play_review_api" };
+        },
+        openStoreListing(options) {
+          calls.push(["openStoreListing", options]);
+          return { opened: true, transport: "android_market_intent" };
+        },
+      },
+    },
+  }, async () => {
+    await withBuildEnv({ VITE_APP_VERSION: "2.0.0" }, async () => {
+      assert.equal(reviews.isNativeAvailable(), true);
+      const requestResult = await reviews.requestReview({ source: "result", reason: "post_win_result" });
+      assert.equal(requestResult.requested, true);
+      assert.equal(requestResult.appVersion, "2.0.0");
+      assert.equal(requestResult.google_play_package, "com.example.game");
+
+      const storeResult = await reviews.openStoreListing({ source: "settings", writeReview: true });
+      assert.equal(storeResult.opened, true);
+      assert.deepEqual(calls.map(([name]) => name), ["requestReview", "openStoreListing"]);
+      assert.equal(calls[1][1].writeReview, true);
+    });
+  });
+});
+
+test("reviews fail closed without a native review bridge", async () => {
+  await withBuildEnv({ VITE_WEB_STORE_URL: "https://example.test/download/" }, async () => {
+    assert.equal(reviews.isNativeAvailable(), false);
+    const requestResult = await reviews.requestReview({ source: "result" });
+    assert.equal(requestResult.requested, false);
+    assert.equal(requestResult.reason, "native_review_unavailable");
+
+    const status = reviews.getStatus();
+    assert.equal(status.available, false);
+    assert.equal(status.web_store_url, "https://example.test/download/");
   });
 });
 

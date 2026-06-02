@@ -1,7 +1,7 @@
 import { getLocalizedLegalDocument, translate } from "./i18n.js";
 
 export const LegalConfig = {
-  version: "2026.05.29",
+  version: "2026.06.02",
   developerName: "JN.Young",
   contactEmail: "j.n.young0209@gmail.com",
   appName: "斗球球",
@@ -17,7 +17,7 @@ export const LegalConfig = {
       {
         title: "二、本地保存",
         body:
-          "为了让你下次打开游戏时保留选择，本游戏会使用设备本地存储保存隐私政策版本、用户协议版本、球 A/球 B 的职业选择和设置项。",
+          "为了让你下次打开游戏时保留选择，本游戏会使用设备本地存储保存隐私政策版本、用户协议版本、球 A/球 B 的职业选择、设置项和评分提示节流状态。",
       },
       {
         title: "三、统计、广告与支付",
