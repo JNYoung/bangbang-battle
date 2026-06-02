@@ -29,6 +29,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(GameAnalyticsPlugin.class);
         registerPlugin(GameSocialPlugin.class);
+        registerPlugin(GameReviewPlugin.class);
         super.onCreate(savedInstanceState);
         configureImmersiveWebViewInsets();
         enableImmersiveMode();

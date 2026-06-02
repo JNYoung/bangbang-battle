@@ -83,6 +83,7 @@ dependencies {
     implementation project(':capacitor-android')
     implementation platform('com.google.firebase:firebase-bom:34.13.0')
     implementation 'com.google.firebase:firebase-analytics'
+    implementation 'com.google.android.play:review:2.0.2'
     implementation 'com.facebook.android:facebook-share:18.2.3'
     implementation 'com.tiktok.open.sdk:tiktok-open-sdk-core:2.4.0'
     implementation 'com.tiktok.open.sdk:tiktok-open-sdk-share:2.4.0'

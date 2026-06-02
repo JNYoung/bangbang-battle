@@ -3,9 +3,12 @@ import test from "node:test";
 
 import {
   ComplianceStorageKeys,
+  DefaultReviewPromptState,
   DefaultSettings,
+  REVIEW_SESSION_MIN_GAP_MS,
   createComplianceState,
   createMemoryStorage,
+  normalizeReviewPromptState,
   normalizeSelectedProfessions,
 } from "../compliance-state.js";
 import { LegalConfig } from "../legal-config.js";
@@ -211,4 +214,53 @@ test("feedback settings default on and persist toggles", () => {
     compactReportEnabled: true,
     quickSettlementEnabled: true,
   });
+});
+
+test("review prompt state defaults, normalizes, and persists", () => {
+  const storage = createMemoryStorage();
+  const state = createComplianceState({ storage });
+
+  assert.deepEqual(state.getReviewPromptState(), DefaultReviewPromptState);
+  assert.deepEqual(normalizeReviewPromptState({
+    sessionCount: "3",
+    lastSessionStartedAt: "100.4",
+    lastPromptedAt: "200.6",
+    lastPromptedVersion: 42,
+    promptAttemptCount: "-2",
+    lastStoreListingOpenedAt: Number.NaN,
+  }), {
+    sessionCount: 3,
+    lastSessionStartedAt: 100,
+    lastPromptedAt: 201,
+    lastPromptedVersion: "42",
+    promptAttemptCount: 0,
+    lastStoreListingOpenedAt: 0,
+  });
+
+  state.saveReviewPromptState({
+    sessionCount: 2,
+    lastSessionStartedAt: 123,
+    lastPromptedAt: 456,
+    lastPromptedVersion: "1.0.0",
+    promptAttemptCount: 1,
+    lastStoreListingOpenedAt: 789,
+  });
+
+  assert.deepEqual(createComplianceState({ storage }).getReviewPromptState(), {
+    sessionCount: 2,
+    lastSessionStartedAt: 123,
+    lastPromptedAt: 456,
+    lastPromptedVersion: "1.0.0",
+    promptAttemptCount: 1,
+    lastStoreListingOpenedAt: 789,
+  });
+});
+
+test("review session tracking counts separated launches only", () => {
+  const storage = createMemoryStorage();
+  const state = createComplianceState({ storage });
+
+  assert.equal(state.recordReviewSessionStarted({ nowMs: 1000 }).sessionCount, 1);
+  assert.equal(state.recordReviewSessionStarted({ nowMs: 1000 + REVIEW_SESSION_MIN_GAP_MS - 1 }).sessionCount, 1);
+  assert.equal(state.recordReviewSessionStarted({ nowMs: 1000 + REVIEW_SESSION_MIN_GAP_MS }).sessionCount, 2);
 });

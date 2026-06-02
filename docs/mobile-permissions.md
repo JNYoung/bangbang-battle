@@ -33,7 +33,8 @@ Runtime flow:
 2. Before consent, Firebase Analytics collection remains disabled and game events are not sent.
 3. Accepting the policy enables analytics and ads, then logs `legal_accept` plus `game_init_success`.
 4. The Settings screen includes Analytics and Ads toggles. Turning them off disables the corresponding runtime capability.
-5. Withdrawing consent disables analytics and ads and returns the user to the consent screen.
+5. Review-prompt throttling state is saved locally so native rating prompts are not repeated within the same version/cooldown window.
+6. Withdrawing consent disables analytics and ads and returns the user to the consent screen.
 
 No notification, camera, microphone, contacts, location, storage, or photo permissions are requested.
 
@@ -52,4 +53,4 @@ Configured privacy files:
 - `ios/App/App/Info.plist`: no sensitive permission usage descriptions are present because the app does not request those capabilities; it does include AdMob app and SKAdNetwork configuration.
 - `ios/App/App/PrivacyInfo.xcprivacy`: declares no tracking, no tracking domains, no collected data types, and the app-container UserDefaults required-reason API category for app-local preferences.
 
-Runtime flow mirrors Android at the Web layer. The current iOS native shell does not include Firebase Analytics, so the Analytics setting will only become active on iOS after an iOS analytics bridge is added.
+Runtime flow mirrors Android at the Web layer. The current iOS native shell includes a StoreKit review prompt bridge but does not include Firebase Analytics, so the Analytics setting will only become active on iOS after an iOS analytics bridge is added.

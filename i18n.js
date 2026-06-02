@@ -59,6 +59,8 @@ const translations = {
       reportCardFailed: "战报图生成失败，请再试一次",
       deepLinkReady: "已载入分享战斗：{scene}",
       recommendedMatch: "推荐下一场：{matchup}",
+      storeReviewOpened: "已打开商店评价入口，欢迎按真实体验反馈",
+      storeReviewUnavailable: "当前平台暂未配置商店评价入口，可通过邮件反馈",
     },
     consent: {
       subtitle: "上架合规确认",
@@ -195,6 +197,7 @@ const translations = {
       legalTitle: "协议与合规",
       legalInfo: "协议版本：{version}。开发者：{developerName}。联系邮箱：{contactEmail}。",
       contactDeveloper: "联系开发者",
+      rateApp: "评价应用",
       analytics: "数据统计",
       ads: "广告",
       privacy: "查看隐私政策",
@@ -219,7 +222,7 @@ const translations = {
           },
           {
             title: "二、本地保存",
-            body: "为了让你下次打开游戏时保留选择，本游戏会使用设备本地存储保存隐私政策版本、用户协议版本、球 A/球 B 的职业选择和设置项。",
+            body: "为了让你下次打开游戏时保留选择，本游戏会使用设备本地存储保存隐私政策版本、用户协议版本、球 A/球 B 的职业选择、设置项和评分提示节流状态。",
           },
           {
             title: "三、统计、广告与支付",
@@ -534,6 +537,8 @@ const translations = {
       reportCardFailed: "Could not create the battle report card. Try again",
       deepLinkReady: "Loaded shared battle: {scene}",
       recommendedMatch: "Recommended next: {matchup}",
+      storeReviewOpened: "Store review page opened. Honest feedback is welcome",
+      storeReviewUnavailable: "Store review is not configured on this platform. Email feedback is available",
     },
     consent: {
       subtitle: "Release compliance",
@@ -670,6 +675,7 @@ const translations = {
       legalTitle: "Terms & Compliance",
       legalInfo: "Agreement version: {version}. Developer: {developerName}. Contact: {contactEmail}.",
       contactDeveloper: "Contact Developer",
+      rateApp: "Rate App",
       analytics: "Analytics",
       ads: "Ads",
       privacy: "Privacy Policy",
@@ -694,7 +700,7 @@ const translations = {
           },
           {
             title: "2. Local Storage",
-            body: "To keep your choices for the next launch, the game uses local device storage for policy versions, agreement versions, Ball A/B profession choices, and settings.",
+            body: "To keep your choices for the next launch, the game uses local device storage for policy versions, agreement versions, Ball A/B profession choices, settings, and review-prompt throttling state.",
           },
           {
             title: "3. Analytics, Ads, and Payments",

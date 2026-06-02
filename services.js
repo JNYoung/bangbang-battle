@@ -61,6 +61,9 @@ const GAME_AD_CONTEXT = Object.freeze({
   keywords: ["arcade game", "mobile game", "battle game", "pixel game"],
 });
 const DEFAULT_SHARE_BASE_URL = "https://professionballarena.top";
+const DEFAULT_WEB_STORE_URL = "https://professionballarena.top/download/";
+const DEFAULT_GOOGLE_PLAY_PACKAGE = "com.professionballarena.game";
+const DEFAULT_APP_VERSION = "0.1.0";
 const BATTLE_SHARE_PATH = "/battle/";
 const CUSTOM_DEEP_LINK_SCHEME = "professionballarena:";
 const BATTLE_REPLAY_SEED_MAX = 0xffffffff;
@@ -91,6 +94,9 @@ export const AnalyticsEvents = Object.freeze({
   nextDayReturn: "next_day_return",
   nextMatchRecommendClick: "next_match_recommend_click",
   performanceSnapshot: "performance_snapshot",
+  reviewPromptRequest: "review_prompt_request",
+  reviewPromptResult: "review_prompt_result",
+  storeReviewClick: "store_review_click",
   reportCardClick: "report_card_click",
   renderQualityChange: "render_quality_change",
   secondBattleStart: "second_battle_start",
@@ -297,6 +303,10 @@ function getNativeSocialPlugin() {
   return globalThis.Capacitor?.Plugins?.GameSocial || null;
 }
 
+function getNativeReviewPlugin() {
+  return globalThis.Capacitor?.Plugins?.GameReview || null;
+}
+
 function getGtag() {
   return typeof globalThis.gtag === "function" ? globalThis.gtag : null;
 }
@@ -430,6 +440,139 @@ export const socialShare = {
     });
   },
 };
+
+export const reviews = {
+  get appVersion() {
+    return getAppVersion();
+  },
+
+  isNativeAvailable() {
+    return Boolean(getNativeReviewPlugin()?.requestReview);
+  },
+
+  getStatus() {
+    const platform = getNativePlatform();
+    return {
+      available: this.isNativeAvailable(),
+      platform,
+      app_version: getAppVersion(),
+      google_play_package: getGooglePlayPackageName(),
+      app_store_app_id_configured: Boolean(getAppStoreAppId()),
+      web_store_url: getWebStoreUrl(),
+      native_transport: getNativeReviewPlugin() ? "native_game_review" : null,
+      meta_runtime: isMetaInstantRuntime() || isMetaBuildTarget(),
+    };
+  },
+
+  async requestReview(options = {}) {
+    const nativePlugin = getNativeReviewPlugin();
+    const payload = createReviewPayload(options);
+
+    if (!nativePlugin?.requestReview) {
+      return {
+        requested: false,
+        ...payload,
+        transport: "none",
+        reason: "native_review_unavailable",
+      };
+    }
+
+    try {
+      const result = await nativePlugin.requestReview(payload);
+      return {
+        requested: Boolean(result?.requested ?? result?.shownMaybe ?? true),
+        ...payload,
+        ...result,
+      };
+    } catch (error) {
+      console.warn("Native review request failed", error);
+      return {
+        requested: false,
+        ...payload,
+        transport: "native_game_review",
+        reason: "native_review_failed",
+        error,
+      };
+    }
+  },
+
+  async openStoreListing(options = {}) {
+    const nativePlugin = getNativeReviewPlugin();
+    const payload = createReviewPayload({
+      source: options.source || "manual",
+      writeReview: options.writeReview ?? true,
+      ...options,
+    });
+
+    if (nativePlugin?.openStoreListing) {
+      try {
+        const result = await nativePlugin.openStoreListing(payload);
+        return {
+          opened: Boolean(result?.opened),
+          ...payload,
+          ...result,
+        };
+      } catch (error) {
+        console.warn("Native store listing open failed", error);
+        return {
+          opened: false,
+          ...payload,
+          transport: "native_game_review",
+          reason: "native_store_listing_failed",
+          error,
+        };
+      }
+    }
+
+    const storeUrl = createStoreListingUrl(payload);
+    if (!storeUrl) {
+      return {
+        opened: false,
+        ...payload,
+        transport: "web_link",
+        reason: "store_listing_unavailable",
+      };
+    }
+
+    return {
+      opened: openExternalUrl(storeUrl),
+      ...payload,
+      transport: "web_link",
+      url: storeUrl,
+    };
+  },
+};
+
+function createReviewPayload(options = {}) {
+  return {
+    source: options.source || "automatic",
+    reason: options.reason || "post_result",
+    writeReview: Boolean(options.writeReview ?? false),
+    platform: getNativePlatform(),
+    appVersion: getAppVersion(),
+    app_store_app_id: options.appStoreAppId || getAppStoreAppId(),
+    google_play_package: options.googlePlayPackageName || getGooglePlayPackageName(),
+    web_store_url: options.webStoreUrl || getWebStoreUrl(),
+  };
+}
+
+function createStoreListingUrl(payload) {
+  if (payload.platform === "ios") {
+    const appStoreAppId = payload.app_store_app_id;
+    if (!appStoreAppId) {
+      return null;
+    }
+
+    const reviewAction = payload.writeReview ? "?action=write-review" : "";
+    return `https://apps.apple.com/app/id${encodeURIComponent(appStoreAppId)}${reviewAction}`;
+  }
+
+  if (payload.platform === "android") {
+    return `https://play.google.com/store/apps/details?id=${encodeURIComponent(payload.google_play_package || DEFAULT_GOOGLE_PLAY_PACKAGE)}`;
+  }
+
+  return payload.web_store_url || DEFAULT_WEB_STORE_URL;
+}
 
 function normalizeShareTarget(target) {
   return Object.values(ShareTargets).includes(target) ? target : ShareTargets.system;
@@ -1006,6 +1149,55 @@ function getExplicitBooleanBuildEnvValue(key) {
 function getBuildEnvValue(key) {
   const processEnv = typeof process !== "undefined" ? process.env : null;
   return import.meta.env?.[key] ?? globalThis.__BANGBANG_BUILD_ENV__?.[key] ?? processEnv?.[key];
+}
+
+function getAppVersion() {
+  return String(
+    getBuildEnvValue("VITE_APP_VERSION") ||
+    getBuildEnvValue("npm_package_version") ||
+    DEFAULT_APP_VERSION,
+  );
+}
+
+function getGooglePlayPackageName() {
+  return String(
+    getBuildEnvValue("VITE_GOOGLE_PLAY_PACKAGE") ||
+    globalThis.Capacitor?.getConfig?.()?.appId ||
+    DEFAULT_GOOGLE_PLAY_PACKAGE,
+  );
+}
+
+function getAppStoreAppId() {
+  return String(
+    getBuildEnvValue("VITE_APP_STORE_APP_ID") ||
+    getBuildEnvValue("APP_STORE_APP_ID") ||
+    "",
+  ).replace(/^id/i, "");
+}
+
+function getWebStoreUrl() {
+  return String(getBuildEnvValue("VITE_WEB_STORE_URL") || DEFAULT_WEB_STORE_URL);
+}
+
+function openExternalUrl(url) {
+  try {
+    const link = globalThis.document?.createElement?.("a");
+    if (!link) {
+      globalThis.location.href = url;
+      return true;
+    }
+
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    globalThis.document.body?.append(link);
+    link.click();
+    link.remove();
+    return true;
+  } catch (error) {
+    console.warn("Failed to open external URL", error);
+    return false;
+  }
 }
 
 function createMockAdResult(placement, format) {

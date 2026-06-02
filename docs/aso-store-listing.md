@@ -1,6 +1,6 @@
 # ASO Store Listing Pack
 
-Updated: 2026-05-29
+Updated: 2026-06-02
 
 This pack prepares `斗球球` / `Profession Ball Arena` for Apple App Store, Google Play, and mobile launch review. It is based on the current app bundle id `com.professionballarena.game`, the public site `https://professionballarena.top/`, and the in-app compliance flow already present in this repo.
 
@@ -11,7 +11,7 @@ Overall: 82 / 100
 - Metadata: 25 / 30. The name is clear and under both Apple and Google 30-character limits. Descriptions are ready, but should be localized beyond zh-CN/en-US before broad global launch.
 - Screenshots and visual assets: 18 / 25. App icon assets exist and screenshot capture is automated. Final upload still needs a human pass in App Store Connect / Play Console to confirm every required device slot.
 - Compliance: 22 / 25. Privacy, terms, support, data deletion, consent gating, AdMob disclosure, and age-rating guidance are in place. Apple China mainland availability remains a hard compliance decision.
-- Ratings strategy: 7 / 10. The compliant review timing plan is ready, but native in-app review APIs are not yet implemented.
+- Ratings strategy: 9 / 10. Native in-app review bridges are implemented for Android and iOS, with post-result timing, match/session thresholds, per-version gating, and a 30-day cooldown. Final App Store manual review links still need the real App Store app id after the App Store Connect record exists.
 - Launch operations: 10 / 10. Local `npm run test:ci` passes and release docs already describe Android/iOS packaging constraints.
 
 ## Store Positioning
@@ -169,10 +169,11 @@ Recommended timing:
 
 Implementation status:
 
-- Current code has no native review prompt yet.
-- Recommended future bridge:
-  - iOS: StoreKit `RequestReviewAction` / `SKStoreReviewController` after the result screen delay.
-  - Android: Google Play In-App Review API after the result screen delay.
+- Android: `GameReviewPlugin` uses the Google Play In-App Review API after a successful result-screen moment.
+- iOS: `GameReviewPlugin` uses `SKStoreReviewController` from the Capacitor bridge view controller.
+- Shared Web layer: review prompts are attempted only after at least 4 total matches, at least 2 separated app sessions, a player-side win, no prompt for the current app version, and no prompt in the past 30 days.
+- Settings: `Rate App` opens the store listing / write-review page instead of forcing the native in-app review prompt. For iOS, configure `VITE_APP_STORE_APP_ID` after the App Store Connect app record is created.
+- Meta/Web: no native rating prompt is attempted; settings feedback falls back to public/store web URLs or email support.
 
 ## Compliance And Launch Checklist
 
@@ -214,3 +215,4 @@ Implementation status:
 - Google Play preview assets: https://support.google.com/googleplay/android-developer/answer/9866151
 - Google Play metadata policy: https://support.google.com/googleplay/android-developer/answer/9898842
 - Google Play In-App Reviews API: https://developer.android.com/guide/playcore/in-app-review
+- Apple ratings and reviews guidance: https://developer.apple.com/app-store/ratings-and-reviews/

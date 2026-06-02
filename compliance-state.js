@@ -14,6 +14,7 @@ export const ComplianceStorageKeys = {
   acceptedLegalVersion: "bangbang.acceptedLegalVersion",
   selectedProfessions: "bangbang.selectedProfessions",
   settings: "bangbang.settings",
+  reviewPromptState: "bangbang.reviewPromptState",
 };
 
 export const DefaultProfessions = {
@@ -36,6 +37,17 @@ export const DefaultSettings = {
   highlightTextEnabled: true,
   compactReportEnabled: false,
   quickSettlementEnabled: false,
+};
+
+export const REVIEW_SESSION_MIN_GAP_MS = 30 * 60 * 1000;
+
+export const DefaultReviewPromptState = {
+  sessionCount: 0,
+  lastSessionStartedAt: 0,
+  lastPromptedAt: 0,
+  lastPromptedVersion: "",
+  promptAttemptCount: 0,
+  lastStoreListingOpenedAt: 0,
 };
 
 export function createComplianceState({
@@ -90,6 +102,37 @@ export function createComplianceState({
       safeSetItem(storage, ComplianceStorageKeys.settings, JSON.stringify(normalized));
       return normalized;
     },
+
+    getReviewPromptState() {
+      return normalizeReviewPromptState(
+        safeParseJson(safeGetItem(storage, ComplianceStorageKeys.reviewPromptState), {}),
+      );
+    },
+
+    saveReviewPromptState(reviewPromptState) {
+      const normalized = normalizeReviewPromptState(reviewPromptState);
+      safeSetItem(storage, ComplianceStorageKeys.reviewPromptState, JSON.stringify(normalized));
+      return normalized;
+    },
+
+    recordReviewSessionStarted({
+      nowMs = Date.now(),
+      minGapMs = REVIEW_SESSION_MIN_GAP_MS,
+    } = {}) {
+      const state = this.getReviewPromptState();
+      const sessionStartedAt = normalizeTimestamp(nowMs);
+      const sessionGapMs = Math.max(0, Number(minGapMs) || 0);
+
+      if (!sessionStartedAt || (state.sessionCount > 0 && sessionStartedAt - state.lastSessionStartedAt < sessionGapMs)) {
+        return state;
+      }
+
+      return this.saveReviewPromptState({
+        ...state,
+        sessionCount: state.sessionCount + 1,
+        lastSessionStartedAt: sessionStartedAt,
+      });
+    },
   };
 }
 
@@ -125,6 +168,17 @@ export function normalizeBallCount(ballCount) {
   return Math.min(Math.max(parsedCount, MIN_BALL_COUNT), MAX_BALL_COUNT);
 }
 
+export function normalizeReviewPromptState(reviewPromptState = {}) {
+  return {
+    sessionCount: normalizeNonNegativeInteger(reviewPromptState.sessionCount),
+    lastSessionStartedAt: normalizeTimestamp(reviewPromptState.lastSessionStartedAt),
+    lastPromptedAt: normalizeTimestamp(reviewPromptState.lastPromptedAt),
+    lastPromptedVersion: String(reviewPromptState.lastPromptedVersion || ""),
+    promptAttemptCount: normalizeNonNegativeInteger(reviewPromptState.promptAttemptCount),
+    lastStoreListingOpenedAt: normalizeTimestamp(reviewPromptState.lastStoreListingOpenedAt),
+  };
+}
+
 export function createMemoryStorage(initialState = {}) {
   const data = new Map(Object.entries(initialState));
 
@@ -154,6 +208,16 @@ function getValidProfessionForScene(profession, fallback, sceneProfessionIds, pr
   }
 
   return Object.hasOwn(professionConfig, profession) && sceneProfessionIds.includes(profession) ? profession : fallback;
+}
+
+function normalizeNonNegativeInteger(value) {
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isFinite(parsedValue) ? Math.max(0, parsedValue) : 0;
+}
+
+function normalizeTimestamp(value) {
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? Math.max(0, Math.round(parsedValue)) : 0;
 }
 
 function getDefaultStorage() {

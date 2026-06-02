@@ -40,6 +40,7 @@ import {
   deepLinks,
   iap,
   parseBattleReplayLink,
+  reviews,
   socialShare,
 } from "./services.js";
 import {
@@ -247,6 +248,12 @@ const BATTLE_HIGHLIGHT_DURATION_SECONDS = 1.22;
 const BATTLE_HIGHLIGHT_COOLDOWN_SECONDS = 0.78;
 const IMPACT_SHAKE_DURATION_SECONDS = 0.3;
 const IMPACT_SHAKE_MAX_OFFSET = 6;
+const REVIEW_PROMPT_CONFIG = Object.freeze({
+  minTotalMatches: 4,
+  minSessionCount: 2,
+  cooldownMs: 30 * 24 * 60 * 60 * 1000,
+  promptDelayMs: 1200,
+});
 const PLAYER_PROGRESS_STORAGE_KEY = "bangbang.playerProgress";
 const DAILY_WIN_GOAL = 3;
 const DAILY_MATCH_GOAL = 5;
@@ -447,6 +454,7 @@ let adSessionState = createAdSessionState();
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
 let shareTargetOverlayOpen = false;
 let deepLinkListenerHandle = null;
+let pendingReviewPromptTimer = null;
 let lastArenaShakeTime = -Infinity;
 let arenaShakeStartedAt = -Infinity;
 let arenaShakeSeed = 0;
@@ -1952,6 +1960,9 @@ function setScreen(nextScreen) {
   if (nextScreen !== Screen.RESULT) {
     shareTargetOverlayOpen = false;
   }
+  if (fromScreen === Screen.RESULT && nextScreen !== Screen.RESULT) {
+    clearPendingReviewPrompt();
+  }
   if (fromScreen === Screen.PLAYING && nextScreen !== Screen.PLAYING) {
     void ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
   }
@@ -1992,6 +2003,7 @@ async function acceptLegalAndEnterMenu() {
   analytics.track(AnalyticsEvents.legalAccept, { version: LegalConfig.version });
   trackGameInitSuccess("legal_accept");
   setScreen(Screen.MAIN_MENU);
+  complianceState.recordReviewSessionStarted();
   if (!consumePendingBattleDeepLink()) {
     void maybeShowAppOpenAd("legal_accept");
   }
@@ -2281,6 +2293,24 @@ function openDeveloperContact() {
   trackSettingSelect("contact_developer", didOpen ? "email_opened" : "email_failed", {
     contact_email: LegalConfig.contactEmail,
   });
+}
+
+async function openStoreReviewPage() {
+  const result = await reviews.openStoreListing({
+    source: "settings",
+    writeReview: true,
+  });
+  complianceState.saveReviewPromptState({
+    ...complianceState.getReviewPromptState(),
+    lastStoreListingOpenedAt: Date.now(),
+  });
+  serviceMessage = t(result.opened ? "messages.storeReviewOpened" : "messages.storeReviewUnavailable");
+  analytics.track(AnalyticsEvents.storeReviewClick, createFunnelAnalyticsPayload({
+    opened: Boolean(result.opened),
+    transport: result.transport || "unknown",
+    reason: result.reason || "manual_settings",
+    platform: result.platform || "unknown",
+  }));
 }
 
 function openExternalHref(href) {
@@ -3343,6 +3373,98 @@ function trackMatchCompletionFunnelEvents(winnerSide, progressAfterMatch) {
     ...payload,
     daily_goal_reached: progressAfterMatch.daily.matches >= DAILY_MATCH_GOAL,
   });
+}
+
+function maybeRequestReviewAfterMatch(progressAfterMatch, winnerSide) {
+  const eligibility = getReviewPromptEligibility(progressAfterMatch, winnerSide);
+  if (!eligibility.eligible) {
+    return;
+  }
+
+  const promptedAt = Date.now();
+  const nextReviewState = complianceState.saveReviewPromptState({
+    ...eligibility.reviewState,
+    lastPromptedAt: promptedAt,
+    lastPromptedVersion: reviews.appVersion,
+    promptAttemptCount: eligibility.reviewState.promptAttemptCount + 1,
+  });
+
+  analytics.track(AnalyticsEvents.reviewPromptRequest, createFunnelAnalyticsPayload({
+    review_reason: eligibility.reason,
+    review_session_count: nextReviewState.sessionCount,
+    review_attempt_count: nextReviewState.promptAttemptCount,
+    app_version: reviews.appVersion,
+  }));
+
+  clearPendingReviewPrompt();
+  pendingReviewPromptTimer = globalThis.setTimeout(() => {
+    pendingReviewPromptTimer = null;
+    void requestNativeReviewPrompt(eligibility.reason, nextReviewState);
+  }, REVIEW_PROMPT_CONFIG.promptDelayMs);
+}
+
+function getReviewPromptEligibility(progressAfterMatch, winnerSide) {
+  const reviewState = complianceState.getReviewPromptState();
+  const nowMs = Date.now();
+
+  if (!reviews.isNativeAvailable()) {
+    return { eligible: false, reason: "native_review_unavailable", reviewState };
+  }
+
+  if (winnerSide !== "A") {
+    return { eligible: false, reason: "not_after_player_win", reviewState };
+  }
+
+  if (progressAfterMatch.totalMatches < REVIEW_PROMPT_CONFIG.minTotalMatches) {
+    return { eligible: false, reason: "not_enough_matches", reviewState };
+  }
+
+  if (reviewState.sessionCount < REVIEW_PROMPT_CONFIG.minSessionCount) {
+    return { eligible: false, reason: "not_enough_sessions", reviewState };
+  }
+
+  if (reviewState.lastPromptedVersion === reviews.appVersion) {
+    return { eligible: false, reason: "already_prompted_this_version", reviewState };
+  }
+
+  if (reviewState.lastPromptedAt && nowMs - reviewState.lastPromptedAt < REVIEW_PROMPT_CONFIG.cooldownMs) {
+    return { eligible: false, reason: "cooldown_active", reviewState };
+  }
+
+  return {
+    eligible: true,
+    reason: progressAfterMatch.daily.wins >= DAILY_WIN_GOAL ? "daily_win_goal_reached" : "post_win_result",
+    reviewState,
+  };
+}
+
+async function requestNativeReviewPrompt(reason, reviewState) {
+  if (screen !== Screen.RESULT) {
+    return;
+  }
+
+  const result = await reviews.requestReview({
+    source: "result",
+    reason,
+    totalMatches: getCurrentPlayerProgress().totalMatches,
+    sessionCount: reviewState.sessionCount,
+  });
+  analytics.track(AnalyticsEvents.reviewPromptResult, createFunnelAnalyticsPayload({
+    requested: Boolean(result.requested),
+    transport: result.transport || "unknown",
+    reason: result.reason || reason,
+    platform: result.platform || "unknown",
+    app_version: reviews.appVersion,
+  }));
+}
+
+function clearPendingReviewPrompt() {
+  if (!pendingReviewPromptTimer) {
+    return;
+  }
+
+  globalThis.clearTimeout(pendingReviewPromptTimer);
+  pendingReviewPromptTimer = null;
 }
 
 function maybeTrackNextDayReturn() {
@@ -7847,6 +7969,7 @@ function finishMatch(winnerSide) {
   analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
   trackMatchCompletionFunnelEvents(winnerSide, progressAfterMatch);
   setScreen(Screen.RESULT);
+  maybeRequestReviewAfterMatch(progressAfterMatch, winnerSide);
 }
 
 function startResultCelebration(winnerSide) {
@@ -9612,8 +9735,12 @@ function drawSettingsScreen() {
   const actionButtonHeight = compact ? 38 : 42;
   const actionRowGap = compact ? 10 : 12;
 
-  drawButton(t("settings.contactDeveloper"), panel.x + 28, y, panel.width - 56, actionButtonHeight, openDeveloperContact, {
+  const supportButtonWidth = (panel.width - 68) / 2;
+  drawButton(t("settings.contactDeveloper"), panel.x + 28, y, supportButtonWidth, actionButtonHeight, openDeveloperContact, {
     id: "settings-contact-developer",
+  });
+  drawButton(t("settings.rateApp"), panel.x + 40 + supportButtonWidth, y, supportButtonWidth, actionButtonHeight, openStoreReviewPage, {
+    id: "settings-rate-app",
   });
   y += actionButtonHeight + actionRowGap;
 
@@ -15366,6 +15493,7 @@ async function bootGame() {
   maybeTrackNextDayReturn();
   screen = complianceState.hasAcceptedCurrentLegal() ? Screen.MAIN_MENU : Screen.CONSENT;
   if (screen === Screen.MAIN_MENU) {
+    complianceState.recordReviewSessionStarted();
     if (!consumePendingBattleDeepLink()) {
       void maybeShowAppOpenAd("boot");
     }
