@@ -92,6 +92,7 @@ export const AnalyticsEvents = Object.freeze({
   nextMatchRecommendClick: "next_match_recommend_click",
   performanceSnapshot: "performance_snapshot",
   reportCardClick: "report_card_click",
+  renderQualityChange: "render_quality_change",
   secondBattleStart: "second_battle_start",
   settingSelect: "setting_select",
   legalAccept: "legal_accept",
