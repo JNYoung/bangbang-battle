@@ -8706,25 +8706,26 @@ function drawClashSpark(center, radius, time, intensity = 1) {
 
 function drawConsentScreen() {
   const panel = getPanelRect(620, 590);
+  const compact = panel.width < 430 || panel.height < 590;
   drawAppTitle(panel.y - 22, t("consent.subtitle"));
   drawPanel(panel);
 
   let y = panel.y + 28;
   drawPanelTitle(t("settings.languageTitle"), panel.x + 28, y, panel.width - 56);
   y += 36;
-  y += drawLanguageSelector(panel.x + 28, y, panel.width - 56) + 18;
+  y += drawLanguageSelector(panel.x + 28, y, panel.width - 56) + (compact ? 12 : 18);
   drawPanelTitle(t("consent.title"), panel.x + 28, y, panel.width - 56);
-  y += 46;
+  y += compact ? 38 : 46;
   y = drawWrappedText(
     t("consent.intro"),
     panel.x + 28,
     y,
     panel.width - 56,
-    21,
+    compact ? 19 : 21,
     COLORS.text,
-    15,
+    compact ? 14 : 15,
   );
-  y += 16;
+  y += compact ? 12 : 16;
 
   drawButton(t("consent.privacy"), panel.x + 28, y, (panel.width - 68) / 2, 42, () => openLegalDocument("privacy", Screen.CONSENT), {
     id: "consent-privacy",
@@ -8738,7 +8739,7 @@ function drawConsentScreen() {
     () => openLegalDocument("terms", Screen.CONSENT),
     { id: "consent-terms" },
   );
-  y += 68;
+  y += compact ? 58 : 68;
 
   drawCheckbox(
     t("consent.agree"),
@@ -8751,14 +8752,16 @@ function drawConsentScreen() {
       serviceMessage = "";
     },
   );
-  y += 64;
+  y += compact ? 54 : 64;
 
   drawButton(t("consent.enter"), panel.x + 28, y, panel.width - 56, 48, acceptLegalAndEnterMenu, {
     disabled: !hasCheckedLegalConsent,
     id: "consent-enter",
   });
-  y += 66;
-  drawSmallNotice(panel.x + 28, y, panel.width - 56, serviceMessage || t("consent.ageRating"));
+  y += compact ? 56 : 66;
+  if (y <= panel.y + panel.height - 24) {
+    drawSmallNotice(panel.x + 28, y, panel.width - 56, serviceMessage || t("consent.ageRating"));
+  }
 }
 
 function drawMainMenuScreen() {
@@ -8780,9 +8783,14 @@ function drawMainMenuScreen() {
     y += 14;
   }
 
+  const beginnerGuideLayout = getMainMenuBeginnerGuideLayout(panel.width - 56, compact);
+  if (beginnerGuideLayout) {
+    y += beginnerGuideLayout.reserve;
+  }
+
   const quickStartRect = { x: panel.x + 28, y, width: panel.width - 56, height: compact ? 46 : 52 };
   drawButton(t("main.quickStart"), quickStartRect.x, quickStartRect.y, quickStartRect.width, quickStartRect.height, quickStartGame, { id: "main-quick-start" });
-  drawMainMenuBeginnerGuide(quickStartRect);
+  drawMainMenuBeginnerGuide(quickStartRect, beginnerGuideLayout);
   y += compact ? 54 : 64;
 
   y = drawTodayPlaylist(panel.x + 28, y, panel.width - 56, compact);
@@ -8876,17 +8884,36 @@ function drawMainMenuActionButtons(x, y, width, compact) {
   return y + buttonHeight;
 }
 
-function drawMainMenuBeginnerGuide(anchorRect) {
+function getMainMenuBeginnerGuideLayout(availableWidth, compact = false) {
   if (getCurrentPlayerProgress().lifetime.matches > 0) {
+    return null;
+  }
+
+  const text = t("guide.quickStart");
+  const guideWidth = Math.min(availableWidth - 24, 270);
+  const metrics = measureGuideBubble(text, guideWidth);
+  const gap = compact ? 8 : 10;
+  return {
+    text,
+    width: guideWidth,
+    metrics,
+    gap,
+    reserve: metrics.height + gap,
+  };
+}
+
+function drawMainMenuBeginnerGuide(anchorRect, guideLayout) {
+  if (!guideLayout) {
     return;
   }
 
-  const guideWidth = Math.min(anchorRect.width - 24, 270);
+  const guideWidth = guideLayout.width;
   const guideX = isRtlLocale(currentLocale)
     ? anchorRect.x + 12
     : anchorRect.x + anchorRect.width - guideWidth - 12;
-  drawGuideBubble(t("guide.quickStart"), guideX, anchorRect.y - 50, guideWidth, {
+  drawGuideBubble(guideLayout.text, guideX, anchorRect.y - guideLayout.metrics.height - guideLayout.gap, guideWidth, {
     align: isRtlLocale(currentLocale) ? "left" : "right",
+    metrics: guideLayout.metrics,
   });
 }
 
@@ -8904,10 +8931,7 @@ function drawPlayingBeginnerGuide() {
 }
 
 function drawGuideBubble(text, x, y, width, options = {}) {
-  const fontSize = 12;
-  const lineHeight = 16;
-  const lines = wrapTextLines(text, width - 22, canvasFont(fontSize, 800)).slice(0, 2);
-  const height = 18 + lines.length * lineHeight;
+  const { fontSize, height, lineHeight, lines } = options.metrics || measureGuideBubble(text, width);
   const safeY = clamp(y, 16, viewport.height - height - 16);
 
   ctx.save();
@@ -8930,6 +8954,19 @@ function drawGuideBubble(text, x, y, width, options = {}) {
     textY += lineHeight;
   }
   ctx.restore();
+}
+
+function measureGuideBubble(text, width) {
+  const fontSize = 12;
+  const lineHeight = 16;
+  const textWidth = Math.max(1, width - 22);
+  const lines = wrapTextLines(text, textWidth, canvasFont(fontSize, 800)).slice(0, 2);
+  return {
+    fontSize,
+    lineHeight,
+    lines,
+    height: 18 + lines.length * lineHeight,
+  };
 }
 
 function drawMainMenuProgress(x, y, width, compact = false) {
@@ -9300,37 +9337,44 @@ function drawItemModeSetup(panel, y, actionY) {
 
 function drawSettingsScreen() {
   const panel = getPanelRect(660, 760);
+  const compact = panel.width < 430 || panel.height < 740;
   drawAppTitle(panel.y - 22, t("settings.subtitle"));
   drawPanel(panel);
 
   let y = panel.y + 28;
   drawPanelTitle(t("settings.languageTitle"), panel.x + 28, y, panel.width - 56);
   y += 36;
-  y += drawLanguageSelector(panel.x + 28, y, panel.width - 56) + 18;
+  y += drawLanguageSelector(panel.x + 28, y, panel.width - 56) + (compact ? 12 : 18);
   drawPanelTitle(t("settings.feedbackTitle"), panel.x + 28, y, panel.width - 56);
   y += 34;
-  y += drawFeedbackSettings(panel.x + 28, y, panel.width - 56) + 18;
+  y += drawFeedbackSettings(panel.x + 28, y, panel.width - 56) + (compact ? 12 : 18);
   drawPanelTitle(t("settings.legalTitle"), panel.x + 28, y, panel.width - 56);
-  y += 36;
-  y = drawWrappedText(
-    t("settings.legalInfo", {
-      version: LegalConfig.version,
-      developerName: LegalConfig.developerName,
-      contactEmail: LegalConfig.contactEmail,
-    }),
-    panel.x + 28,
-    y,
-    panel.width - 56,
-    21,
-    COLORS.text,
-    15,
-  );
-  y += 14;
+  y += compact ? 30 : 36;
 
-  drawButton(t("settings.contactDeveloper"), panel.x + 28, y, panel.width - 56, 42, openDeveloperContact, {
+  if (!compact) {
+    y = drawWrappedText(
+      t("settings.legalInfo", {
+        version: LegalConfig.version,
+        developerName: LegalConfig.developerName,
+        contactEmail: LegalConfig.contactEmail,
+      }),
+      panel.x + 28,
+      y,
+      panel.width - 56,
+      21,
+      COLORS.text,
+      15,
+    );
+    y += 14;
+  }
+
+  const actionButtonHeight = compact ? 38 : 42;
+  const actionRowGap = compact ? 10 : 12;
+
+  drawButton(t("settings.contactDeveloper"), panel.x + 28, y, panel.width - 56, actionButtonHeight, openDeveloperContact, {
     id: "settings-contact-developer",
   });
-  y += 54;
+  y += actionButtonHeight + actionRowGap;
 
   const analyticsEnabled = Boolean(settings.analyticsEnabled);
   const adsEnabled = Boolean(settings.adsEnabled);
@@ -9340,7 +9384,7 @@ function drawSettingsScreen() {
     panel.x + 28,
     y,
     settingToggleWidth,
-    40,
+    compact ? 38 : 40,
     toggleAnalyticsSetting,
     {
       active: analyticsEnabled,
@@ -9352,16 +9396,16 @@ function drawSettingsScreen() {
     panel.x + 40 + settingToggleWidth,
     y,
     settingToggleWidth,
-    40,
+    compact ? 38 : 40,
     toggleAdsSetting,
     {
       active: adsEnabled,
       id: "settings-ads",
     },
   );
-  y += 52;
+  y += (compact ? 38 : 40) + actionRowGap;
 
-  drawButton(t("settings.privacy"), panel.x + 28, y, (panel.width - 68) / 2, 42, () => openLegalDocument("privacy", Screen.SETTINGS), {
+  drawButton(t("settings.privacy"), panel.x + 28, y, (panel.width - 68) / 2, actionButtonHeight, () => openLegalDocument("privacy", Screen.SETTINGS), {
     id: "settings-privacy",
   });
   drawButton(
@@ -9369,21 +9413,33 @@ function drawSettingsScreen() {
     panel.x + 40 + (panel.width - 68) / 2,
     y,
     (panel.width - 68) / 2,
-    42,
+    actionButtonHeight,
     () => openLegalDocument("terms", Screen.SETTINGS),
     { id: "settings-terms" },
   );
-  y += 54;
-
-  drawButton(t("settings.restore"), panel.x + 28, y, (panel.width - 68) / 2, 42, restorePurchases, { id: "settings-restore" });
-  drawButton(t("settings.withdraw"), panel.x + 40 + (panel.width - 68) / 2, y, (panel.width - 68) / 2, 42, withdrawConsent, {
-    id: "settings-withdraw",
-  });
-  y += 54;
+  y += actionButtonHeight + actionRowGap;
 
   const backLabel = settingsReturnScreen === Screen.PAUSED ? t("pause.backToPause") : t("settings.backMain");
-  const backButtonY = panel.y + panel.height - 70;
-  if (y + 72 < backButtonY) {
+  const backButtonHeight = compact ? 42 : 46;
+  const backButtonY = panel.y + panel.height - (compact ? 56 : 70);
+  if (compact) {
+    drawButton(t("settings.withdraw"), panel.x + 28, backButtonY, (panel.width - 68) / 2, backButtonHeight, withdrawConsent, {
+      id: "settings-withdraw",
+    });
+    drawButton(backLabel, panel.x + 40 + (panel.width - 68) / 2, backButtonY, (panel.width - 68) / 2, backButtonHeight, () => {
+      serviceMessage = "";
+      setScreen(settingsReturnScreen);
+    }, { id: "settings-back" });
+    return;
+  }
+
+  drawButton(t("settings.restore"), panel.x + 28, y, (panel.width - 68) / 2, actionButtonHeight, restorePurchases, { id: "settings-restore" });
+  drawButton(t("settings.withdraw"), panel.x + 40 + (panel.width - 68) / 2, y, (panel.width - 68) / 2, actionButtonHeight, withdrawConsent, {
+    id: "settings-withdraw",
+  });
+  y += actionButtonHeight + actionRowGap;
+
+  if (!compact && y + 72 < backButtonY) {
     y = drawWrappedText(
       t("settings.statsInfo", {
         analytics: getAnalyticsStatusText(),
@@ -9399,8 +9455,10 @@ function drawSettingsScreen() {
     );
     y += 14;
   }
-  drawSmallNotice(panel.x + 28, Math.min(y, backButtonY - 44), panel.width - 56, serviceMessage || t("settings.sdkNotice"));
-  drawButton(backLabel, panel.x + 28, backButtonY, panel.width - 56, 46, () => {
+  if (!compact && y <= backButtonY - 24) {
+    drawSmallNotice(panel.x + 28, y, panel.width - 56, serviceMessage || t("settings.sdkNotice"));
+  }
+  drawButton(backLabel, panel.x + 28, backButtonY, panel.width - 56, backButtonHeight, () => {
     serviceMessage = "";
     setScreen(settingsReturnScreen);
   }, { id: "settings-back" });
@@ -9425,6 +9483,7 @@ function getAdsStatusText() {
 function drawLegalDocumentScreen() {
   const legalDocument = getLegalDocument(activeLegalDocument, LegalConfig, currentLocale);
   const panel = getPanelRect(760, 620);
+  const compact = panel.width < 430 || panel.height < 620;
   drawAppTitle(panel.y - 22, legalDocument.title);
   drawPanel(panel);
 
@@ -9450,7 +9509,9 @@ function drawLegalDocumentScreen() {
   drawButton(t("legal.pageDown"), panel.x + 150, footerY, 110, 42, () => {
     legalScrollOffset += 140;
   }, { id: "legal-page-down" });
-  drawSmallNotice(panel.x + 280, footerY + 7, panel.width - 308, t("legal.scrollHint"));
+  if (!compact) {
+    drawSmallNotice(panel.x + 280, footerY + 7, panel.width - 308, t("legal.scrollHint"));
+  }
 }
 
 function drawResultOverlay() {
@@ -10640,7 +10701,7 @@ function drawFeedbackSettings(x, y, width) {
   ];
   const gap = 10;
   const buttonHeight = 38;
-  const columns = width >= 540 ? 3 : width >= 320 ? 2 : 1;
+  const columns = width >= 540 ? 3 : width >= 220 ? 2 : 1;
   const rows = Math.ceil(options.length / columns);
   const buttonWidth = (width - gap * (columns - 1)) / columns;
 
@@ -12312,9 +12373,10 @@ function getPanelRect(maxWidth, maxHeight) {
   const content = layout.content;
   const width = Math.min(maxWidth, content.width);
   const height = Math.min(maxHeight, content.height - 8);
+  const preferredY = content.y + (content.height - height) / 2 + 18;
   return {
     x: content.x + (content.width - width) / 2,
-    y: content.y + (content.height - height) / 2 + 18,
+    y: clamp(preferredY, content.y, content.y + content.height - height),
     width,
     height,
   };
