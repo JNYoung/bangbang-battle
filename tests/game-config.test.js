@@ -135,7 +135,7 @@ test("hero mode config exposes health, mana, weapons, and skill contracts", () =
   assert.equal(HeroConfig.minotaur.coneAngle, Math.PI / 2);
   const minotaurRebirth = HeroConfig.minotaur.skills.find((skill) => skill.type === "rebirth");
   assert.equal(minotaurRebirth?.oncePerMatch, true);
-  assert.equal(minotaurRebirth.reviveHpRatio > 0 && minotaurRebirth.reviveHpRatio <= 1, true);
+  assert.equal(minotaurRebirth?.reviveHpRatio > 0 && minotaurRebirth?.reviveHpRatio <= 1, true);
   assert.equal(HeroConfig.elfKing.attackMode, "projectile");
   assert.equal(HeroConfig.elfKing.skills.some((skill) => skill.type === "empoweredProjectile" && skill.manaCost > 0), true);
   assert.equal(HeroConfig.elfKing.skills.some((skill) => skill.type === "heal" && skill.heal > 0), true);
