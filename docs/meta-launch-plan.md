@@ -128,7 +128,7 @@
 - 确认当前 Meta 账号是否具备 Instant Games Developer Platform 访问权限。
 - 如果后台仍只显示 `业务` / `消费者`，需要先申请或开通 Instant Games / Gaming Services 访问；不要继续创建普通消费者应用。
 - 在出现 Instant Games 应用类型或产品入口后，创建正确应用并进入 Web Hosting / Upload Bundle 页面。
-- 创建 Meta 广告 placement，并把插屏 ID 配置为 `VITE_META_APP_OPEN_AD_PLACEMENT_ID`；如果后续接奖励广告，再配置 `VITE_META_REWARDED_VIDEO_PLACEMENT_ID`。当前仅推进到 Audience Network 开通页，未提交国家/地区和变现资料，且尚无 Instant Games placement ID。
+- 创建 Meta 广告 placement，并把插屏 ID 配置为 `VITE_META_APP_OPEN_AD_PLACEMENT_ID`；结果页激励连战需要再配置 `VITE_META_REWARDED_VIDEO_PLACEMENT_ID`。当前仅推进到 Audience Network 开通页，未提交国家/地区和变现资料，且尚无 Instant Games placement ID。
 - 如果你确认继续 Audience Network 变现档案开通，下一步只提交国家/地区并进入后续页面；遇到支付方式、税务或结算资料时先暂停核对。
 - 上传 `release/meta-instant/profession-ball-arena-meta.zip`。
 - 用后台测试入口启动游戏，确认能进入合规弹窗、主菜单和一局战斗。

@@ -15,6 +15,7 @@ export const ComplianceStorageKeys = {
   selectedProfessions: "bangbang.selectedProfessions",
   settings: "bangbang.settings",
   reviewPromptState: "bangbang.reviewPromptState",
+  rewardedAdState: "bangbang.rewardedAdState",
 };
 
 export const DefaultProfessions = {
@@ -37,6 +38,7 @@ export const DefaultSettings = {
   highlightTextEnabled: true,
   compactReportEnabled: false,
   quickSettlementEnabled: false,
+  matchRecordingEnabled: false,
 };
 
 export const REVIEW_SESSION_MIN_GAP_MS = 30 * 60 * 1000;
@@ -48,6 +50,14 @@ export const DefaultReviewPromptState = {
   lastPromptedVersion: "",
   promptAttemptCount: 0,
   lastStoreListingOpenedAt: 0,
+};
+
+export const DefaultRewardedAdState = {
+  dateKey: "",
+  dailyClaimCount: 0,
+  totalClaimCount: 0,
+  lastClaimedAt: 0,
+  pendingEncorePasses: 0,
 };
 
 export function createComplianceState({
@@ -115,6 +125,56 @@ export function createComplianceState({
       return normalized;
     },
 
+    getRewardedAdState({ dateKey = "" } = {}) {
+      const state = normalizeRewardedAdState(
+        safeParseJson(safeGetItem(storage, ComplianceStorageKeys.rewardedAdState), {}),
+      );
+      const normalizedDateKey = String(dateKey || "");
+
+      if (normalizedDateKey && state.dateKey !== normalizedDateKey) {
+        return {
+          ...state,
+          dateKey: normalizedDateKey,
+          dailyClaimCount: 0,
+        };
+      }
+
+      return state;
+    },
+
+    saveRewardedAdState(rewardedAdState) {
+      const normalized = normalizeRewardedAdState(rewardedAdState);
+      safeSetItem(storage, ComplianceStorageKeys.rewardedAdState, JSON.stringify(normalized));
+      return normalized;
+    },
+
+    recordRewardedAdClaim({
+      nowMs = Date.now(),
+      dateKey = "",
+      pendingEncorePasses = 1,
+    } = {}) {
+      const state = this.getRewardedAdState({ dateKey });
+      return this.saveRewardedAdState({
+        ...state,
+        dailyClaimCount: state.dailyClaimCount + 1,
+        totalClaimCount: state.totalClaimCount + 1,
+        lastClaimedAt: normalizeTimestamp(nowMs),
+        pendingEncorePasses: state.pendingEncorePasses + normalizeNonNegativeInteger(pendingEncorePasses || 1),
+      });
+    },
+
+    consumeRewardedEncorePass() {
+      const state = this.getRewardedAdState();
+      if (state.pendingEncorePasses <= 0) {
+        return state;
+      }
+
+      return this.saveRewardedAdState({
+        ...state,
+        pendingEncorePasses: state.pendingEncorePasses - 1,
+      });
+    },
+
     recordReviewSessionStarted({
       nowMs = Date.now(),
       minGapMs = REVIEW_SESSION_MIN_GAP_MS,
@@ -176,6 +236,16 @@ export function normalizeReviewPromptState(reviewPromptState = {}) {
     lastPromptedVersion: String(reviewPromptState.lastPromptedVersion || ""),
     promptAttemptCount: normalizeNonNegativeInteger(reviewPromptState.promptAttemptCount),
     lastStoreListingOpenedAt: normalizeTimestamp(reviewPromptState.lastStoreListingOpenedAt),
+  };
+}
+
+export function normalizeRewardedAdState(rewardedAdState = {}) {
+  return {
+    dateKey: String(rewardedAdState.dateKey || ""),
+    dailyClaimCount: normalizeNonNegativeInteger(rewardedAdState.dailyClaimCount),
+    totalClaimCount: normalizeNonNegativeInteger(rewardedAdState.totalClaimCount),
+    lastClaimedAt: normalizeTimestamp(rewardedAdState.lastClaimedAt),
+    pendingEncorePasses: normalizeNonNegativeInteger(rewardedAdState.pendingEncorePasses),
   };
 }
 

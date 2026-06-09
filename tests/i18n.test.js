@@ -44,10 +44,13 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "settings.rateApp"), "settings.rateApp");
     assert.notEqual(translate(locale, "messages.contactOpened", { email: "support@example.com" }), "messages.contactOpened");
     assert.notEqual(translate(locale, "messages.storeReviewOpened"), "messages.storeReviewOpened");
+    assert.notEqual(translate(locale, "messages.rewardAdGranted", { remaining: 2 }), "messages.rewardAdGranted");
+    assert.notEqual(translate(locale, "ads.rewardLoading"), "ads.rewardLoading");
     assert.notEqual(translate(locale, "settings.reducedShake"), "settings.reducedShake");
     assert.notEqual(translate(locale, "settings.highlightText"), "settings.highlightText");
     assert.notEqual(translate(locale, "settings.compactReport"), "settings.compactReport");
     assert.notEqual(translate(locale, "settings.quickSettlement"), "settings.quickSettlement");
+    assert.notEqual(translate(locale, "settings.matchRecording"), "settings.matchRecording");
     assert.notEqual(translate(locale, "status.paused"), "status.paused");
     assert.notEqual(translate(locale, "hud.shake"), "hud.shake");
     assert.notEqual(translate(locale, "pause.resume"), "pause.resume");
@@ -85,6 +88,12 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.match(translate(locale, "result.winner", { side: "A", profession: "Archer" }), /A|Archer|الكرة/);
     assert.match(translate(locale, "result.winnerNoProfession", { side: "A" }), /A|الكرة/);
     assert.notEqual(translate(locale, "result.nextChallenge", { role: "Shield" }), "result.nextChallenge");
+    assert.notEqual(translate(locale, "result.rewardedEncoreWatch"), "result.rewardedEncoreWatch");
+    assert.notEqual(translate(locale, "result.downloadRecording"), "result.downloadRecording");
+    assert.notEqual(translate(locale, "result.recordingTagComeback"), "result.recordingTagComeback");
+    assert.notEqual(translate(locale, "result.recordingDanmakuStart", { matchup: "A vs B" }), "result.recordingDanmakuStart");
+    assert.notEqual(translate(locale, "messages.matchRecordingReady", { tags: "Comeback" }), "messages.matchRecordingReady");
+    assert.notEqual(translate(locale, "variants.rewardEncore.title", { variant: "Supply Drop" }), "variants.rewardEncore.title");
     assert.notEqual(translate(locale, "main.funStatsLine", {
       favorite: "Archer",
       flop: "Shield",
@@ -92,6 +101,27 @@ test("locale options and translations are complete enough for the UI", () => {
       longestMatch: "88s",
       mapVictims: 2,
     }), "main.funStatsLine");
+  }
+});
+
+test("non-Chinese locales do not fall back to Chinese for core screen labels", () => {
+  const visibleKeys = [
+    "main.dailyProgressTitle",
+    "main.masteryTitle",
+    "main.lastResultTitle",
+    "playlist.title",
+    "result.nextItemChaos",
+    "reportCard.shareTitle",
+  ];
+
+  for (const locale of ["ja", "en", "fr", "de", "ar"]) {
+    for (const key of visibleKeys) {
+      assert.notEqual(
+        translate(locale, key),
+        translate("zh", key),
+        `${locale} should not fall back to zh for ${key}`,
+      );
+    }
   }
 });
 

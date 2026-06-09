@@ -1,0 +1,7 @@
+Starting: Intent { cmp=com.professionballarena.game/.MainActivity }
+Status: ok
+LaunchState: COLD
+Activity: com.professionballarena.game/.MainActivity
+TotalTime: 14303
+WaitTime: 14367
+Complete

@@ -62,6 +62,11 @@ import {
   saveLocale,
   translate,
 } from "./i18n.js";
+import {
+  chooseBattleDanmakuEmotion,
+  chooseBattleDanmakuLine,
+  getBattleDanmakuEmotionMeta,
+} from "./battle-danmaku.js";
 
 const Screen = Object.freeze({
   CONSENT: "consent",
@@ -166,6 +171,12 @@ const AD_CHAIN_CONFIG = Object.freeze({
     refreshMs: 30000,
     failureRetryMs: 15000,
   },
+  rewardedVideo: {
+    placement: "rewarded_video",
+    dailyLimit: 3,
+    cooldownMs: 75 * 1000,
+    maxPendingPasses: 2,
+  },
 });
 const NEUTRAL_SCENE_SPAWN_CONFIG = Object.freeze({
   initialCount: 2,
@@ -248,6 +259,35 @@ const BATTLE_HIGHLIGHT_DURATION_SECONDS = 1.22;
 const BATTLE_HIGHLIGHT_COOLDOWN_SECONDS = 0.78;
 const IMPACT_SHAKE_DURATION_SECONDS = 0.3;
 const IMPACT_SHAKE_MAX_OFFSET = 6;
+const MATCH_RECORDING_FRAME_RATE = 30;
+const MATCH_RECORDING_POST_RESULT_MS = 1800;
+const MATCH_RECORDING_MAX_DANMAKU = 18;
+const MATCH_RECORDING_DANMAKU_LANES = 4;
+const MATCH_RECORDING_DANMAKU_DURATION_SECONDS = 6.6;
+const BATTLE_DANMAKU_CONFIG = Object.freeze({
+  firstDelay: 1.4,
+  minInterval: 1.45,
+  maxInterval: 3.1,
+  highlightCooldown: 1.08,
+  maxActive: 6,
+  laneCount: 5,
+  laneGap: 38,
+  topY: 58,
+  fontSize: 17,
+  minFontSize: 12,
+  paddingX: 12,
+  paddingY: 6,
+  maxTextWidth: 520,
+  baseSpeed: 92,
+  speedRange: 34,
+  laneReserveGap: 48,
+});
+const MATCH_RECORDING_MIME_TYPES = Object.freeze([
+  "video/webm;codecs=vp9",
+  "video/webm;codecs=vp8",
+  "video/webm",
+  "video/mp4",
+]);
 const REVIEW_PROMPT_CONFIG = Object.freeze({
   minTotalMatches: 4,
   minSessionCount: 2,
@@ -344,6 +384,7 @@ const DAILY_PLAYLIST_SIZE = 3;
 const MATCH_VARIANT_NOTICE_DURATION = 2.8;
 const MATCH_VARIANT_EVENT_NOTICE_DURATION = 2.2;
 const MATCH_VARIANT_EVENT_TIMES = Object.freeze([6.4, 13.2, 20.4]);
+const REWARDED_ENCORE_VARIANT_IDS = Object.freeze(["supplyDrop", "hazardRush", "pillarMaze"]);
 const MATCH_VARIANT_CONFIG = Object.freeze([
   {
     id: "crosswind",
@@ -449,8 +490,14 @@ let activePlaylistEntry = null;
 let activeMatchVariant = null;
 let matchVariantNotices = [];
 let nextMatchVariantEventIndex = 0;
+let battleDanmakuMessages = [];
+let battleDanmakuLaneCooldowns = [];
+let nextBattleDanmakuAt = 0;
+let lastBattleDanmakuEventAt = -Infinity;
+let battleDanmakuSequence = 0;
 let activeAdOverlay = null;
 let adSessionState = createAdSessionState();
+let rewardedAdRequestPending = false;
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
 let shareTargetOverlayOpen = false;
 let deepLinkListenerHandle = null;
@@ -464,6 +511,8 @@ let impactShakeStrength = 0;
 let battleIntroStartedAt = 0;
 let resultCelebrationStartedAt = 0;
 let resultWinnerSide = "draw";
+let matchRecordingState = createMatchRecordingState();
+let matchRecordingDanmaku = [];
 let audioContext = null;
 let audioMasterGain = null;
 let audioMusicGain = null;
@@ -1630,6 +1679,11 @@ function createMatchVariant() {
     return null;
   }
 
+  const rewardedVariant = consumeRewardedEncoreVariant();
+  if (rewardedVariant) {
+    return rewardedVariant;
+  }
+
   const progress = getCurrentPlayerProgress();
   const seed = hashStringToInt([
     getLocalDateKey(),
@@ -1649,6 +1703,39 @@ function createMatchVariant() {
     seed,
     title: t(config.titleKey),
     description: t(config.descriptionKey),
+  };
+}
+
+function consumeRewardedEncoreVariant() {
+  const rewardState = complianceState.getRewardedAdState();
+  if (rewardState.pendingEncorePasses <= 0) {
+    return null;
+  }
+
+  complianceState.consumeRewardedEncorePass();
+  const seed = hashStringToInt([
+    "rewarded_encore",
+    getLocalDateKey(),
+    selectedProfessions.scene,
+    selectedProfessions.a,
+    selectedProfessions.b,
+    activeBattleReplaySeed || createBattleReplaySeed(),
+    rewardState.totalClaimCount,
+  ].join(":"));
+  const rewardConfigs = MATCH_VARIANT_CONFIG.filter((config) => REWARDED_ENCORE_VARIANT_IDS.includes(config.id));
+  const configPool = rewardConfigs.length ? rewardConfigs : MATCH_VARIANT_CONFIG;
+  const config = configPool[seed % configPool.length];
+  if (!config) {
+    return null;
+  }
+
+  const baseTitle = t(config.titleKey);
+  return {
+    ...config,
+    seed,
+    rewardSource: "rewarded_ad",
+    title: t("variants.rewardEncore.title", { variant: baseTitle }),
+    description: t("variants.rewardEncore.description", { description: t(config.descriptionKey) }),
   };
 }
 
@@ -1834,7 +1921,25 @@ function getSideLabel(side) {
   }
 
   const label = String(side).toUpperCase();
-  return currentLocale === "zh-CN" ? `球 ${label}` : `Ball ${label}`;
+  return currentLocale === "zh" ? `球 ${label}` : `Ball ${label}`;
+}
+
+function getPlaylistEntryById(playlistId) {
+  return DAILY_PLAYLIST_ENTRIES.find((entry) => entry.id === playlistId) || null;
+}
+
+function getMatchVariantConfigById(variantId) {
+  return MATCH_VARIANT_CONFIG.find((entry) => entry.id === variantId) || null;
+}
+
+function getPlaylistDisplayTitle(playlistId, fallbackTitle = "") {
+  const entry = getPlaylistEntryById(playlistId);
+  return entry?.titleKey ? t(entry.titleKey) : fallbackTitle;
+}
+
+function getVariantDisplayTitle(variantId, fallbackTitle = "") {
+  const entry = getMatchVariantConfigById(variantId);
+  return entry?.titleKey ? t(entry.titleKey) : fallbackTitle;
 }
 
 function getTextAlignStart() {
@@ -2041,6 +2146,7 @@ function startGame(options = {}) {
   });
   trackMatchStartFunnelEvents(progressBeforeStart, startSource);
   setScreen(Screen.PLAYING);
+  startMatchRecording();
   startMusic();
 }
 
@@ -2099,6 +2205,7 @@ function restartGame() {
   flameTrails = [];
   damageIndicators = [];
   battleHighlights = [];
+  resetBattleDanmaku();
   neutralSceneObjects = [];
   recentNeutralSceneSpawnZones = [];
   droppedItems = [];
@@ -2229,6 +2336,9 @@ function getShakeOffset(startedAt, duration, maxOffset, seed, currentTime) {
 
 function returnToMenu() {
   stopMusic();
+  if (["recording", "finalizing"].includes(matchRecordingState.status)) {
+    stopMatchRecording("return_to_menu");
+  }
   balls = [];
   attackEffectInstances = [];
   projectiles = [];
@@ -2454,6 +2564,7 @@ function normalizeMatchHistory(history) {
       playlistTitle: String(entry.playlistTitle || ""),
       variantId: String(entry.variantId || ""),
       variantTitle: String(entry.variantTitle || ""),
+      replaySeed: String(entry.replaySeed || ""),
       duration: Math.max(0, Number.parseFloat(entry.duration) || 0),
       ownDamage: Math.max(0, Math.round(Number.parseFloat(entry.ownDamage) || 0)),
       opponentDamage: Math.max(0, Math.round(Number.parseFloat(entry.opponentDamage) || 0)),
@@ -2579,9 +2690,10 @@ function createMatchHistoryEntry(winnerSide, insight) {
     reason: insight?.reason || "",
     lesson: insight?.lesson || "",
     playlistId: activePlaylistEntry?.id || "",
-    playlistTitle: activePlaylistEntry ? t(activePlaylistEntry.titleKey) : "",
+    playlistTitle: "",
     variantId: activeMatchVariant?.id || "",
-    variantTitle: activeMatchVariant?.title || "",
+    variantTitle: "",
+    replaySeed: String(matchTelemetry.replaySeed || activeBattleReplaySeed || ""),
     duration: Math.round(matchElapsedTimeSeconds),
     ownDamage: Math.round(getSideMetric(matchTelemetry.damageDealtBySide, ownSide)),
     opponentDamage: Math.round(getSideMetric(matchTelemetry.damageDealtBySide, opponentSide)),
@@ -2761,6 +2873,489 @@ function createRenderQualityState(startedAtMs = getNowMs()) {
   };
 }
 
+function createMatchRecordingState() {
+  return {
+    status: "idle",
+    recorder: null,
+    stream: null,
+    chunks: [],
+    mimeType: "",
+    matchId: "",
+    startedAtMs: 0,
+    stoppedAtMs: 0,
+    stopTimer: null,
+    lastBlob: null,
+    lastObjectUrl: "",
+    lastFileName: "",
+    lastMatchId: "",
+    lastHighlights: [],
+    lastError: "",
+  };
+}
+
+function isMatchRecordingEnabled() {
+  return Boolean(settings.matchRecordingEnabled || isMatchRecordingForcedByQuery());
+}
+
+function isMatchRecordingForcedByQuery() {
+  try {
+    const params = new URLSearchParams(globalThis.location?.search || "");
+    const value = params.get("recording") || params.get("record") || params.get("opsRecording");
+    return ["1", "true", "on", "yes"].includes(String(value || "").trim().toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function isMatchRecordingAutoDownloadEnabled() {
+  try {
+    const params = new URLSearchParams(globalThis.location?.search || "");
+    const value = params.get("autoDownloadRecording") || params.get("downloadRecording") || params.get("opsAutoDownload");
+    return ["1", "true", "on", "yes"].includes(String(value || "").trim().toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function isMatchRecordingSupported() {
+  return Boolean(
+    canvas?.captureStream &&
+      typeof globalThis.MediaRecorder !== "undefined" &&
+      typeof globalThis.Blob !== "undefined" &&
+      globalThis.URL?.createObjectURL,
+  );
+}
+
+function getPreferredMatchRecordingMimeType() {
+  const recorder = globalThis.MediaRecorder;
+  if (!recorder?.isTypeSupported) {
+    return "";
+  }
+
+  return MATCH_RECORDING_MIME_TYPES.find((mimeType) => recorder.isTypeSupported(mimeType)) || "";
+}
+
+function startMatchRecording() {
+  clearMatchRecordingStopTimer();
+  discardActiveMatchRecording();
+  matchRecordingDanmaku = [];
+
+  if (!isMatchRecordingEnabled()) {
+    return;
+  }
+
+  if (!isMatchRecordingSupported()) {
+    matchRecordingState.status = "unsupported";
+    matchRecordingState.matchId = matchTelemetry.matchId;
+    matchRecordingState.lastError = t("result.recordingUnsupported");
+    serviceMessage = t("messages.matchRecordingUnsupported");
+    return;
+  }
+
+  disposeLastMatchRecording();
+
+  try {
+    const stream = canvas.captureStream(MATCH_RECORDING_FRAME_RATE);
+    const mimeType = getPreferredMatchRecordingMimeType();
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const session = {
+      ...createMatchRecordingState(),
+      status: "recording",
+      recorder,
+      stream,
+      mimeType,
+      matchId: matchTelemetry.matchId,
+      startedAtMs: Date.now(),
+    };
+
+    recorder.addEventListener("dataavailable", (event) => {
+      if (matchRecordingState !== session || !event.data?.size) {
+        return;
+      }
+
+      session.chunks.push(event.data);
+    });
+    recorder.addEventListener("stop", () => {
+      finishMatchRecordingSession(session);
+    });
+    recorder.addEventListener("error", (event) => {
+      if (matchRecordingState !== session) {
+        return;
+      }
+
+      session.status = "failed";
+      session.lastError = event.error?.message || t("result.recordingFailed", { reason: "MediaRecorder" });
+      serviceMessage = t("messages.matchRecordingFailed");
+      stopMatchRecordingTracks(session);
+    });
+
+    matchRecordingState = session;
+    recorder.start(1000);
+    pushMatchRecordingDanmaku(t("result.recordingDanmakuStart", {
+      matchup: getMatchupText(selectedProfessions),
+    }), { priority: 2 });
+  } catch (error) {
+    matchRecordingState = {
+      ...createMatchRecordingState(),
+      status: "failed",
+      lastError: error?.message || t("result.recordingFailed", { reason: "start" }),
+      matchId: matchTelemetry.matchId,
+    };
+    serviceMessage = t("messages.matchRecordingFailed");
+  }
+}
+
+function discardActiveMatchRecording() {
+  const recorder = matchRecordingState.recorder;
+  if (!recorder) {
+    return;
+  }
+
+  try {
+    recorder.ondataavailable = null;
+    recorder.onstop = null;
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+    }
+  } catch {
+    // An inactive MediaRecorder can throw during cleanup.
+  }
+  stopMatchRecordingTracks(matchRecordingState);
+  matchRecordingState.recorder = null;
+  matchRecordingState.stream = null;
+}
+
+function clearMatchRecordingStopTimer() {
+  if (!matchRecordingState.stopTimer) {
+    return;
+  }
+
+  globalThis.clearTimeout(matchRecordingState.stopTimer);
+  matchRecordingState.stopTimer = null;
+}
+
+function disposeLastMatchRecording() {
+  if (matchRecordingState.lastObjectUrl) {
+    URL.revokeObjectURL(matchRecordingState.lastObjectUrl);
+  }
+  matchRecordingState.lastBlob = null;
+  matchRecordingState.lastObjectUrl = "";
+  matchRecordingState.lastFileName = "";
+  matchRecordingState.lastMatchId = "";
+  matchRecordingState.lastHighlights = [];
+}
+
+function stopMatchRecordingTracks(session = matchRecordingState) {
+  for (const track of session.stream?.getTracks?.() || []) {
+    track.stop();
+  }
+}
+
+function queueStopMatchRecording(reason = "match_end", delayMs = MATCH_RECORDING_POST_RESULT_MS) {
+  if (!["recording", "finalizing"].includes(matchRecordingState.status) || !matchRecordingState.recorder) {
+    return;
+  }
+
+  clearMatchRecordingStopTimer();
+  matchRecordingState.status = "finalizing";
+  matchRecordingState.stopTimer = globalThis.setTimeout(() => {
+    matchRecordingState.stopTimer = null;
+    stopMatchRecording(reason);
+  }, Math.max(0, delayMs));
+}
+
+function stopMatchRecording(reason = "match_end") {
+  const recorder = matchRecordingState.recorder;
+  if (!recorder || recorder.state === "inactive") {
+    return;
+  }
+
+  matchRecordingState.stopReason = reason;
+  try {
+    recorder.stop();
+  } catch (error) {
+    matchRecordingState.status = "failed";
+    matchRecordingState.lastError = error?.message || t("result.recordingFailed", { reason });
+    serviceMessage = t("messages.matchRecordingFailed");
+    stopMatchRecordingTracks(matchRecordingState);
+  }
+}
+
+function finishMatchRecordingSession(session) {
+  if (matchRecordingState !== session) {
+    stopMatchRecordingTracks(session);
+    return;
+  }
+
+  stopMatchRecordingTracks(session);
+  session.recorder = null;
+  session.stream = null;
+  session.stoppedAtMs = Date.now();
+
+  const blobType = session.mimeType || session.chunks[0]?.type || "video/webm";
+  const blob = new Blob(session.chunks, { type: blobType });
+  if (!blob.size) {
+    session.status = "failed";
+    session.lastError = t("result.recordingFailed", { reason: "empty" });
+    serviceMessage = t("messages.matchRecordingFailed");
+    return;
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  session.status = "ready";
+  session.lastBlob = blob;
+  session.lastObjectUrl = objectUrl;
+  session.lastMatchId = session.matchId;
+  session.lastFileName = createMatchRecordingFileName(session);
+  serviceMessage = t("messages.matchRecordingReady", {
+    tags: getMatchRecordingHighlightSummary(session.lastHighlights),
+  });
+
+  if (isMatchRecordingAutoDownloadEnabled()) {
+    globalThis.setTimeout(() => downloadMatchRecording(), 0);
+  }
+}
+
+function finalizeMatchRecording(winnerSide) {
+  if (!["recording", "finalizing"].includes(matchRecordingState.status) || matchRecordingState.matchId !== matchTelemetry.matchId) {
+    return;
+  }
+
+  const highlights = createMatchRecordingHighlights(winnerSide);
+  matchRecordingState.lastHighlights = highlights;
+  const summary = getMatchRecordingHighlightSummary(highlights);
+  pushMatchRecordingDanmaku(t("result.recordingDanmakuResult", {
+    winner: getBattleReportWinnerText(),
+    tags: summary,
+  }), { priority: 3 });
+  for (const highlight of highlights.slice(0, 3)) {
+    pushMatchRecordingDanmaku(highlight.danmaku, { priority: highlight.priority });
+  }
+  queueStopMatchRecording("match_end");
+}
+
+function createMatchRecordingHighlights(winnerSide) {
+  const highlights = [];
+  const addHighlight = (slug, labelKey, danmakuKey, priority, replacements = {}) => {
+    if (highlights.some((highlight) => highlight.slug === slug)) {
+      return;
+    }
+    highlights.push({
+      slug,
+      label: t(labelKey, replacements),
+      danmaku: t(danmakuKey, replacements),
+      priority,
+    });
+  };
+
+  if (winnerSide === "draw") {
+    addHighlight("draw", "result.recordingTagDraw", "result.recordingDanmakuDraw", 2);
+    return highlights;
+  }
+
+  const loserSide = winnerSide === "A" ? "B" : "A";
+  const winnerDamage = Math.round(getSideMetric(matchTelemetry.damageDealtBySide, winnerSide));
+  const loserDamage = Math.round(getSideMetric(matchTelemetry.damageDealtBySide, loserSide));
+  const winnerDamageTaken = getSideMetric(matchTelemetry.damageTakenBySide, winnerSide);
+  const winnerMaxDeficit = getSideMetric(matchTelemetry.maxDamageDeficitBySide, winnerSide);
+  const winnerBall = getPrimaryCombatantForSide(winnerSide);
+  const winnerHpRatio = winnerBall ? getCombatantHpRatio(winnerBall) : 0;
+  const topSource = getTopDamageSourceForSide(winnerSide);
+  const topSourceLabel = topSource ? getHitSourceLabel(topSource.source) : "";
+  const side = getSideLabel(winnerSide);
+
+  if (winnerDamageTaken <= 0.5) {
+    addHighlight("perfect", "result.recordingTagPerfect", "result.recordingDanmakuPerfect", 5, { side });
+  }
+  if (winnerMaxDeficit >= 18) {
+    addHighlight("comeback", "result.recordingTagComeback", "result.recordingDanmakuComeback", 4, { side });
+  }
+  if (winnerHpRatio > 0 && winnerHpRatio <= 0.24) {
+    addHighlight("clutch", "result.recordingTagClutch", "result.recordingDanmakuClutch", 4, { side });
+  }
+  if (winnerDamage >= loserDamage + 30 || (winnerDamage >= 32 && loserDamage <= 12)) {
+    addHighlight("stomp", "result.recordingTagStomp", "result.recordingDanmakuStomp", 3, { side });
+  }
+  if (matchElapsedTimeSeconds >= 42) {
+    addHighlight("endurance", "result.recordingTagEndurance", "result.recordingDanmakuEndurance", 2, { side });
+  }
+  if (topSource?.damage >= Math.max(12, winnerDamage * 0.36) && topSourceLabel) {
+    addHighlight("signature", "result.recordingTagSignature", "result.recordingDanmakuSignature", 2, {
+      side,
+      source: topSourceLabel,
+    });
+  }
+  if (!highlights.length) {
+    addHighlight("close", "result.recordingTagClose", "result.recordingDanmakuClose", 1, { side });
+  }
+
+  return highlights.sort((highlightA, highlightB) => highlightB.priority - highlightA.priority);
+}
+
+function getPrimaryCombatantForSide(side) {
+  return balls.find((ball) => ball.label === side && isPrimaryCombatant(ball)) || null;
+}
+
+function getMatchRecordingHighlightSummary(highlights = matchRecordingState.lastHighlights) {
+  const labels = highlights.map((highlight) => highlight.label).filter(Boolean).slice(0, 3);
+  return labels.length ? labels.join(" / ") : t("result.recordingTagNormal");
+}
+
+function createMatchRecordingFileName(session = matchRecordingState) {
+  const matchId = String(session.matchId || matchTelemetry?.matchId || "match").replace(/[^\w-]/g, "");
+  const tags = (session.lastHighlights || [])
+    .map((highlight) => highlight.slug)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("-") || "normal";
+  const extension = getMatchRecordingExtension(session.mimeType || session.lastBlob?.type);
+  return `bangbang-battle-${getLocalDateKey()}-${tags}-${matchId || "match"}.${extension}`;
+}
+
+function getMatchRecordingExtension(mimeType = "") {
+  return String(mimeType).includes("mp4") ? "mp4" : "webm";
+}
+
+function isCurrentResultRecording() {
+  return Boolean(
+    matchTelemetry?.matchId &&
+      (matchRecordingState.matchId === matchTelemetry.matchId || matchRecordingState.lastMatchId === matchTelemetry.matchId),
+  );
+}
+
+function shouldDrawResultRecordingSummary() {
+  return isCurrentResultRecording() && ["recording", "finalizing", "failed", "unsupported"].includes(matchRecordingState.status);
+}
+
+function shouldDrawRecordingDownloadButton() {
+  return isCurrentResultRecording() && matchRecordingState.status === "ready" && Boolean(matchRecordingState.lastObjectUrl);
+}
+
+function getResultRecordingStatusText() {
+  if (!shouldDrawResultRecordingSummary()) {
+    return "";
+  }
+  if (matchRecordingState.status === "ready") {
+    return t("result.recordingReady", {
+      tags: getMatchRecordingHighlightSummary(matchRecordingState.lastHighlights),
+    });
+  }
+  if (matchRecordingState.status === "unsupported") {
+    return t("result.recordingUnsupported");
+  }
+  if (matchRecordingState.status === "failed") {
+    return matchRecordingState.lastError || t("result.recordingFailed", { reason: "unknown" });
+  }
+  return t("result.recordingPending");
+}
+
+function downloadMatchRecording() {
+  if (!shouldDrawRecordingDownloadButton()) {
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = matchRecordingState.lastObjectUrl;
+  link.download = matchRecordingState.lastFileName || createMatchRecordingFileName(matchRecordingState);
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  serviceMessage = t("messages.matchRecordingSaved", {
+    fileName: link.download,
+  });
+}
+
+function pushMatchRecordingDanmaku(text, options = {}) {
+  if (!text || !isMatchRecordingOverlayVisible()) {
+    return;
+  }
+
+  const lane = matchRecordingDanmaku.length
+    ? (matchRecordingDanmaku[matchRecordingDanmaku.length - 1].lane + 1) % MATCH_RECORDING_DANMAKU_LANES
+    : 0;
+  matchRecordingDanmaku.push({
+    text,
+    lane,
+    priority: options.priority || 1,
+    createdAt: visualElapsedTimeSeconds,
+    duration: MATCH_RECORDING_DANMAKU_DURATION_SECONDS + Math.min(1.8, String(text).length / 18),
+  });
+  matchRecordingDanmaku = matchRecordingDanmaku
+    .sort((messageA, messageB) => messageA.createdAt - messageB.createdAt || messageB.priority - messageA.priority)
+    .slice(-MATCH_RECORDING_MAX_DANMAKU);
+}
+
+function updateMatchRecordingDanmaku(messages, currentTime) {
+  return messages.filter((message) => currentTime - message.createdAt <= message.duration);
+}
+
+function isMatchRecordingOverlayVisible() {
+  return isMatchRecordingEnabled() || ["recording", "finalizing"].includes(matchRecordingState.status);
+}
+
+function drawMatchRecordingOverlay() {
+  if (!isMatchRecordingOverlayVisible()) {
+    return;
+  }
+
+  drawMatchRecordingBadge();
+  if (!matchRecordingDanmaku.length) {
+    return;
+  }
+
+  const safe = getSafeAreaInsets();
+  const top = safe.top + (screen === Screen.RESULT ? 74 : 68);
+  const laneHeight = 28;
+
+  ctx.save();
+  setCanvasDirection(ctx);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.font = canvasFont(13, 900);
+  for (const message of matchRecordingDanmaku) {
+    const age = visualElapsedTimeSeconds - message.createdAt;
+    const progress = clamp(age / message.duration, 0, 1);
+    const textWidth = ctx.measureText(message.text).width;
+    const x = viewport.width + 24 - progress * (viewport.width + textWidth + 72);
+    const y = top + message.lane * laneHeight;
+    if (x + textWidth < -40 || y > viewport.height - safe.bottom - 36) {
+      continue;
+    }
+
+    ctx.fillStyle = "rgba(5, 7, 17, 0.72)";
+    ctx.fillRect(Math.round(x - 10), Math.round(y - 13), Math.round(textWidth + 20), 24);
+    ctx.fillStyle = "rgba(255, 246, 214, 0.2)";
+    ctx.fillRect(Math.round(x - 10), Math.round(y - 13), Math.round(textWidth + 20), 2);
+    ctx.fillStyle = "#fff6d6";
+    ctx.fillText(message.text, x, y + 1);
+  }
+  ctx.restore();
+}
+
+function drawMatchRecordingBadge() {
+  if (!["recording", "finalizing"].includes(matchRecordingState.status)) {
+    return;
+  }
+
+  const safe = getSafeAreaInsets();
+  const x = safe.left + 16;
+  const y = safe.top + 18;
+  const label = matchRecordingState.status === "recording" ? "REC" : "REC...";
+
+  ctx.save();
+  ctx.fillStyle = "rgba(5, 7, 17, 0.72)";
+  ctx.fillRect(x, y, 62, 24);
+  ctx.fillStyle = "#ef233c";
+  ctx.fillRect(x + 8, y + 8, 8, 8);
+  ctx.fillStyle = "#fff6d6";
+  ctx.font = canvasFont(12, 900);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, x + 22, y + 13);
+  ctx.restore();
+}
+
 function getInitialRenderQuality() {
   const forcedLevel = getForcedRenderQualityLevel();
   if (forcedLevel) {
@@ -2904,6 +3499,10 @@ function canShowAds() {
 
 function canShowBattleBannerAds() {
   return canShowAds() && ads.supportsPlacement(AD_CHAIN_CONFIG.battleBanner.placement, "banner");
+}
+
+function canShowRewardedVideoAds() {
+  return canShowAds() && ads.supportsPlacement(AD_CHAIN_CONFIG.rewardedVideo.placement, "rewarded");
 }
 
 async function initializeAdsIfAllowed() {
@@ -3083,6 +3682,194 @@ function trackBattleBannerShown(result) {
   trackAdEvent(AnalyticsEvents.adShow, AD_CHAIN_CONFIG.battleBanner.placement, result, {
     match_id: matchTelemetry.matchId,
   });
+}
+
+function getRewardedEncoreEligibility(nowMs = Date.now()) {
+  const dateKey = getLocalDateKey(new Date(nowMs));
+  const rewardState = complianceState.getRewardedAdState({ dateKey });
+  const pendingPassCount = rewardState.pendingEncorePasses;
+
+  if (!isCurrentClassicMode()) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "classic_only",
+      rewardState,
+    };
+  }
+
+  if (pendingPassCount > 0) {
+    return {
+      eligible: true,
+      hasPendingPass: true,
+      reason: "pending_pass_available",
+      rewardState,
+    };
+  }
+
+  if (!canShowRewardedVideoAds()) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "rewarded_ads_unavailable",
+      rewardState,
+    };
+  }
+
+  if (rewardState.dailyClaimCount >= AD_CHAIN_CONFIG.rewardedVideo.dailyLimit) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "daily_limit_reached",
+      rewardState,
+    };
+  }
+
+  const cooldownRemainingMs = Math.max(
+    0,
+    rewardState.lastClaimedAt + AD_CHAIN_CONFIG.rewardedVideo.cooldownMs - nowMs,
+  );
+  if (cooldownRemainingMs > 0) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "cooldown_active",
+      cooldownRemainingMs,
+      rewardState,
+    };
+  }
+
+  if (rewardState.pendingEncorePasses >= AD_CHAIN_CONFIG.rewardedVideo.maxPendingPasses) {
+    return {
+      eligible: false,
+      hasPendingPass: false,
+      reason: "pending_pass_limit_reached",
+      rewardState,
+    };
+  }
+
+  return {
+    eligible: true,
+    hasPendingPass: false,
+    reason: "result_encore_offer",
+    rewardState,
+  };
+}
+
+function shouldDrawRewardedEncoreButton() {
+  const eligibility = getRewardedEncoreEligibility();
+  return rewardedAdRequestPending || eligibility.hasPendingPass || eligibility.eligible;
+}
+
+function getRewardedEncoreButtonLabel() {
+  if (rewardedAdRequestPending) {
+    return t("ads.rewardLoading");
+  }
+
+  const eligibility = getRewardedEncoreEligibility();
+  return eligibility.hasPendingPass ? t("result.rewardedEncoreStart") : t("result.rewardedEncoreWatch");
+}
+
+async function handleRewardedEncoreAction() {
+  if (rewardedAdRequestPending) {
+    return;
+  }
+
+  const pendingEligibility = getRewardedEncoreEligibility();
+  if (pendingEligibility.hasPendingPass) {
+    startRewardedEncoreMatch();
+    return;
+  }
+
+  if (!pendingEligibility.eligible) {
+    serviceMessage = getRewardedEncoreUnavailableMessage(pendingEligibility);
+    return;
+  }
+
+  const placement = AD_CHAIN_CONFIG.rewardedVideo.placement;
+  rewardedAdRequestPending = true;
+  trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "rewarded" }, {
+    source: "result_encore",
+    daily_claim_count: pendingEligibility.rewardState.dailyClaimCount,
+  });
+
+  try {
+    await initializeAdsIfAllowed();
+    const result = await ads.showRewardedVideo(placement);
+    if (!result?.shown) {
+      trackAdEvent(AnalyticsEvents.adClose, placement, result || { format: "rewarded" }, {
+        source: "result_encore",
+        reason: result?.reason || "not_shown",
+      });
+      serviceMessage = getRewardedEncoreUnavailableMessage({ reason: result?.reason || "not_shown" });
+      return;
+    }
+
+    trackAdEvent(AnalyticsEvents.adShow, placement, result, {
+      source: "result_encore",
+      reward_type: "encore_variant",
+    });
+    const rewardState = complianceState.recordRewardedAdClaim({
+      nowMs: Date.now(),
+      dateKey: getLocalDateKey(),
+      pendingEncorePasses: 1,
+    });
+    analytics.track(AnalyticsEvents.rewardedAdGrant, createFunnelAnalyticsPayload({
+      placement,
+      reward_type: "encore_variant",
+      daily_claim_count: rewardState.dailyClaimCount,
+      total_claim_count: rewardState.totalClaimCount,
+      pending_passes: rewardState.pendingEncorePasses,
+      ad_network: result.network || ads.mode || "unknown",
+      creative_id: result.creative_id || "unknown",
+    }));
+    serviceMessage = t("messages.rewardAdGranted", {
+      remaining: Math.max(0, AD_CHAIN_CONFIG.rewardedVideo.dailyLimit - rewardState.dailyClaimCount),
+    });
+  } catch (error) {
+    trackAdEvent(AnalyticsEvents.adClose, placement, { format: "rewarded", network: ads.mode }, {
+      source: "result_encore",
+      reason: "request_failed",
+    });
+    serviceMessage = getRewardedEncoreUnavailableMessage({ reason: "request_failed" });
+  } finally {
+    rewardedAdRequestPending = false;
+  }
+}
+
+function startRewardedEncoreMatch() {
+  const rewardState = complianceState.getRewardedAdState();
+  if (rewardState.pendingEncorePasses <= 0) {
+    serviceMessage = getRewardedEncoreUnavailableMessage({ reason: "no_pending_pass" });
+    return;
+  }
+
+  const recommendation = getResultNextRecommendation();
+  selectedProfessions = complianceState.saveSelectedProfessions(recommendation.selectedProfessions);
+  serviceMessage = t("messages.rewardEncoreStarted", { matchup: recommendation.matchupText });
+  analytics.track(AnalyticsEvents.nextMatchRecommendClick, createFunnelAnalyticsPayload({
+    recommendation_reason: "rewarded_encore",
+    recommended_matchup: recommendation.matchupText,
+    pending_passes: rewardState.pendingEncorePasses,
+    winner_side: resultWinnerSide,
+    own_result: getOwnResult(resultWinnerSide),
+  }));
+  startGame({ source: "rewarded_encore" });
+}
+
+function getRewardedEncoreUnavailableMessage(eligibility) {
+  const reason = eligibility?.reason || "rewarded_ads_unavailable";
+  if (reason === "daily_limit_reached") {
+    return t("messages.rewardAdDailyLimit");
+  }
+  if (reason === "cooldown_active") {
+    const seconds = Math.ceil((eligibility.cooldownRemainingMs || 0) / 1000);
+    return t("messages.rewardAdCooldown", { seconds });
+  }
+  if (reason === "classic_only") {
+    return t("messages.rewardAdClassicOnly");
+  }
+  return t("messages.rewardAdUnavailable");
 }
 
 function recordPerformanceFrame(frameTimeMs, timestamp, isMatchActive) {
@@ -3513,6 +4300,7 @@ function getMatchBaseAnalyticsPayload() {
     opponent_role: getAnalyticsRoleForSide("B"),
     playlist_id: activePlaylistEntry?.id || "custom",
     match_variant: activeMatchVariant?.id || "none",
+    reward_source: activeMatchVariant?.rewardSource || "none",
     locale: currentLocale,
     surface: getRuntimeSurface(),
   };
@@ -3652,10 +4440,12 @@ function maybePushCombatHighlight(attacker, defender, damage, source) {
     createdAt: currentTime,
     expiresAt: currentTime + BATTLE_HIGHLIGHT_DURATION_SECONDS,
   });
+  maybePushCombatDanmaku(attacker, defender, priority, currentTime);
   battleHighlights = battleHighlights
     .sort((highlightA, highlightB) => highlightB.priority - highlightA.priority || highlightB.createdAt - highlightA.createdAt)
     .slice(0, 3);
   lastBattleHighlightTime = currentTime;
+  pushMatchRecordingDanmaku(text, { priority });
 
   if (priority >= 2 || damage >= bigHitThreshold) {
     triggerImpactShake(priority >= 3 ? IMPACT_SHAKE_MAX_OFFSET : IMPACT_SHAKE_MAX_OFFSET * 0.7, currentTime);
@@ -3785,6 +4575,9 @@ function toggleFeedbackSetting(settingKey) {
   }
   if (settingKey === "soundEffectsEnabled" && settings.soundEffectsEnabled) {
     playGameSound("toggle", 0.35);
+  }
+  if (settingKey === "matchRecordingEnabled" && settings.matchRecordingEnabled && !isMatchRecordingSupported()) {
+    serviceMessage = t("messages.matchRecordingUnsupported");
   }
 }
 
@@ -4373,6 +5166,7 @@ function gameLoop(timestamp) {
     matchElapsedTimeSeconds += scaledDeltaTime;
     update(scaledDeltaTime, elapsedTimeSeconds);
     if (screen === Screen.PLAYING && !gameOver) {
+      maybeSpawnScheduledBattleDanmaku(elapsedTimeSeconds);
       maybeTrackPerformanceSnapshot(timestamp);
     }
   }
@@ -4382,6 +5176,8 @@ function gameLoop(timestamp) {
   damageIndicators = updateDamageIndicators(damageIndicators, elapsedTimeSeconds);
   battleHighlights = updateBattleHighlights(battleHighlights, elapsedTimeSeconds);
   matchVariantNotices = updateMatchVariantNotices(matchVariantNotices, elapsedTimeSeconds);
+  battleDanmakuMessages = updateBattleDanmakuMessages(battleDanmakuMessages, elapsedTimeSeconds);
+  matchRecordingDanmaku = updateMatchRecordingDanmaku(matchRecordingDanmaku, visualElapsedTimeSeconds);
   draw();
   requestAnimationFrame(gameLoop);
 }
@@ -4502,6 +5298,249 @@ function updateBattleHighlights(highlights, currentTime) {
 
 function updateMatchVariantNotices(notices, currentTime) {
   return notices.filter((notice) => notice.expiresAt > currentTime);
+}
+
+function resetBattleDanmaku() {
+  battleDanmakuMessages = [];
+  battleDanmakuLaneCooldowns = Array.from({ length: BATTLE_DANMAKU_CONFIG.laneCount }, () => 0);
+  nextBattleDanmakuAt = BATTLE_DANMAKU_CONFIG.firstDelay + getBattleDanmakuInterval();
+  lastBattleDanmakuEventAt = -Infinity;
+  battleDanmakuSequence = 0;
+}
+
+function updateBattleDanmakuMessages(messages, currentTime) {
+  return messages.filter((message) => message.expiresAt > currentTime);
+}
+
+function maybeSpawnScheduledBattleDanmaku(currentTime) {
+  if (!shouldRunBattleDanmaku(currentTime) || currentTime < nextBattleDanmakuAt) {
+    return;
+  }
+
+  const context = createBattleDanmakuContext();
+  const emotion = chooseBattleDanmakuEmotion(context);
+  pushBattleDanmaku(emotion, currentTime, { context });
+  nextBattleDanmakuAt = currentTime + getBattleDanmakuInterval();
+}
+
+function maybePushCombatDanmaku(attacker, defender, priority, currentTime) {
+  if (priority < 2 || !shouldRunBattleDanmaku(currentTime)) {
+    return;
+  }
+
+  if (currentTime - lastBattleDanmakuEventAt < BATTLE_DANMAKU_CONFIG.highlightCooldown) {
+    return;
+  }
+
+  const attackerHpRatio = getCombatantHpRatio(attacker);
+  const emotion = priority >= 4 || attackerHpRatio <= 0.3
+    ? "clutch"
+    : priority >= 3
+      ? "shock"
+      : "hype";
+  const context = createBattleDanmakuContext({
+    focusCombatant: attacker,
+    otherCombatant: defender,
+    recentHighlightPriority: priority,
+  });
+  if (pushBattleDanmaku(emotion, currentTime, { context })) {
+    lastBattleDanmakuEventAt = currentTime;
+    nextBattleDanmakuAt = Math.max(nextBattleDanmakuAt, currentTime + BATTLE_DANMAKU_CONFIG.minInterval);
+  }
+}
+
+function shouldRunBattleDanmaku(currentTime = elapsedTimeSeconds) {
+  return (
+    screen === Screen.PLAYING &&
+    !gameOver &&
+    settings.highlightTextEnabled &&
+    shouldDrawAmbientEffects() &&
+    currentTime >= BATTLE_DANMAKU_CONFIG.firstDelay
+  );
+}
+
+function pushBattleDanmaku(emotion, currentTime = elapsedTimeSeconds, options = {}) {
+  if (!shouldRunBattleDanmaku(currentTime)) {
+    return false;
+  }
+
+  const context = options.context || createBattleDanmakuContext(options);
+  const rawText = chooseBattleDanmakuLine(currentLocale, emotion, context);
+  if (!rawText) {
+    return false;
+  }
+
+  const meta = getBattleDanmakuEmotionMeta(emotion);
+  const fontSize = getBattleDanmakuFontSize(rawText);
+  const font = canvasFont(fontSize, 900);
+  const maxTextWidth = Math.min(BATTLE_DANMAKU_CONFIG.maxTextWidth, ARENA_SIZE * 0.78);
+  const text = fitBattleDanmakuText(rawText, maxTextWidth, font);
+  if (!text) {
+    return false;
+  }
+
+  const textWidth = measureTextWidth(text, font);
+  const width = Math.ceil(textWidth + BATTLE_DANMAKU_CONFIG.paddingX * 2);
+  const height = Math.ceil(fontSize + BATTLE_DANMAKU_CONFIG.paddingY * 2);
+  const speed = BATTLE_DANMAKU_CONFIG.baseSpeed + Math.random() * BATTLE_DANMAKU_CONFIG.speedRange + getBattleDanmakuSpeedBonus(emotion);
+  const lane = getBattleDanmakuLane(currentTime, width, speed);
+  const direction = isRtlLocale(currentLocale) ? 1 : -1;
+  const startX = direction > 0 ? -width : ARENA_SIZE + width;
+  const travelDistance = ARENA_SIZE + width * 2;
+  const duration = travelDistance / speed;
+
+  battleDanmakuMessages.push({
+    id: `battle-danmaku-${battleDanmakuSequence += 1}`,
+    text,
+    emotion,
+    color: meta.color,
+    background: meta.background,
+    lane,
+    x: startX,
+    y: BATTLE_DANMAKU_CONFIG.topY + lane * BATTLE_DANMAKU_CONFIG.laneGap,
+    width,
+    height,
+    fontSize,
+    speed,
+    direction,
+    createdAt: currentTime,
+    expiresAt: currentTime + duration,
+  });
+  battleDanmakuLaneCooldowns[lane] = currentTime + Math.min(
+    2.2,
+    (width + BATTLE_DANMAKU_CONFIG.laneReserveGap) / speed,
+  );
+  battleDanmakuMessages = battleDanmakuMessages
+    .sort((messageA, messageB) => messageA.createdAt - messageB.createdAt)
+    .slice(-BATTLE_DANMAKU_CONFIG.maxActive);
+  return true;
+}
+
+function getBattleDanmakuInterval() {
+  return lerp(BATTLE_DANMAKU_CONFIG.minInterval, BATTLE_DANMAKU_CONFIG.maxInterval, Math.random());
+}
+
+function getBattleDanmakuSpeedBonus(emotion) {
+  if (emotion === "shock") {
+    return 14;
+  }
+  if (emotion === "clutch" || emotion === "tension") {
+    return 7;
+  }
+  return 0;
+}
+
+function getBattleDanmakuLane(currentTime, width, speed) {
+  if (battleDanmakuLaneCooldowns.length !== BATTLE_DANMAKU_CONFIG.laneCount) {
+    battleDanmakuLaneCooldowns = Array.from({ length: BATTLE_DANMAKU_CONFIG.laneCount }, () => 0);
+  }
+
+  const availableLanes = battleDanmakuLaneCooldowns
+    .map((cooldown, lane) => ({ cooldown, lane }))
+    .filter((entry) => entry.cooldown <= currentTime);
+  if (availableLanes.length > 0) {
+    return availableLanes[Math.floor(Math.random() * availableLanes.length)].lane;
+  }
+
+  return battleDanmakuLaneCooldowns.reduce((bestLane, cooldown, lane) => {
+    return cooldown < battleDanmakuLaneCooldowns[bestLane] ? lane : bestLane;
+  }, 0);
+}
+
+function createBattleDanmakuContext(options = {}) {
+  const primaryCombatants = balls.filter((ball) => isPrimaryCombatant(ball));
+  const rankedCombatants = [...primaryCombatants]
+    .filter((ball) => ball.hp > 0)
+    .sort((ballA, ballB) => getCombatantHpRatio(ballB) - getCombatantHpRatio(ballA));
+  const combatants = rankedCombatants.length ? rankedCombatants : primaryCombatants;
+  const leader = combatants[0] || null;
+  const trailer = combatants[combatants.length - 1] || leader;
+  const focused = options.focusCombatant || leader || trailer || null;
+  const minHpRatio = combatants.length
+    ? Math.min(...combatants.map((ball) => getCombatantHpRatio(ball)))
+    : 1;
+  const lowHealthCombatant = combatants
+    .filter((ball) => getCombatantHpRatio(ball) <= 0.32)
+    .sort((ballA, ballB) => getCombatantHpRatio(ballA) - getCombatantHpRatio(ballB))[0] || null;
+  const underdog = lowHealthCombatant || trailer || focused;
+
+  return {
+    side: getBattleDanmakuSideLabel(focused),
+    role: getBattleDanmakuRoleName(focused),
+    scene: getSceneName(selectedProfessions.scene),
+    leader: getBattleDanmakuSideLabel(leader),
+    leaderRole: getBattleDanmakuRoleName(leader),
+    trailer: getBattleDanmakuSideLabel(trailer),
+    trailerRole: getBattleDanmakuRoleName(trailer),
+    lowHealth: lowHealthCombatant ? getBattleDanmakuSideLabel(lowHealthCombatant) : "",
+    lowHealthRole: lowHealthCombatant ? getBattleDanmakuRoleName(lowHealthCombatant) : "",
+    underdog: getBattleDanmakuSideLabel(underdog),
+    underdogRole: getBattleDanmakuRoleName(underdog),
+    variant: activeMatchVariant?.title || "",
+    isItemMode: isCurrentItemMode(),
+    isHeroMode: isCurrentHeroMode(),
+    hasVariant: Boolean(activeMatchVariant),
+    matchTime: matchElapsedTimeSeconds,
+    minHpRatio,
+    recentHighlightPriority: options.recentHighlightPriority || 0,
+  };
+}
+
+function getBattleDanmakuSideLabel(combatant) {
+  return combatant?.label ? getSideLabel(combatant.label) : getSideLabel("A");
+}
+
+function getBattleDanmakuRoleName(combatant) {
+  if (!combatant) {
+    return isCurrentItemMode() ? t("reports.itemModeRole") : getProfessionName(selectedProfessions.a);
+  }
+
+  if (combatant.profession) {
+    return getProfessionName(combatant.profession);
+  }
+
+  const activeWeapon = getActiveItemWeapon(combatant);
+  if (activeWeapon?.nameKey) {
+    return t(activeWeapon.nameKey);
+  }
+
+  return isCurrentItemMode() ? t("reports.itemModeRole") : getBattleDanmakuSideLabel(combatant);
+}
+
+function getBattleDanmakuFontSize(text) {
+  return getFittedFontSize(
+    text,
+    Math.min(BATTLE_DANMAKU_CONFIG.maxTextWidth, ARENA_SIZE * 0.78),
+    BATTLE_DANMAKU_CONFIG.fontSize,
+    BATTLE_DANMAKU_CONFIG.minFontSize,
+    900,
+  );
+}
+
+function fitBattleDanmakuText(text, maxWidth, font) {
+  const rawText = String(text).trim();
+  ctx.save();
+  ctx.font = font;
+  if (ctx.measureText(rawText).width <= maxWidth) {
+    ctx.restore();
+    return rawText;
+  }
+
+  const ellipsis = "...";
+  let fittedText = rawText;
+  while (fittedText.length > 0 && ctx.measureText(`${fittedText}${ellipsis}`).width > maxWidth) {
+    fittedText = fittedText.slice(0, -1).trimEnd();
+  }
+  ctx.restore();
+  return fittedText ? `${fittedText}${ellipsis}` : "";
+}
+
+function measureTextWidth(text, font) {
+  ctx.save();
+  ctx.font = font;
+  const width = ctx.measureText(String(text)).width;
+  ctx.restore();
+  return width;
 }
 
 function updateHeroMode(currentTime) {
@@ -7969,6 +9008,7 @@ function finishMatch(winnerSide) {
   analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
   trackMatchCompletionFunnelEvents(winnerSide, progressAfterMatch);
   setScreen(Screen.RESULT);
+  finalizeMatchRecording(winnerSide);
   maybeRequestReviewAfterMatch(progressAfterMatch, winnerSide);
 }
 
@@ -8302,6 +9342,7 @@ function draw() {
       break;
   }
 
+  drawMatchRecordingOverlay();
   drawActiveAdOverlay();
 }
 
@@ -9560,10 +10601,12 @@ function drawReportHistoryRow(entry, index, x, y, width, height, compact) {
     opponentRole: getRoleDisplayName(entry.opponentRole),
     damage: `${entry.ownDamage}/${entry.opponentDamage}`,
   });
-  const meta = entry.playlistTitle || entry.variantTitle
+  const playlistTitle = getPlaylistDisplayTitle(entry.playlistId, entry.playlistTitle);
+  const variantTitle = getVariantDisplayTitle(entry.variantId, entry.variantTitle);
+  const meta = playlistTitle || variantTitle
     ? t("reports.historyMeta", {
-        playlist: entry.playlistTitle || t("reports.customMatch"),
-        variant: entry.variantTitle || t("reports.noVariant"),
+        playlist: playlistTitle || t("reports.customMatch"),
+        variant: variantTitle || t("reports.noVariant"),
       })
     : entry.reason;
 
@@ -9897,6 +10940,7 @@ function drawResultOverlay() {
     titleY,
     infoY,
     infoBottom,
+    recordingSummaryY,
     buttonY,
     buttonHeight,
     buttonGap,
@@ -9947,9 +10991,29 @@ function drawResultOverlay() {
   const fullButtonWidth = panelWidth - padding * 2;
   const splitButtonWidth = (fullButtonWidth - buttonGap) / 2;
   const recommendation = getResultNextRecommendation();
+  const showRewardedEncore = shouldDrawRewardedEncoreButton();
+  const showRecordingDownload = shouldDrawRecordingDownloadButton();
+  if (shouldDrawResultRecordingSummary()) {
+    drawResultRecordingSummary(buttonX, recordingSummaryY, fullButtonWidth, compact);
+  }
   let currentButtonY = buttonY;
   drawButton(recommendation.buttonLabel, buttonX, currentButtonY, fullButtonWidth, buttonHeight, startRecommendedMatch, { id: "result-recommend-next", active: true });
   currentButtonY += buttonHeight + buttonGap;
+  if (showRewardedEncore) {
+    drawButton(getRewardedEncoreButtonLabel(), buttonX, currentButtonY, fullButtonWidth, buttonHeight, handleRewardedEncoreAction, {
+      id: "result-rewarded-encore",
+      active: getRewardedEncoreEligibility().hasPendingPass,
+      disabled: rewardedAdRequestPending,
+    });
+    currentButtonY += buttonHeight + buttonGap;
+  }
+  if (showRecordingDownload) {
+    drawButton(t("result.downloadRecording"), buttonX, currentButtonY, fullButtonWidth, buttonHeight, downloadMatchRecording, {
+      id: "result-download-recording",
+      active: true,
+    });
+    currentButtonY += buttonHeight + buttonGap;
+  }
   drawButton(t("result.again"), buttonX, currentButtonY, splitButtonWidth, buttonHeight, () => startGame({ source: "result_again" }), { id: "result-again" });
   drawButton(t("result.shareCard"), buttonX + splitButtonWidth + buttonGap, currentButtonY, splitButtonWidth, buttonHeight, () => {
     shareTargetOverlayOpen = true;
@@ -10002,6 +11066,22 @@ function drawShareTargetOverlay(resultLayout) {
   ctx.restore();
 }
 
+function drawResultRecordingSummary(x, y, width, compact) {
+  const text = getResultRecordingStatusText();
+  if (!text) {
+    return;
+  }
+
+  ctx.save();
+  setCanvasDirection(ctx);
+  ctx.textAlign = getTextAlignStart();
+  ctx.textBaseline = "top";
+  ctx.fillStyle = matchRecordingState.status === "ready" ? "#8be8ff" : COLORS.muted;
+  ctx.font = canvasFont(getFittedFontSize(text, width, compact ? 11 : 12, 9, 800), 800);
+  drawSingleLineText(text, x, y, width);
+  ctx.restore();
+}
+
 function getResultOverlayLayout() {
   const safe = getSafeAreaInsets();
   const visibleHeight = Math.max(260, Math.min(viewport.height, Math.round(window.visualViewport?.height || viewport.height)));
@@ -10009,16 +11089,24 @@ function getResultOverlayLayout() {
   const availableWidth = Math.max(280, visibleWidth - safe.left - safe.right - 28);
   const availableHeight = Math.max(248, visibleHeight - safe.top - safe.bottom - 28);
   const panelWidth = Math.min(390, availableWidth);
-  const panelHeight = clamp(Math.min(350, availableHeight), 248, 350);
+  const showRewardedEncore = shouldDrawRewardedEncoreButton();
+  const showRecordingDownload = shouldDrawRecordingDownloadButton();
+  const extraPanelHeight = (showRewardedEncore ? 40 : 0) + (showRecordingDownload ? 52 : 0);
+  const maxPanelHeight = 350 + extraPanelHeight;
+  const minPanelHeight = 248 + extraPanelHeight;
+  const panelHeight = clamp(Math.min(maxPanelHeight, availableHeight), minPanelHeight, maxPanelHeight);
   const panelX = safe.left + (availableWidth - panelWidth) / 2 + 14;
   const panelY = safe.top + (availableHeight - panelHeight) / 2 + 14;
   const compact = panelHeight < 318 || panelWidth < 360;
   const padding = compact ? 20 : 28;
   const buttonHeight = compact ? 36 : 42;
   const buttonGap = compact ? 9 : 12;
-  const buttonBlockHeight = buttonHeight * 3 + buttonGap * 2;
+  const buttonRowCount = 3 + (showRewardedEncore ? 1 : 0) + (showRecordingDownload ? 1 : 0);
+  const buttonBlockHeight = buttonHeight * buttonRowCount + buttonGap * (buttonRowCount - 1);
   const bottomPadding = compact ? 18 : 24;
   const buttonY = panelY + panelHeight - bottomPadding - buttonBlockHeight;
+  const recordingSummaryHeight = shouldDrawResultRecordingSummary() ? (compact ? 22 : 24) : 0;
+  const recordingSummaryGap = recordingSummaryHeight ? (compact ? 10 : 12) : 0;
 
   return {
     panelX,
@@ -10029,7 +11117,8 @@ function getResultOverlayLayout() {
     compact,
     titleY: panelY + (compact ? 42 : 48),
     infoY: panelY + (compact ? 70 : 82),
-    infoBottom: buttonY - (compact ? 8 : 12),
+    infoBottom: buttonY - (compact ? 8 : 12) - recordingSummaryHeight - recordingSummaryGap,
+    recordingSummaryY: buttonY - recordingSummaryHeight - recordingSummaryGap,
     buttonY,
     buttonHeight,
     buttonGap,
@@ -11068,6 +12157,7 @@ function drawFeedbackSettings(x, y, width) {
     { key: "highlightTextEnabled", labelKey: "settings.highlightText", id: "settings-highlight-text" },
     { key: "compactReportEnabled", labelKey: "settings.compactReport", id: "settings-compact-report" },
     { key: "quickSettlementEnabled", labelKey: "settings.quickSettlement", id: "settings-quick-settlement" },
+    { key: "matchRecordingEnabled", labelKey: "settings.matchRecording", id: "settings-match-recording" },
   ];
   const gap = 10;
   const buttonHeight = 38;
@@ -13914,6 +15004,53 @@ function drawBattleHighlights(ctx, currentTime) {
   }
 }
 
+function drawBattleDanmaku(ctx, currentTime) {
+  if (!battleDanmakuMessages.length || screen !== Screen.PLAYING || !settings.highlightTextEnabled || !shouldDrawAmbientEffects()) {
+    return;
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, ARENA_SIZE, ARENA_SIZE);
+  ctx.clip();
+  setCanvasDirection(ctx);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  for (const message of battleDanmakuMessages) {
+    const age = Math.max(0, currentTime - message.createdAt);
+    const x = message.x + message.direction * message.speed * age;
+    if (x + message.width / 2 < -32 || x - message.width / 2 > ARENA_SIZE + 32) {
+      continue;
+    }
+
+    const fadeIn = clamp(age / 0.18, 0, 1);
+    const fadeOut = clamp((message.expiresAt - currentTime) / 0.34, 0, 1);
+    const alpha = Math.min(fadeIn, fadeOut);
+    const boxX = Math.round(x - message.width / 2);
+    const boxY = Math.round(message.y - message.height / 2);
+
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = message.background || "rgba(5, 7, 17, 0.72)";
+    roundRect(ctx, boxX, boxY, message.width, message.height, 8);
+    ctx.fill();
+    ctx.strokeStyle = message.color || "#fff6d6";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255, 246, 214, 0.16)";
+    ctx.fillRect(boxX + 6, boxY + 5, Math.max(0, message.width - 12), 2);
+
+    ctx.font = canvasFont(message.fontSize, 900);
+    ctx.strokeStyle = "rgba(5, 7, 17, 0.88)";
+    ctx.lineWidth = 4;
+    ctx.strokeText(message.text, x, message.y + 1);
+    ctx.fillStyle = message.color || "#fff6d6";
+    ctx.fillText(message.text, x, message.y);
+  }
+
+  ctx.restore();
+}
+
 function formatDamageAmount(amount) {
   return String(Math.max(1, Math.round(amount)));
 }
@@ -14838,6 +15975,7 @@ function drawArenaScene() {
   drawDamageIndicators(ctx, elapsedTimeSeconds);
   if (shouldDrawAmbientEffects()) {
     drawBattleHighlights(ctx, elapsedTimeSeconds);
+    drawBattleDanmaku(ctx, elapsedTimeSeconds);
   }
   drawMatchVariantBadge(ctx, elapsedTimeSeconds);
   drawMatchVariantNotices(ctx, elapsedTimeSeconds);

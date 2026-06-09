@@ -8,7 +8,7 @@ The current build uses a service-layer ad chain with platform-specific adapters.
 | --- | --- | --- | --- |
 | `app_open` | Interstitial | After legal consent, or app boot when consent is already valid | Meta Instant interstitial in Meta, native AdMob interstitial on Android/iOS, canvas mock overlay on debug web |
 | `battle_banner` | Banner | Below the `Shake` battle control when there is safe area | Native AdMob banner on Android/iOS, canvas mock banner on debug web; disabled in Meta because Instant Games ads are interstitial/rewarded placements, not AdMob banners |
-| `rewarded_video` | Rewarded video | Reserved for future reward flows | Meta rewarded video when a placement ID is configured; currently no gameplay reward consumes it |
+| `rewarded_video` | Rewarded video | Result screen optional encore reward | User-initiated reward flow that grants one high-energy encore pass for the next classic match; Meta uses rewarded video, native uses AdMob rewarded video, browser debug uses a canvas mock |
 
 ## Runtime Chain
 
@@ -16,11 +16,11 @@ The current build uses a service-layer ad chain with platform-specific adapters.
 2. If a native `GameAds` bridge is present, the service delegates to it with game-context metadata.
 3. If `window.FBInstant` is present, the service uses Meta Instant Games ad APIs:
    - `FBInstant.getInterstitialAdAsync(placementId)` for `app_open`.
-   - `FBInstant.getRewardedVideoAsync(placementId)` for the reserved rewarded placement.
+   - `FBInstant.getRewardedVideoAsync(placementId)` for the result-screen encore reward.
    - Banner requests fail closed with `meta_banner_not_supported`, so the battle banner slot is not reserved in Meta layout.
 4. Otherwise, native Capacitor builds initialize `@capacitor-community/admob`; native builds use Google test ad units by default until live ads are explicitly enabled for release.
-5. Browser builds return a `mock_game_ads` result and Canvas renders the mock creative for app-open and battle-banner placements.
-6. Firebase Analytics receives `ad_request`, `ad_show`, `ad_click`, and `ad_close` events when analytics consent is enabled.
+5. Browser builds return a `mock_game_ads` result and Canvas renders mock creatives for app-open, battle-banner, and rewarded encore testing.
+6. Firebase Analytics receives `ad_request`, `ad_show`, `ad_click`, `ad_close`, and `rewarded_ad_grant` events when analytics consent is enabled.
 
 ## Meta Instant Games Configuration
 
@@ -28,7 +28,7 @@ The current build uses a service-layer ad chain with platform-specific adapters.
 - App-open ads require a Meta placement ID from the Instant Games monetization dashboard:
   - `VITE_META_APP_OPEN_AD_PLACEMENT_ID`
   - Compatibility aliases: `VITE_META_INTERSTITIAL_PLACEMENT_ID`, `VITE_META_APP_OPEN_PLACEMENT_ID`
-- Reserved rewarded video support can be configured with:
+- Rewarded video support can be configured with:
   - `VITE_META_REWARDED_VIDEO_PLACEMENT_ID`
   - Compatibility aliases: `VITE_META_REWARDED_AD_PLACEMENT_ID`, `VITE_META_REWARDED_PLACEMENT_ID`
 - If a Meta placement ID is missing, the request returns `meta_placement_id_missing` and no ad is shown.
@@ -40,12 +40,15 @@ The current build uses a service-layer ad chain with platform-specific adapters.
 - Android production ad units are configured in the service layer:
   - `app_open` interstitial: `ca-app-pub-2481288993515154/2687290972`
   - `battle_banner` banner: `ca-app-pub-2481288993515154/6818107670`
+- Rewarded video uses Google test ad units in debug/internal test modes. In `VITE_ADMOB_MODE=real`, the result-screen rewarded placement is disabled until a production rewarded unit is supplied by build env.
 - iOS is still configured with the Google sample AdMob application ID until an iOS AdMob app and units are created.
 - Release builds can override ad unit IDs via build env:
   - `VITE_ADMOB_ANDROID_APP_OPEN_AD_UNIT_ID`
   - `VITE_ADMOB_ANDROID_BATTLE_BANNER_AD_UNIT_ID`
+  - `VITE_ADMOB_ANDROID_REWARDED_VIDEO_AD_UNIT_ID`
   - `VITE_ADMOB_IOS_APP_OPEN_AD_UNIT_ID`
   - `VITE_ADMOB_IOS_BATTLE_BANNER_AD_UNIT_ID`
+  - `VITE_ADMOB_IOS_REWARDED_VIDEO_AD_UNIT_ID`
 - `VITE_ADMOB_MODE` controls the runtime ad chain:
   - `auto` or unset: native builds use Google test ad units; browser builds use the local canvas mock.
   - `test`: force Google test ad units on native builds.
@@ -73,3 +76,4 @@ The current build uses a service-layer ad chain with platform-specific adapters.
 - The battle banner reserves layout space below `Shake`, so it should not overlap the arena or controls.
 - App-open ads are shown only after the current legal consent is accepted.
 - Leaving the battle screen hides the native banner so it does not remain over menus or result screens.
+- Rewarded encore is user-initiated from the result screen, is limited to 3 claims per local day, has a 75-second cooldown, can store up to 2 pending encore passes, and never changes the completed match result.

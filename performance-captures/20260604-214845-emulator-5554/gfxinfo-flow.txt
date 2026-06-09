@@ -1,0 +1,71 @@
+Applications Graphics Acceleration Info:
+Uptime: 1255666847 Realtime: 1255666847
+
+** Graphics info for pid 27744 [com.professionballarena.game] **
+
+Stats since: 1255582814771708ns
+Total frames rendered: 1022
+Janky frames: 763 (74.66%)
+Janky frames (legacy): 987 (96.58%)
+50th percentile: 34ms
+90th percentile: 101ms
+95th percentile: 150ms
+99th percentile: 1150ms
+Number Missed Vsync: 84
+Number High input latency: 476
+Number Slow UI thread: 465
+Number Slow bitmap uploads: 48
+Number Slow issue draw commands: 742
+Number Frame deadline missed: 763
+Number Frame deadline missed (legacy): 765
+HISTOGRAM: 5ms=0 6ms=0 7ms=0 8ms=0 9ms=0 10ms=3 11ms=0 12ms=2 13ms=5 14ms=7 15ms=5 16ms=14 17ms=8 18ms=9 19ms=9 20ms=17 21ms=25 22ms=28 23ms=24 24ms=33 25ms=17 26ms=30 27ms=21 28ms=44 29ms=44 30ms=32 31ms=36 32ms=51 34ms=50 36ms=45 38ms=37 40ms=32 42ms=28 44ms=32 46ms=24 48ms=49 53ms=23 57ms=17 61ms=18 65ms=15 69ms=14 73ms=15 77ms=9 81ms=14 85ms=7 89ms=13 93ms=5 97ms=8 101ms=10 105ms=5 109ms=6 113ms=4 117ms=3 121ms=3 125ms=3 129ms=3 133ms=5 150ms=30 200ms=6 250ms=3 300ms=2 350ms=3 400ms=1 450ms=0 500ms=2 550ms=0 600ms=2 650ms=0 700ms=0 750ms=0 800ms=0 850ms=0 900ms=1 950ms=0 1000ms=0 1050ms=0 1100ms=0 1150ms=1 1200ms=0 1250ms=0 1300ms=0 1350ms=0 1400ms=0 1450ms=0 1500ms=0 1550ms=0 1600ms=0 1650ms=0 1700ms=1 1750ms=0 1800ms=0 1850ms=1 1900ms=0 1950ms=1 2000ms=2 2050ms=0 2100ms=0 2150ms=0 2200ms=0 2250ms=0 2300ms=0 2350ms=0 2400ms=0 2450ms=0 2500ms=0 2550ms=0 2600ms=0 2650ms=0 2700ms=0 2750ms=0 2800ms=0 2850ms=0 2900ms=0 2950ms=0 3000ms=0 3050ms=0 3100ms=0 3150ms=0 3200ms=0 3250ms=0 3300ms=0 3350ms=0 3400ms=0 3450ms=0 3500ms=0 3550ms=0 3600ms=0 3650ms=0 3700ms=0 3750ms=0 3800ms=0 3850ms=0 3900ms=0 3950ms=0 4000ms=0 4050ms=0 4100ms=0 4150ms=0 4200ms=0 4250ms=0 4300ms=0 4350ms=0 4400ms=0 4450ms=0 4500ms=0 4550ms=0 4600ms=0 4650ms=0 4700ms=0 4750ms=0 4800ms=0 4850ms=0 4900ms=0 4950ms=5
+50th gpu percentile: 4ms
+90th gpu percentile: 13ms
+95th gpu percentile: 18ms
+99th gpu percentile: 4950ms
+GPU HISTOGRAM: 1ms=0 2ms=143 3ms=251 4ms=197 5ms=90 6ms=60 7ms=47 8ms=38 9ms=33 10ms=18 11ms=14 12ms=20 13ms=18 14ms=13 15ms=9 16ms=5 17ms=7 18ms=8 19ms=4 20ms=5 21ms=5 22ms=2 23ms=2 24ms=1 25ms=1 4950ms=31
+
+Pipeline=Skia (OpenGL)
+Memory policy:
+  Max surface area: 2592000
+  Max resource usage: 124.42MB (x48)
+  Background retention: 50% (altUiHidden = true)
+  GPU Context timeout: 10
+Contexts: 2 (stopped = 2)
+CPU Caches:
+  Glyph Cache: 5.20 KB (1 entry)
+  Glyph Count: 3 
+Total CPU memory usage:
+  5327 bytes, 5.20 KB (0.00 bytes is purgeable)
+GPU Caches:
+  Other:
+    Other: 0.00 bytes (1 entry)
+  Scratch:
+    Texture: 2.00 MB (1 entry)
+    Buffer Object: 48.00 KB (1 entry)
+Total GPU memory usage:
+  2146304 bytes, 2.05 MB (0.00 bytes is purgeable)
+
+GraphicBufferAllocator buffers:
+            Handle |         Size |     W (Stride) x H | Layers |   Format |      Usage | Requestor
+Total allocated by GraphicBufferAllocator (estimate): 0.00 KB
+Imported gralloc buffers:
+Total imported by gralloc: 0KiB
+
+Profile data in ms:
+
+	com.professionballarena.game/com.professionballarena.game.MainActivity/android.view.ViewRootImpl@9e77951 (visibility=8)
+	com.professionballarena.game/com.google.android.gms.ads.AdActivity/android.view.ViewRootImpl@42b85b6 (visibility=8)
+View hierarchy:
+
+  com.professionballarena.game/com.professionballarena.game.MainActivity/android.view.ViewRootImpl@9e77951
+  9 views, 12.58 kB of render nodes
+
+  com.professionballarena.game/com.google.android.gms.ads.AdActivity/android.view.ViewRootImpl@42b85b6
+  10 views, 16.73 kB of render nodes
+
+
+Total ViewRootImpl   : 2
+Total attached Views : 19
+Total RenderNode     : 29.31 kB (used) / 33.44 kB (capacity)
+

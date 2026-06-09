@@ -6,14 +6,17 @@ const GOOGLE_TEST_AD_UNITS = Object.freeze({
   android: {
     appOpen: "ca-app-pub-3940256099942544/1033173712",
     battleBanner: "ca-app-pub-3940256099942544/6300978111",
+    rewardedVideo: "ca-app-pub-3940256099942544/5224354917",
   },
   ios: {
     appOpen: "ca-app-pub-3940256099942544/4411468910",
     battleBanner: "ca-app-pub-3940256099942544/2934735716",
+    rewardedVideo: "ca-app-pub-3940256099942544/1712485313",
   },
   web: {
     appOpen: "mock-game-app-open",
     battleBanner: "mock-game-battle-banner",
+    rewardedVideo: "mock-game-rewarded-video",
   },
 });
 const REAL_AD_UNITS = Object.freeze({
@@ -25,10 +28,12 @@ const REAL_AD_UNITS = Object.freeze({
 const AD_UNIT_ENV_KEYS = Object.freeze({
   app_open: "APP_OPEN",
   battle_banner: "BATTLE_BANNER",
+  rewarded_video: "REWARDED_VIDEO",
 });
 const AD_FALLBACK_ENV_KEYS = Object.freeze({
   appOpen: "APP_OPEN",
   battleBanner: "BATTLE_BANNER",
+  rewardedVideo: "REWARDED_VIDEO",
 });
 const AD_MOB_MODES = Object.freeze({
   auto: "auto",
@@ -96,6 +101,7 @@ export const AnalyticsEvents = Object.freeze({
   performanceSnapshot: "performance_snapshot",
   reviewPromptRequest: "review_prompt_request",
   reviewPromptResult: "review_prompt_result",
+  rewardedAdGrant: "rewarded_ad_grant",
   storeReviewClick: "store_review_click",
   reportCardClick: "report_card_click",
   renderQualityChange: "render_quality_change",
@@ -617,6 +623,10 @@ export const ads = {
       return hasMetaAdApi(META_INTERSTITIAL_FORMAT);
     }
 
+    if (format === META_REWARDED_FORMAT) {
+      return !shouldUseNativeAdMob() || canUseAdMobRewardedVideo();
+    }
+
     return format === "banner" || format === "interstitial";
   },
   async initialize() {
@@ -748,6 +758,10 @@ export const ads = {
 
     if (isMetaInstantRuntime()) {
       return showMetaInstantRewardedVideo(placement);
+    }
+
+    if (shouldUseNativeAdMob()) {
+      return showAdMobRewardedVideo(placement);
     }
 
     return createMockAdResult(placement, META_REWARDED_FORMAT);
@@ -914,6 +928,36 @@ async function showAdMobBanner(placement, options = {}) {
   } catch (error) {
     console.warn("AdMob banner failed", placement, error);
     return createAdNotShownResult(placement, "banner", "admob_banner_failed", error);
+  }
+}
+
+async function showAdMobRewardedVideo(placement) {
+  const adMobModule = await getReadyAdMobModule();
+  if (!adMobModule?.AdMob) {
+    return createAdNotShownResult(placement, META_REWARDED_FORMAT, "admob_unavailable");
+  }
+
+  if (!canUseAdMobRewardedVideo()) {
+    return createAdNotShownResult(placement, META_REWARDED_FORMAT, "admob_rewarded_unit_missing");
+  }
+
+  const adId = getAdUnitId(placement, "rewardedVideo");
+  try {
+    await adMobModule.AdMob.prepareRewardVideoAd({
+      adId,
+      isTesting: isAdMobTestingEnabled(),
+      npa: shouldRequestNonPersonalizedAds(),
+      immersiveMode: true,
+    });
+    const reward = await adMobModule.AdMob.showRewardVideoAd();
+    return createNativeAdResult(placement, META_REWARDED_FORMAT, "native_rewarded", adId, {
+      rewarded: true,
+      reward_type: reward?.type || "ad_reward",
+      reward_amount: normalizeRewardAmount(reward?.amount),
+    });
+  } catch (error) {
+    console.warn("AdMob rewarded video failed", placement, error);
+    return createAdNotShownResult(placement, META_REWARDED_FORMAT, "admob_rewarded_failed", error);
   }
 }
 
@@ -1119,6 +1163,22 @@ function hasRealAdUnitsConfigured(platform) {
     getEnvAdUnitId(platform, AD_FALLBACK_ENV_KEYS.battleBanner) ||
     REAL_AD_UNITS[platform]?.battleBanner
   );
+}
+
+function canUseAdMobRewardedVideo(platform = getNativePlatform()) {
+  if (getResolvedAdMobMode() !== AD_MOB_MODES.real) {
+    return true;
+  }
+
+  return Boolean(
+    getEnvAdUnitId(platform, AD_FALLBACK_ENV_KEYS.rewardedVideo) ||
+    REAL_AD_UNITS[platform]?.rewardedVideo
+  );
+}
+
+function normalizeRewardAmount(amount) {
+  const parsedAmount = Number(amount);
+  return Number.isFinite(parsedAmount) ? parsedAmount : 1;
 }
 
 function getPlacementEnvKey(placement, fallbackKey) {

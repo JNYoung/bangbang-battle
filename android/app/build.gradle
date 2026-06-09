@@ -18,7 +18,7 @@ def releaseSigningReady = releaseStoreFile && releaseStorePassword && releaseKey
 def socialValue = { propertyName, envName, fallbackValue = '' ->
     project.findProperty(propertyName)?.toString() ?: System.getenv(envName) ?: fallbackValue
 }
-def facebookAppId = socialValue('facebookAppId', 'FACEBOOK_APP_ID')
+def facebookAppId = socialValue('facebookAppId', 'FACEBOOK_APP_ID', '1013763001162439')
 def facebookClientToken = socialValue('facebookClientToken', 'FACEBOOK_CLIENT_TOKEN')
 def tiktokClientKey = socialValue('tiktokClientKey', 'TIKTOK_CLIENT_KEY')
 def deepLinkHost = socialValue('deepLinkHost', 'BATTLE_DEEP_LINK_HOST', 'professionballarena.top')

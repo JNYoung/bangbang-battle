@@ -1,0 +1,2 @@
+  mCurrentFocus=Window{ec20079 u0 com.android.chrome/org.chromium.chrome.browser.ChromeTabbedActivity}
+  mFocusedApp=ActivityRecord{48546069 u0 com.android.chrome/org.chromium.chrome.browser.ChromeTabbedActivity t135}
