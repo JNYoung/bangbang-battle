@@ -38,6 +38,7 @@ export const DefaultSettings = {
   highlightTextEnabled: true,
   compactReportEnabled: false,
   quickSettlementEnabled: false,
+  matchRecordingEnabled: false,
 };
 
 export const REVIEW_SESSION_MIN_GAP_MS = 30 * 60 * 1000;

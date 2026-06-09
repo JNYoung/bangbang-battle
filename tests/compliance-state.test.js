@@ -188,6 +188,7 @@ test("feedback settings default on and persist toggles", () => {
   assert.equal(DefaultSettings.highlightTextEnabled, true);
   assert.equal(DefaultSettings.compactReportEnabled, false);
   assert.equal(DefaultSettings.quickSettlementEnabled, false);
+  assert.equal(DefaultSettings.matchRecordingEnabled, false);
   assert.equal(state.getSettings().vibrationEnabled, true);
   assert.equal(state.getSettings().musicEnabled, true);
   assert.equal(state.getSettings().soundEffectsEnabled, true);
@@ -195,6 +196,7 @@ test("feedback settings default on and persist toggles", () => {
   assert.equal(state.getSettings().highlightTextEnabled, true);
   assert.equal(state.getSettings().compactReportEnabled, false);
   assert.equal(state.getSettings().quickSettlementEnabled, false);
+  assert.equal(state.getSettings().matchRecordingEnabled, false);
 
   state.saveSettings({
     vibrationEnabled: false,
@@ -204,6 +206,7 @@ test("feedback settings default on and persist toggles", () => {
     highlightTextEnabled: false,
     compactReportEnabled: true,
     quickSettlementEnabled: true,
+    matchRecordingEnabled: true,
   });
 
   assert.deepEqual(createComplianceState({ storage }).getSettings(), {
@@ -215,6 +218,7 @@ test("feedback settings default on and persist toggles", () => {
     highlightTextEnabled: false,
     compactReportEnabled: true,
     quickSettlementEnabled: true,
+    matchRecordingEnabled: true,
   });
 });
 

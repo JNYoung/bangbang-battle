@@ -1,21 +1,24 @@
 # Google Play Release Pack
 
-Updated: 2026-05-29
+Updated: 2026-06-04
 
 This document is the Google Play submission checklist for `斗球球` / `Profession Ball Arena`.
 
 ## Current GP Readiness
 
-Status: ready for Play Console internal testing, pending manual Play Console account/app setup.
+Status: Play Console app created in draft state; App content declarations completed; ready for internal testing release creation.
 
 - Package name: `com.professionballarena.game`
 - App label: `斗球球`
+- Play Console developer ID: `6475068404690112678`
+- Play Console app ID: `4974008180505281318`
+- Android developer verification package status: registered on 2026-06-04.
 - Version: `versionCode 1`, `versionName 1.0`
 - Min SDK: 24
 - Target SDK: 36
 - Upload artifact: `android/app/build/outputs/bundle/release/app-release.aab`
-- AAB size: about 22 MB
-- AAB SHA-256: `fc20115cd2ac0ab37ebc4efb0480e8d9ee5b3fe9eee866693400079033906354`
+- AAB size: about 23 MB
+- AAB SHA-256: `5fdfc50397a2d1518e96d3ab67387ae4bd256752f77ba350c8f8be774c7844bf`
 - Release signing SHA-256: `35:59:BE:53:A5:E0:B3:D2:DB:DE:02:95:A6:42:27:E4:DB:25:07:3D:3E:6F:FD:49:D6:F2:77:6D:34:C7:FF:84`
 - Release signing valid until: 2053-10-08
 
@@ -78,6 +81,8 @@ Preview assets:
 
 ## App Content Answers
 
+Live Play Console status on 2026-06-04: all 10 App content declarations are completed, and the App content overview shows no declarations needing attention. Changes still need to be included in a release and sent through Publishing overview review.
+
 ### App Access
 
 - Does your app require login or restricted access? `No`
@@ -95,14 +100,14 @@ No login is required. On first launch, accept the Privacy Policy and User Agreem
 
 ### Target Audience
 
-- Target age group: `13+` recommended.
+- Target age group: `13-15`, `16-17`, and `18+`.
 - Designed for children: `No`
 - Family policy / Designed for Families: `Do not enroll`
 - Rationale: The game contains mild cartoon/fantasy combat, HP values, weapons, and ads; it is not designed as a child-directed product.
 
 ### Content Rating
 
-Suggested answers:
+Submitted IARC summary:
 
 - Violence: mild cartoon/fantasy violence.
 - Blood/gore: none.
@@ -113,6 +118,7 @@ Suggested answers:
 - Location sharing: none.
 - In-app purchases: no real IAP in current version.
 - Ads: yes.
+- Result shown in Play Console: ESRB Everyone, PEGI 7, IARC Generic 7+, with mild fantasy/cartoon violence style labels.
 
 ### News, Health, Financial, Government, COVID, VPN
 
@@ -130,7 +136,7 @@ Answer: `Yes`, because Firebase Analytics and AdMob may process analytics, diagn
 
 ### Data Types
 
-Declare only what is actually active in the build:
+Declared in the live Play Console form:
 
 - App activity
   - App interactions
@@ -147,7 +153,7 @@ Declare only what is actually active in the build:
 
 ### Purposes
 
-Recommended purposes:
+Declared purposes for collected and shared data:
 
 - Analytics
 - Advertising or marketing
@@ -156,8 +162,7 @@ Recommended purposes:
 
 ### Sharing
 
-- AdMob/Firebase process data as SDK providers. In the Play form, answer according to Google's Data safety instructions for SDKs and service providers.
-- If the form treats AdMob ad processing as sharing, declare sharing for advertising-related data.
+- The live form declares these data types as both collected and shared: app interactions, diagnostics, other app performance data, and device or other IDs.
 
 ### Security Practices
 
@@ -165,6 +170,8 @@ Recommended purposes:
 - Users can request data deletion: `Yes`
 - Data deletion URL: `https://professionballarena.top/data-deletion/`
 - Users can opt out of analytics/ads in-app: `Yes`, via Settings and consent withdrawal.
+- Account creation: `No`
+- External account login: `No`
 
 ## Permissions And SDK Notes
 
@@ -179,6 +186,7 @@ Merged release manifest still includes dependency-normal permissions such as net
 - `android.permission.ACCESS_ADSERVICES_AD_ID`: removed.
 - `android.permission.ACCESS_ADSERVICES_ATTRIBUTION`: removed.
 - `android.permission.ACCESS_ADSERVICES_TOPICS`: removed.
+- `android.permission.ACCESS_ADSERVICES_CUSTOM_AUDIENCE`: removed.
 - `android.permission.WAKE_LOCK`: removed.
 - `android.permission.RECEIVE_BOOT_COMPLETED`: removed.
 - `android.permission.FOREGROUND_SERVICE`: removed.
@@ -187,17 +195,21 @@ Merged release manifest still includes dependency-normal permissions such as net
 
 Recommended sequence:
 
-1. Create app in Play Console using package `com.professionballarena.game`.
-2. Enable Google Play App Signing.
+1. App record created in Play Console using package `com.professionballarena.game`.
+2. Play App Signing terms accepted during app creation; choose/confirm the signing key when creating the first bundle release.
 3. Upload `android/app/build/outputs/bundle/release/app-release.aab` to Internal testing.
 4. Add at least one internal tester account.
-5. Complete App content:
+5. App content completed:
    - Privacy policy
    - Ads declaration
    - App access
    - Content rating questionnaire
    - Target audience
    - Data safety
+   - Advertising ID
+   - Government apps
+   - Financial products and services
+   - Health apps
 6. Add store listing and screenshots.
 7. Roll out internal test.
 8. Install from Play internal test link and run:
@@ -211,8 +223,10 @@ Recommended sequence:
 
 ## Known Blockers Before Production
 
-- Play Console app record must be created manually.
-- Data safety answers must be confirmed in the live Play Console UI; SDK disclosures can change.
+- Production access is locked until the app completes the required closed testing flow: at least 12 opted-in testers for at least 14 days, then apply for production access from the app dashboard.
+- App content changes must be sent for review through Publishing overview with a release.
+- Play Console showed a crawler warning for `https://professionballarena.top/data-deletion/`, but local HTTP checks returned `200 OK`; recheck this warning before sending for review if it persists.
+- Data safety answers must be rechecked if SDK behavior changes.
 - Feature graphic 1024 x 500 should be generated/uploaded if Play Console marks it required.
 - If publishing broadly outside test tracks, confirm AdMob app approval and ad serving status.
 - If targeting mainland China distribution through Google Play is considered, confirm legal/commercial availability separately.

@@ -2,6 +2,7 @@ node_modules/
 dist/
 .tmp/
 release/
+ops-materials/
 .DS_Store
 npm-debug.log*
 

@@ -1,0 +1,67 @@
+Applications Memory Usage (in Kilobytes):
+Uptime: 1256161425 Realtime: 1256161425
+
+** MEMINFO in pid 29627 [com.professionballarena.game] **
+                   Pss  Private  Private  SwapPss      Rss     Heap     Heap     Heap
+                 Total    Dirty    Clean    Dirty    Total     Size    Alloc     Free
+                ------   ------   ------   ------   ------   ------   ------   ------
+  Native Heap    20960    20924       16       87    21892    35740    28929     2526
+  Dalvik Heap     5887     5840       24      178     6536    10115     5058     5057
+ Dalvik Other    10281     3960        4       16    16844                           
+        Stack     2688     2688        0        4     2696                           
+       Ashmem     1239      176        0        0     2772                           
+    Other dev       30        0       24        0      340                           
+     .so mmap     6727      496     3064       26    39204                           
+    .jar mmap     7677        0     3492        0    45516                           
+    .apk mmap    16743      500     4108        0    50664                           
+    .ttf mmap      456        0      280        0      632                           
+    .dex mmap       74        0        0        0      956                           
+    .oat mmap      154        0       92        0     1708                           
+    .art mmap     7202     6036      420     3338    20776                           
+   Other mmap     3996      116      192        0     8972                           
+      Unknown    32066    31848      204       10    32528                           
+        TOTAL   119839    72584    11920     3659   252036    45855    33987     7583
+ 
+ App Summary
+                       Pss(KB)                        Rss(KB)
+                        ------                         ------
+           Java Heap:    12296                          27312
+         Native Heap:    20924                          21892
+                Code:    12036                         151304
+               Stack:     2688                           2696
+            Graphics:        0                              0
+       Private Other:    36560
+              System:    35335
+             Unknown:                                   48832
+ 
+           TOTAL PSS:   119839            TOTAL RSS:   252036       TOTAL SWAP PSS:     3659
+ 
+ Objects
+               Views:        9         ViewRootImpl:        1
+         AppContexts:        7           Activities:        1
+              Assets:       23        AssetManagers:        0
+       Local Binders:       47        Proxy Binders:       72
+       Parcel memory:       21         Parcel count:       84
+    Death Recipients:        4             WebViews:        1
+ 
+ Native Allocations
+                         Count                       Total(kB)
+                        ------                         ------
+    Other (malloced):      359                             32
+ Other (nonmalloced):      139                             94
+   Bitmap (malloced):        2                            144
+ 
+ SQL
+         MEMORY_USED:      258
+  PAGECACHE_OVERFLOW:       71          MALLOC_SIZE:       46
+ 
+ DATABASES
+      pgsz     dbsz   Lookaside(b) cache hits cache misses cache size  Dbname
+PER CONNECTION STATS
+         4       96            123     7    37     9  /data/user/0/com.professionballarena.game/no_backup/androidx.work.workdb
+         4        8                    0     0     0    (attached) temp
+         4       96             32     2    15     3  /data/user/0/com.professionballarena.game/no_backup/androidx.work.workdb (2)
+POOL STATS
+     cache hits  cache misses    cache size  Dbname
+              9            56            12  /data/user/0/com.professionballarena.game/no_backup/androidx.work.workdb
+ 

@@ -1,0 +1,579 @@
+--------- beginning of main
+06-04 22:00:17.889 30023 30023 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: gfxinfo
+--------- beginning of system
+06-04 22:00:17.889 15424 17704 D ActivityManager: freezer override set to true
+06-04 22:00:17.889 15424 17704 D ActivityManager: sync unfroze 23983 android.process.media for 19
+06-04 22:00:17.890 15424 17704 D ActivityManager: sync unfroze 18915 com.google.android.settings.intelligence for 19
+06-04 22:00:17.890 15424 17704 D ActivityManager: sync unfroze 22615 com.android.providers.calendar for 19
+06-04 22:00:17.890 15424 17704 D ActivityManager: sync unfroze 23252 com.google.android.partnersetup for 19
+06-04 22:00:17.890 15424 17704 D ActivityManager: sync unfroze 22525 android.process.acore for 19
+06-04 22:00:17.890 15424 17704 D ActivityManager: sync unfroze 26446 com.google.android.apps.photos for 19
+06-04 22:00:17.890 15424 17704 D ActivityManager: sync unfroze 24532 com.android.vending:quick_launch for 19
+06-04 22:00:17.890 15424 17704 D ActivityManager: sync unfroze 23853 com.google.android.documentsui for 19
+06-04 22:00:17.890 15424 17704 D ActivityManager: sync unfroze 22378 com.google.android.adservices.api for 19
+06-04 22:00:17.893 15424 17704 D ActivityManager: sync unfroze 28956 com.google.android.as.oss for 19
+06-04 22:00:17.894 15424 17704 D ActivityManager: sync unfroze 29258 com.android.providers.partnerbookmarks for 19
+06-04 22:00:17.894 15424 17704 D ActivityManager: sync unfroze 23802 com.android.vending:background for 19
+06-04 22:00:17.896 15424 17704 D ActivityManager: sync unfroze 28332 com.google.android.apps.wellbeing for 19
+06-04 22:00:17.896 15424 17704 D ActivityManager: sync unfroze 22302 com.google.android.webview:webview_service for 19
+06-04 22:00:17.896 15424 17704 D ActivityManager: sync unfroze 22390 com.google.android.permissioncontroller for 19
+06-04 22:00:17.897 15424 17704 D ActivityManager: sync unfroze 28283 com.android.vending for 19
+06-04 22:00:17.897 15424 17704 D ActivityManager: sync unfroze 23930 com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0 for 19
+06-04 22:00:17.897 15424 17704 D ActivityManager: sync unfroze 23759 com.arrowagain.game for 19
+06-04 22:00:17.923 15424 17704 D ActivityManager: freezer override set to false
+06-04 22:00:17.935 23853 23853 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:17.952 23853 23853 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:17.960 24532 24532 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:17.978 30036 30036 I perfetto:    perfetto_cmd.cc:1048 Connected to the Perfetto traced service, TTL: 36s
+06-04 22:00:17.978   569   569 I perfetto: ng_service_impl.cc:1199 Configured tracing session 2, #sources:4, duration:36000 ms, #buffers:1, total buffer size:32768 KB, total sessions:1, uid:2000 session name: ""
+06-04 22:00:17.980   568   568 I perfetto:  probes_producer.cc:134 Ftrace setup (target_buf=2)
+06-04 22:00:17.981   568   568 I perfetto:          tracefs.cc:611 disabled ftrace in /sys/kernel/tracing/
+06-04 22:00:17.983 24532 24532 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.027 22378 22378 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.058 23802 23840 I Finsky:background: [55] Stats for Executor: bgExecutor trs@7d79f8b[Running, pool size = 4, active threads = 0, queued tasks = 0, completed tasks = 254]
+06-04 22:00:18.058 23802 23840 I Finsky:background: [55] Stats for Executor: LightweightExecutor trs@88d5e5f[Running, pool size = 2, active threads = 0, queued tasks = 0, completed tasks = 142]
+06-04 22:00:18.058 23802 23840 I Finsky:background: [55] Stats for Executor: BlockingExecutor trs@d55271e[Running, pool size = 2, active threads = 0, queued tasks = 0, completed tasks = 60]
+06-04 22:00:18.068 26446 26446 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.069 22525 22525 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.084 22378 22378 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.084 24532 24532 I Finsky:quick_launch: [2] Memory trim requested to level 40
+06-04 22:00:18.086 18915 18915 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.094 24532 24562 I Finsky:quick_launch: [56] Stats for Executor: bgExecutor trs@e0db477[Running, pool size = 4, active threads = 0, queued tasks = 0, completed tasks = 28]
+06-04 22:00:18.094 24532 24562 I Finsky:quick_launch: [56] Stats for Executor: LightweightExecutor trs@7d79f8b[Running, pool size = 2, active threads = 0, queued tasks = 0, completed tasks = 52]
+06-04 22:00:18.094 24532 24562 I Finsky:quick_launch: [56] Stats for Executor: BlockingExecutor trs@460400a[Running, pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 2]
+06-04 22:00:18.105   568   568 I perfetto:          tracefs.cc:608 enabled ftrace in /sys/kernel/tracing/
+06-04 22:00:18.106 22525 22525 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.117 28283 28283 I Finsky  : [2] Memory trim requested to level 40
+06-04 22:00:18.145 26446 26446 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.155 23252 23252 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.155 18915 18915 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.168 28283 28283 I Finsky  : [2] Flushing in-memory image cache
+06-04 22:00:18.181 28956 28956 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.186 23252 23252 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.186 28283 28316 I Finsky  : [56] Stats for Executor: LightweightExecutor trs@e9f2113[Running, pool size = 2, active threads = 0, queued tasks = 0, completed tasks = 351]
+06-04 22:00:18.186 28283 28316 I Finsky  : [56] Stats for Executor: BlockingExecutor trs@477bd05[Running, pool size = 2, active threads = 2, queued tasks = 0, completed tasks = 70]
+06-04 22:00:18.186 28283 28316 I Finsky  : [56] Stats for Executor: bgExecutor trs@58eba57[Running, pool size = 4, active threads = 0, queued tasks = 2, completed tasks = 3453]
+06-04 22:00:18.195 23802 23802 I Finsky:background: [2] Memory trim requested to level 40
+06-04 22:00:18.234 22615 22615 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.235 22615 22615 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.286 23983 23983 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.287 23983 23983 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.291 28956 28956 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.315 29258 29265 W artnerbookmarks: Suspending all threads took: 237.388ms
+06-04 22:00:18.324 29258 29258 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.328 29258 29258 D ActivityThread: Package [com.professionballarena.game] reported as REPLACED, but missing application info. Assuming REMOVED.
+06-04 22:00:18.350 15949 30050 D NetworkMonitor/101: PROBE_DNS connectivitycheck.gstatic.com 20ms OK 120.253.244.226
+06-04 22:00:18.360 15949 30049 D NetworkMonitor/101: PROBE_DNS www.google.com 33ms OK 69.171.235.22,2001:4860:4829:7700::,2001:4860:482a:7700::,2001:4860:4828:7700::,2001:4860:482c:7700::,2001:4860:4827:7700::,2001:4860:482d:7700::,2001:4860:4826:7700::,2001:4860:482b:7700::
+06-04 22:00:18.392 28283 29387 I Finsky  : [224] Received Heterodyne sync response. StatusCode=-1
+06-04 22:00:17.979   568   568 W traced_probes: type=1400 audit(0.0:3892): avc:  denied  { read } for  name="current_tracer" dev="tracefs" ino=66 scontext=u:r:traced_probes:s0 tcontext=u:object_r:debugfs_tracing_debug:s0 tclass=file permissive=0
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: Sync failed
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: com.google.android.gms.phenotype.core.common.PhenotypeRuntimeException: 29504: Network error
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at aygo.H(PG:1473)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at aygo.n(PG:121)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at azra.e(PG:226)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bbsg.call(PG:263)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at befi.call(PG:13)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bgab.a(PG:3)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bfzg.run(PG:19)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bgac.run(PG:5)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1154)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:652)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bgwa.run(PG:59)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at java.lang.Thread.run(Thread.java:1563)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: Caused by: org.apache.http.conn.HttpHostConnectException: Connection to https://www.googleapis.com refused
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at org.apache.http.impl.conn.DefaultClientConnectionOperator.openConnection(DefaultClientConnectionOperator.java:193)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at org.apache.http.impl.conn.AbstractPoolEntry.open(AbstractPoolEntry.java:170)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at org.apache.http.impl.conn.AbstractPooledConnAdapter.open(AbstractPooledConnAdapter.java:124)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at org.apache.http.impl.client.DefaultRequestDirector.execute(DefaultRequestDirector.java:366)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at org.apache.http.impl.client.AbstractHttpClient.execute(AbstractHttpClient.java:560)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at org.apache.http.impl.client.AbstractHttpClient.execute(AbstractHttpClient.java:492)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at org.apache.http.impl.client.AbstractHttpClient.execute(AbstractHttpClient.java:470)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bdlo.execute(PG:5)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bfni.c(PG:7)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bdls.b(PG:81)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bdls.execute(PG:23)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at bdls.execute(PG:13)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at aygs.a(PG:211)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at ayho.f(PG:1)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at aygs.b(PG:1)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at aygo.H(PG:121)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	... 11 more
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: Caused by: java.net.ConnectException: failed to connect to /2404:6800:4012:6::200a (port 443) from /fec0::616e:461e:1be7:d39c (port 47628) after 20000ms: isConnected failed: EHOSTUNREACH (No route to host)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at libcore.io.IoBridge.isConnected(IoBridge.java:347)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at libcore.io.IoBridge.connectErrno(IoBridge.java:237)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at libcore.io.IoBridge.connect(IoBridge.java:179)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at java.net.PlainSocketImpl.socketConnect(PlainSocketImpl.java:142)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:390)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:230)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:212)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:436)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at java.net.Socket.connect(Socket.java:646)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at org.apache.http.conn.scheme.PlainSocketFactory.connectSocket(PlainSocketFactory.java:124)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at org.apache.http.impl.conn.DefaultClientConnectionOperator.openConnection(DefaultClientConnectionOperator.java:149)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	... 26 more
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: Caused by: android.system.ErrnoException: isConnected failed: EHOSTUNREACH (No route to host)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	at libcore.io.IoBridge.isConnected(IoBridge.java:334)
+06-04 22:00:18.464 28283 29387 W HeterodyneSyncer: 	... 36 more
+06-04 22:00:18.465 28332 28332 W TimedProcessReaper: Memory state is: 400
+06-04 22:00:18.469 15949 30050 D NetworkMonitor/101: PROBE_HTTP http://connectivitycheck.gstatic.com/generate_204 time=118ms ret=204 request={Connection=[close], User-Agent=[Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36]} headers={null=[HTTP/1.1 204 No Content], Connection=[close], Content-Length=[0], Cross-Origin-Resource-Policy=[cross-origin], Date=[Thu, 04 Jun 2026 14:00:34 GMT], X-Android-Received-Millis=[1780581618469], X-Android-Response-Source=[NETWORK 204], X-Android-Selected-Protocol=[http/1.1], X-Android-Sent-Millis=[1780581618405]}
+06-04 22:00:18.473 28332 28332 W TimedProcessReaper: Killing process to refresh configuration
+06-04 22:00:18.476 28332 28332 I Process : Sending signal. PID: 28332 SIG: 9
+06-04 22:00:18.518 28283 29387 I HeterodyneSyncer: Sync completed. fetchReason: NEW_APPLICATION_SYNC, fetchPackageName: com.google.android.finsky.stable, syncErrorType: A_SYNC_FAILED, individual sync errors: NETWORK.
+06-04 22:00:18.521 28283 29387 I HeterodyneSyncer: Finished notifying packages after sync. syncLatency: 280990
+06-04 22:00:18.521 28283 28925 E Finsky  : [204] Failed to registerSync with Phenotype for experiment package com.google.android.finsky.stable.
+06-04 22:00:18.521 28283 28925 E Finsky  : java.util.concurrent.ExecutionException: com.google.android.libraries.phenotype.client.api.PhenotypeRuntimeException: 29504: 29504: Network error
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bfxe.h(PG:21)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bfxm.t(PG:71)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bfxe.get(PG:1)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at afsa.h(PG:37)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at afsa.doInBackground(PG:45)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at afsc.d(PG:4)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at zkl.call(PG:748)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bgab.a(PG:3)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bfzg.run(PG:19)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bgac.run(PG:5)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bfzu.run(PG:64)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1154)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:652)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bgwa.run(PG:59)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at java.lang.Thread.run(Thread.java:1563)
+06-04 22:00:18.521 28283 28925 E Finsky  : Caused by: com.google.android.libraries.phenotype.client.api.PhenotypeRuntimeException: 29504: 29504: Network error
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bbsg.call(PG:283)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at befi.call(PG:13)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bgab.a(PG:3)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bfzg.run(PG:19)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bgac.run(PG:5)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	... 4 more
+06-04 22:00:18.521 28283 28925 E Finsky  : Caused by: com.google.android.gms.phenotype.core.common.PhenotypeRuntimeException: 29504: Network error
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at aygo.H(PG:1473)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at aygo.n(PG:121)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at azra.e(PG:226)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bbsg.call(PG:263)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	... 8 more
+06-04 22:00:18.521 28283 28925 E Finsky  : Caused by: org.apache.http.conn.HttpHostConnectException: Connection to https://www.googleapis.com refused
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at org.apache.http.impl.conn.DefaultClientConnectionOperator.openConnection(DefaultClientConnectionOperator.java:193)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at org.apache.http.impl.conn.AbstractPoolEntry.open(AbstractPoolEntry.java:170)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at org.apache.http.impl.conn.AbstractPooledConnAdapter.open(AbstractPooledConnAdapter.java:124)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at org.apache.http.impl.client.DefaultRequestDirector.execute(DefaultRequestDirector.java:366)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at org.apache.http.impl.client.AbstractHttpClient.execute(AbstractHttpClient.java:560)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at org.apache.http.impl.client.AbstractHttpClient.execute(AbstractHttpClient.java:492)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at org.apache.http.impl.client.AbstractHttpClient.execute(AbstractHttpClient.java:470)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bdlo.execute(PG:5)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bfni.c(PG:7)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bdls.b(PG:81)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bdls.execute(PG:23)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at bdls.execute(PG:13)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at aygs.a(PG:211)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at ayho.f(PG:1)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at aygs.b(PG:1)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at aygo.H(PG:121)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	... 11 more
+06-04 22:00:18.521 28283 28925 E Finsky  : Caused by: java.net.ConnectException: failed to connect to /2404:6800:4012:6::200a (port 443) from /fec0::616e:461e:1be7:d39c (port 47628) after 20000ms: isConnected failed: EHOSTUNREACH (No route to host)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at libcore.io.IoBridge.isConnected(IoBridge.java:347)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at libcore.io.IoBridge.connectErrno(IoBridge.java:237)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at libcore.io.IoBridge.connect(IoBridge.java:179)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at java.net.PlainSocketImpl.socketConnect(PlainSocketImpl.java:142)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:390)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:230)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:212)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:436)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at java.net.Socket.connect(Socket.java:646)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at org.apache.http.conn.scheme.PlainSocketFactory.connectSocket(PlainSocketFactory.java:124)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at org.apache.http.impl.conn.DefaultClientConnectionOperator.openConnection(DefaultClientConnectionOperator.java:149)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	... 26 more
+06-04 22:00:18.521 28283 28925 E Finsky  : Caused by: android.system.ErrnoException: isConnected failed: EHOSTUNREACH (No route to host)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	at libcore.io.IoBridge.isConnected(IoBridge.java:334)
+06-04 22:00:18.521 28283 28925 E Finsky  : 	... 36 more
+06-04 22:00:18.531 22378 22382 W .adservices.api: Reducing the number of considered missed Gc histogram windows from 20320 to 100
+06-04 22:00:18.534 28283 28348 E Finsky  : [67] ItemStore: getItems RPC failed for item com.professionballarena.game
+06-04 22:00:18.537 28283 28352 E Finsky  : [69] ItemStore: getItems RPC failed for item com.professionballarena.game
+06-04 22:00:18.537 24532 24592 I PlayCommon: [70] Preparing logs for uploading
+06-04 22:00:18.547 28283 28446 I PlayCommon: [94] Preparing logs for uploading
+06-04 22:00:18.564 28283 28446 I PlayCommon: [94] Connecting to server for timestamp: https://play.googleapis.com/play/log/timestamp
+06-04 22:00:18.565 24532 24592 I PlayCommon: [70] Connecting to server for timestamp: https://play.googleapis.com/play/log/timestamp
+06-04 22:00:18.590 15424 16791 I ActivityManager: Process com.google.android.apps.wellbeing (pid 28332) has died: cch CEM 
+06-04 22:00:18.596 15245 15245 I Zygote  : Process 28332 exited due to signal 9 (Killed)
+06-04 22:00:18.601 15424 15540 I libprocessgroup: Removed cgroup /sys/fs/cgroup/apps/uid_10159/pid_28332
+06-04 22:00:18.774 30071 30071 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package
+06-04 22:00:18.824 15690 15692 I artd    : GetBestInfo: odex next to the dex file (/product/priv-app/PrebuiltGmsCore/oat/arm64/PrebuiltGmsCore.odex) is kOatUpToDate with filter 'verify' executable 'false'
+06-04 22:00:18.824 15690 19514 W artd    : Could not get dex checksums for location /data/app/~~n4kQt_qV4sELtgvUB_MreQ==/com.arrowagain.game-eWnpHANVuymeyIjJp0n_fg==/base.apk, fd=-1
+06-04 22:00:18.827 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/0000000a/dl-MlkitOcrCommon.optional_253434100400.apk has no usable artifacts
+06-04 22:00:18.829 15690 15692 I artd    : GetBestInfo: /data/user/0/com.google.android.gms/app_dg_cache/DD26CFCA40A2391A1E3626BBAF83BD500298C9F7/the.apk has no usable artifacts
+06-04 22:00:18.830 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000001/CronetDynamite.apk has no usable artifacts
+06-04 22:00:18.830 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.apk has no usable artifacts
+06-04 22:00:18.830 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000005/GoogleCertificates.apk has no usable artifacts
+06-04 22:00:18.832 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000009/dl-TfliteDynamiteDynamite.integ_252130102100400.apk has no usable artifacts
+06-04 22:00:18.833 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000008/dl-VisionOcr.optional_253434100000.apk has no usable artifacts
+06-04 22:00:18.833 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000007/MeasurementDynamite.apk has no usable artifacts
+06-04 22:00:20.043 15424 15635 D ActivityManager: freezing 26137 com.android.settings
+06-04 22:00:20.044 15424 15635 D ActivityManager: freezing 23675 com.android.keychain
+06-04 22:00:20.191 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:21.806 17076 17252 D SatelliteController: iisInCarrierRoamingNbIotNtn: satellite is disabled
+06-04 22:00:21.806 17076 17252 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-04 22:00:23.197 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:23.995 15254 15295 D AudioFlinger: mixer(0xb4000079be881790) throttle end: throttle time(1)
+06-04 22:00:24.371 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:00:26.200 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:27.957 15424 15635 D ActivityManager: freezing 23983 android.process.media
+06-04 22:00:27.958 15424 15635 D ActivityManager: freezing 18915 com.google.android.settings.intelligence
+06-04 22:00:27.960 15424 15635 D ActivityManager: freezing 22615 com.android.providers.calendar
+06-04 22:00:27.961 15424 15635 D ActivityManager: freezing 23252 com.google.android.partnersetup
+06-04 22:00:27.962 15424 15635 D ActivityManager: freezing 26446 com.google.android.apps.photos
+06-04 22:00:27.963 15424 15635 D ActivityManager: freezing 24532 com.android.vending:quick_launch
+06-04 22:00:27.964 15424 15635 D ActivityManager: freezing 22378 com.google.android.adservices.api
+06-04 22:00:27.964 15424 15635 D ActivityManager: freezing 28956 com.google.android.as.oss
+06-04 22:00:27.964 15424 15635 D ActivityManager: freezing 29258 com.android.providers.partnerbookmarks
+06-04 22:00:27.965 15424 15635 D ActivityManager: freezing 23802 com.android.vending:background
+06-04 22:00:27.965 15424 15635 D ActivityManager: freezing 22302 com.google.android.webview:webview_service
+06-04 22:00:27.966 15424 15635 D ActivityManager: freezing 22390 com.google.android.permissioncontroller
+06-04 22:00:27.966 15424 15635 D ActivityManager: freezing 22525 android.process.acore
+06-04 22:00:27.968 15424 15635 D ActivityManager: freezing 23853 com.google.android.documentsui
+06-04 22:00:27.968 15424 15635 D ActivityManager: freezing 28283 com.android.vending
+06-04 22:00:27.968 15424 15635 D ActivityManager: freezing 23930 com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0
+06-04 22:00:27.969 15424 15635 D ActivityManager: freezing 23759 com.arrowagain.game
+06-04 22:00:27.971 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.971 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.971 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10111} in 1ms
+06-04 22:00:27.972 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.976 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.976 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10157} in 5ms
+06-04 22:00:27.977 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.977 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.977 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10106} in 0ms
+06-04 22:00:27.977 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.977 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.977 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10152} in 0ms
+06-04 22:00:27.989 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.989 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.989 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10170} in 1ms
+06-04 22:00:27.990 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.990 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.990 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10202} in 0ms
+06-04 22:00:27.990 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.990 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.990 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10144} in 1ms
+06-04 22:00:27.990 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.991 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.991 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10136} in 0ms
+06-04 22:00:27.991 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.991 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.991 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10180} in 0ms
+06-04 22:00:27.996 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.996 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.996 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10223} in 5ms
+06-04 22:00:27.996 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:27.996 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:27.996 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10104} in 0ms
+06-04 22:00:28.034 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:28.034 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:28.034 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10110} in 0ms
+06-04 22:00:28.037 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:28.037 15424 15755 D InetDiagMessage: Destroyed 4 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:28.037 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10153} in 0ms
+06-04 22:00:28.084 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:28.085 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:28.085 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={99002} in 0ms
+06-04 22:00:28.085 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+06-04 22:00:28.085 15424 15755 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+06-04 22:00:28.085 15424 15755 D InetDiagMessage: Destroyed live tcp sockets for uids={10226} in 0ms
+06-04 22:00:28.344 15424 15538 D ActivityManager: sync unfroze 26137 com.android.settings for 10
+06-04 22:00:28.346 15424 15538 D ActivityManager: sync unfroze 23675 com.android.keychain for 10
+06-04 22:00:28.383 15949 30049 D NetworkMonitor/101: PROBE_HTTPS https://www.google.com/generate_204 Probe failed with exception java.net.ConnectException: Failed to connect to www.google.com/[2001:4860:482c:7700::]:443
+06-04 22:00:28.781 30078 30078 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package
+06-04 22:00:28.832 15690 19514 I artd    : GetBestInfo: odex next to the dex file (/product/priv-app/PrebuiltGmsCore/oat/arm64/PrebuiltGmsCore.odex) is kOatUpToDate with filter 'verify' executable 'false'
+06-04 22:00:28.835 15690 15692 W artd    : Could not get dex checksums for location /data/app/~~n4kQt_qV4sELtgvUB_MreQ==/com.arrowagain.game-eWnpHANVuymeyIjJp0n_fg==/base.apk, fd=-1
+06-04 22:00:28.836 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/0000000a/dl-MlkitOcrCommon.optional_253434100400.apk has no usable artifacts
+06-04 22:00:28.840 15690 19816 I artd    : GetBestInfo: /data/user/0/com.google.android.gms/app_dg_cache/DD26CFCA40A2391A1E3626BBAF83BD500298C9F7/the.apk has no usable artifacts
+06-04 22:00:28.841 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000001/CronetDynamite.apk has no usable artifacts
+06-04 22:00:28.841 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.apk has no usable artifacts
+06-04 22:00:28.841 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000005/GoogleCertificates.apk has no usable artifacts
+06-04 22:00:28.843 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000009/dl-TfliteDynamiteDynamite.integ_252130102100400.apk has no usable artifacts
+06-04 22:00:28.846 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000008/dl-VisionOcr.optional_253434100000.apk has no usable artifacts
+06-04 22:00:28.848 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000007/MeasurementDynamite.apk has no usable artifacts
+06-04 22:00:29.204 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:31.341 15949 30048 D NetworkMonitor/101: PROBE_FALLBACK http://www.google.com/gen_204 Probe failed with exception java.net.ConnectException: Failed to connect to www.google.com/[2001:4860:4829:7700::]:80
+06-04 22:00:31.343 15949 30048 D NetworkMonitor/101: isCaptivePortal: isSuccessful()=false isPortal()=false RedirectUrl=null isPartialConnectivity()=true Time=13021ms
+06-04 22:00:31.345 15424 15755 D ConnectivityService: [101 WIFI] validation failed
+06-04 22:00:31.817 17076 17252 D SatelliteController: iisInCarrierRoamingNbIotNtn: satellite is disabled
+06-04 22:00:31.817 17076 17252 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-04 22:00:32.206 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:34.420 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:00:35.213 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:37.965 29627 29684 D AAudio  : AAudioStream_requestStop(s#1) called
+06-04 22:00:37.966 29627 29684 D AAudioStream: setState(s#1) from 4 to 9
+06-04 22:00:37.966 29627 29684 D AudioTrack: stop(22): called with 3344256 frames delivered
+06-04 22:00:37.966 15424 16829 E AppOps  : attributionTag  not declared in manifest of com.professionballarena.game
+06-04 22:00:37.967 15424 17061 E AppOps  : attributionTag  not declared in manifest of com.professionballarena.game
+06-04 22:00:37.967 29627 29684 D AAudioStream: setState(s#1) from 9 to 10
+06-04 22:00:38.218 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:38.774 30085 30085 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package
+06-04 22:00:38.815 15690 19514 I artd    : GetBestInfo: odex next to the dex file (/product/priv-app/PrebuiltGmsCore/oat/arm64/PrebuiltGmsCore.odex) is kOatUpToDate with filter 'verify' executable 'false'
+06-04 22:00:38.817 15690 19514 W artd    : Could not get dex checksums for location /data/app/~~n4kQt_qV4sELtgvUB_MreQ==/com.arrowagain.game-eWnpHANVuymeyIjJp0n_fg==/base.apk, fd=-1
+06-04 22:00:38.818 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/0000000a/dl-MlkitOcrCommon.optional_253434100400.apk has no usable artifacts
+06-04 22:00:38.820 15690 19816 I artd    : GetBestInfo: /data/user/0/com.google.android.gms/app_dg_cache/DD26CFCA40A2391A1E3626BBAF83BD500298C9F7/the.apk has no usable artifacts
+06-04 22:00:38.820 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000001/CronetDynamite.apk has no usable artifacts
+06-04 22:00:38.820 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.apk has no usable artifacts
+06-04 22:00:38.820 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000005/GoogleCertificates.apk has no usable artifacts
+06-04 22:00:38.821 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000009/dl-TfliteDynamiteDynamite.integ_252130102100400.apk has no usable artifacts
+06-04 22:00:38.824 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000008/dl-VisionOcr.optional_253434100000.apk has no usable artifacts
+06-04 22:00:38.824 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000007/MeasurementDynamite.apk has no usable artifacts
+06-04 22:00:41.002 15253 22269 D android.hardware.audio@7.1-impl.ranchu: threadLoop: entering standby, frames: 10266368
+06-04 22:00:41.002 15253 22269 D android.hardware.audio@7.1-impl.ranchu: ~TinyalsaSink: joining consumeThread
+06-04 22:00:41.013 15253 29919 D android.hardware.audio@7.1-impl.ranchu: consumeThread: exiting
+06-04 22:00:41.013 15253 22269 D android.hardware.audio@7.1-impl.ranchu: ~TinyalsaSink: stopping PCM stream
+06-04 22:00:41.223 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:41.810 17076 17252 D SatelliteController: iisInCarrierRoamingNbIotNtn: satellite is disabled
+06-04 22:00:41.810 17076 17252 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-04 22:00:42.967 29627 29684 D AAudio  : AAudioStream_requestStop(s#1) called
+06-04 22:00:42.967 29627 29684 D AAudio  : AAudioStream_close(s#1) called ---------------
+06-04 22:00:42.967 29627 29684 D AAudioStream: setState(s#1) from 10 to 11
+06-04 22:00:42.969 29627 29684 D AAudioStream: setState(s#1) from 11 to 12
+06-04 22:00:42.969 29627 29684 D AAudioStream: ~AudioStream(s#1) mPlayerBase strongCount = 2
+06-04 22:00:42.969 29627 29684 D AAudio  : AAudioStream_close(s#1) returned 0 ---------
+06-04 22:00:44.229 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:44.466 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:00:44.468 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:00:44.468 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:00:44.469 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:00:44.486 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:00:45.753 15424 16829 D WifiNl80211Manager: Scan result ready event
+06-04 22:00:45.753 15424 16829 D WifiNative: Scan result ready event
+06-04 22:00:45.754 26297 30028 I WifiScanner: onFullResults
+06-04 22:00:45.755 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:47.233 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:48.409 15424 15635 D ActivityManager: freezing 26137 com.android.settings
+06-04 22:00:48.411 15424 15635 D ActivityManager: freezing 23675 com.android.keychain
+06-04 22:00:48.774 30092 30092 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package
+06-04 22:00:48.811 15690 15692 I artd    : GetBestInfo: odex next to the dex file (/product/priv-app/PrebuiltGmsCore/oat/arm64/PrebuiltGmsCore.odex) is kOatUpToDate with filter 'verify' executable 'false'
+06-04 22:00:48.813 15690 19816 W artd    : Could not get dex checksums for location /data/app/~~n4kQt_qV4sELtgvUB_MreQ==/com.arrowagain.game-eWnpHANVuymeyIjJp0n_fg==/base.apk, fd=-1
+06-04 22:00:48.813 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/0000000a/dl-MlkitOcrCommon.optional_253434100400.apk has no usable artifacts
+06-04 22:00:48.814 15690 19816 I artd    : GetBestInfo: /data/user/0/com.google.android.gms/app_dg_cache/DD26CFCA40A2391A1E3626BBAF83BD500298C9F7/the.apk has no usable artifacts
+06-04 22:00:48.814 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000001/CronetDynamite.apk has no usable artifacts
+06-04 22:00:48.814 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.apk has no usable artifacts
+06-04 22:00:48.815 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000005/GoogleCertificates.apk has no usable artifacts
+06-04 22:00:48.817 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000009/dl-TfliteDynamiteDynamite.integ_252130102100400.apk has no usable artifacts
+06-04 22:00:48.817 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000008/dl-VisionOcr.optional_253434100000.apk has no usable artifacts
+06-04 22:00:48.817 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000007/MeasurementDynamite.apk has no usable artifacts
+06-04 22:00:50.237 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:50.775 15949 30096 D NetworkMonitor/102: PROBE_DNS www.google.com 21ms OK 69.171.235.22,2001::1
+06-04 22:00:50.784 15949 30097 D NetworkMonitor/102: PROBE_DNS connectivitycheck.gstatic.com 29ms OK 120.253.244.226
+06-04 22:00:50.890 15949 30097 D NetworkMonitor/102: PROBE_HTTP http://connectivitycheck.gstatic.com/generate_204 time=106ms ret=204 request={Connection=[close], User-Agent=[Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36]} headers={null=[HTTP/1.1 204 No Content], Connection=[close], Content-Length=[0], Cross-Origin-Resource-Policy=[cross-origin], Date=[Thu, 04 Jun 2026 14:01:07 GMT], X-Android-Received-Millis=[1780581650890], X-Android-Response-Source=[NETWORK 204], X-Android-Selected-Protocol=[http/1.1], X-Android-Sent-Millis=[1780581650831]}
+06-04 22:00:51.611 30109 30109 W simpleperf: type=1400 audit(0.0:3893): avc:  denied  { getattr } for  path="/sys/kernel/tracing/events/enable" dev="tracefs" ino=19680823 scontext=u:r:shell:s0 tcontext=u:object_r:debugfs_tracing_debug:s0 tclass=file permissive=0
+06-04 22:00:51.611 30109 30109 W simpleperf: type=1400 audit(0.0:3894): avc:  denied  { getattr } for  path="/sys/kernel/tracing/events/header_event" dev="tracefs" ino=19680823 scontext=u:r:shell:s0 tcontext=u:object_r:debugfs_tracing_debug:s0 tclass=file permissive=0
+06-04 22:00:51.611 30109 30109 W simpleperf: type=1400 audit(0.0:3895): avc:  denied  { getattr } for  path="/sys/kernel/tracing/events/initcall/filter" dev="tracefs" ino=19680823 scontext=u:r:shell:s0 tcontext=u:object_r:debugfs_tracing_debug:s0 tclass=file permissive=0
+06-04 22:00:51.611 30109 30109 W simpleperf: type=1400 audit(0.0:3896): avc:  denied  { getattr } for  path="/sys/kernel/tracing/events/initcall/enable" dev="tracefs" ino=19680823 scontext=u:r:shell:s0 tcontext=u:object_r:debugfs_tracing_debug:s0 tclass=file permissive=0
+06-04 22:00:51.611 30109 30109 W simpleperf: type=1400 audit(0.0:3897): avc:  denied  { read } for  name="id" dev="tracefs" ino=19680823 scontext=u:r:shell:s0 tcontext=u:object_r:debugfs_tracing_debug:s0 tclass=file permissive=0
+06-04 22:00:51.811 17076 17252 D SatelliteController: iisInCarrierRoamingNbIotNtn: satellite is disabled
+06-04 22:00:51.812 17076 17252 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-04 22:00:53.240 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:53.979   569   569 I perfetto: ng_service_impl.cc:2285 FlushAndDisableTracing(2) done, success=1
+06-04 22:00:53.979   568   568 I perfetto:  probes_producer.cc:505 Producer stop (id=6)
+06-04 22:00:53.979   568   568 I perfetto:          tracefs.cc:611 disabled ftrace in /sys/kernel/tracing/
+06-04 22:00:53.993   568   568 I perfetto:          tracefs.cc:611 disabled ftrace in /sys/kernel/tracing/
+06-04 22:00:54.005   568   568 I perfetto:  probes_producer.cc:505 Producer stop (id=7)
+06-04 22:00:54.005   568   568 I perfetto:  probes_producer.cc:505 Producer stop (id=8)
+06-04 22:00:54.005   569   569 E perfetto:    android_utils.cc:127 Unable to read ro.boot.hardware.revision
+06-04 22:00:54.006   569   569 E perfetto:    android_utils.cc:132 Unable to read ro.boot.hardware.ufs
+06-04 22:00:54.006   569   569 E perfetto:    android_utils.cc:137 Unable to read ro.boot.hardware.ddr
+06-04 22:00:54.006   569   569 E perfetto:    android_utils.cc:142 Unable to read init.svc.console
+06-04 22:00:54.231 30036 30036 I perfetto:    perfetto_cmd.cc:1211 Wrote 33526951 bytes into /data/misc/perfetto-traces/mock-gameplay-20260604-220034.pftrace
+06-04 22:00:54.233   569   569 I perfetto: ng_service_impl.cc:2888 Tracing session 2 ended, total sessions:0
+06-04 22:00:54.553 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:00:56.245 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:00:58.789 30125 30125 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package
+06-04 22:00:58.836 15690 19816 I artd    : GetBestInfo: odex next to the dex file (/product/priv-app/PrebuiltGmsCore/oat/arm64/PrebuiltGmsCore.odex) is kOatUpToDate with filter 'verify' executable 'false'
+06-04 22:00:58.838 15690 15692 W artd    : Could not get dex checksums for location /data/app/~~n4kQt_qV4sELtgvUB_MreQ==/com.arrowagain.game-eWnpHANVuymeyIjJp0n_fg==/base.apk, fd=-1
+06-04 22:00:58.839 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/0000000a/dl-MlkitOcrCommon.optional_253434100400.apk has no usable artifacts
+06-04 22:00:58.839 15690 19514 I artd    : GetBestInfo: /data/user/0/com.google.android.gms/app_dg_cache/DD26CFCA40A2391A1E3626BBAF83BD500298C9F7/the.apk has no usable artifacts
+06-04 22:00:58.839 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000001/CronetDynamite.apk has no usable artifacts
+06-04 22:00:58.839 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.apk has no usable artifacts
+06-04 22:00:58.839 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000005/GoogleCertificates.apk has no usable artifacts
+06-04 22:00:58.840 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000009/dl-TfliteDynamiteDynamite.integ_252130102100400.apk has no usable artifacts
+06-04 22:00:58.840 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000008/dl-VisionOcr.optional_253434100000.apk has no usable artifacts
+06-04 22:00:58.840 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000007/MeasurementDynamite.apk has no usable artifacts
+06-04 22:00:59.248 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:00.793 15949 30096 D NetworkMonitor/102: PROBE_HTTPS https://www.google.com/generate_204 Probe failed with exception java.net.ConnectException: Failed to connect to www.google.com/[2001::1]:443
+06-04 22:01:01.811 17076 17252 D SatelliteController: iisInCarrierRoamingNbIotNtn: satellite is disabled
+06-04 22:01:01.812 17076 17252 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-04 22:01:02.251 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:03.767 15949 30095 D NetworkMonitor/102: PROBE_FALLBACK http://www.google.com/gen_204 Probe failed with exception java.net.ConnectException: Failed to connect to www.google.com/[2001::1]:80
+06-04 22:01:03.767 15949 30095 D NetworkMonitor/102: isCaptivePortal: isSuccessful()=false isPortal()=false RedirectUrl=null isPartialConnectivity()=true Time=13013ms
+06-04 22:01:03.768 15424 15755 D ConnectivityService: [102 CELLULAR] validation failed
+06-04 22:01:04.605 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:01:05.254 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:08.259 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:08.773 30131 30131 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package
+06-04 22:01:08.850 15690 19596 I artd    : GetBestInfo: odex next to the dex file (/product/priv-app/PrebuiltGmsCore/oat/arm64/PrebuiltGmsCore.odex) is kOatUpToDate with filter 'verify' executable 'false'
+06-04 22:01:08.853 15690 19596 W artd    : Could not get dex checksums for location /data/app/~~n4kQt_qV4sELtgvUB_MreQ==/com.arrowagain.game-eWnpHANVuymeyIjJp0n_fg==/base.apk, fd=-1
+06-04 22:01:08.854 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/0000000a/dl-MlkitOcrCommon.optional_253434100400.apk has no usable artifacts
+06-04 22:01:08.854 15690 19596 I artd    : GetBestInfo: /data/user/0/com.google.android.gms/app_dg_cache/DD26CFCA40A2391A1E3626BBAF83BD500298C9F7/the.apk has no usable artifacts
+06-04 22:01:08.854 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000001/CronetDynamite.apk has no usable artifacts
+06-04 22:01:08.855 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.apk has no usable artifacts
+06-04 22:01:08.856 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000005/GoogleCertificates.apk has no usable artifacts
+06-04 22:01:08.869 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000009/dl-TfliteDynamiteDynamite.integ_252130102100400.apk has no usable artifacts
+06-04 22:01:08.874 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000008/dl-VisionOcr.optional_253434100000.apk has no usable artifacts
+06-04 22:01:08.877 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000007/MeasurementDynamite.apk has no usable artifacts
+06-04 22:01:08.923 15424 15455 I system_server: Background young concurrent mark compact GC freed 24MB AllocSpace bytes, 8(160KB) LOS objects, 39% free, 34MB/57MB, paused 1.698ms,7.932ms total 146.195ms
+06-04 22:01:08.924 29627 29777 D nballarena.game: PlayerBase::~PlayerBase()
+06-04 22:01:11.265 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:11.813 17076 17252 D SatelliteController: iisInCarrierRoamingNbIotNtn: satellite is disabled
+06-04 22:01:11.815 17076 17252 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-04 22:01:14.269 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:14.653 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:01:17.273 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:18.600 15424 15548 D KernelCpuUidUserSysTimeReader: Removing uids 90002-90002
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: Cannot acquire BluetoothActivityEnergyInfo
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: java.util.concurrent.ExecutionException: java.lang.RuntimeException: error: 9
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at java.util.concurrent.CompletableFuture.reportGet(CompletableFuture.java:372)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at java.util.concurrent.CompletableFuture.get(CompletableFuture.java:2072)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BluetoothPowerStatsCollector.collectBluetoothActivityInfo(BluetoothPowerStatsCollector.java:191)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BluetoothPowerStatsCollector.collectStats(BluetoothPowerStatsCollector.java:155)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.PowerStatsCollector.collectAndDeliverStats(PowerStatsCollector.java:196)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.PowerStatsCollector.lambda$schedule$0(PowerStatsCollector.java:166)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.PowerStatsCollector.$r8$lambda$G7G_yFY7rV7oxQbQHnZ5FHX8eBk(PowerStatsCollector.java:0)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.PowerStatsCollector$$ExternalSyntheticLambda1.run(R8$$SyntheticClass:0)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Handler.handleCallback(Handler.java:1070)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Handler.dispatchMessage(Handler.java:125)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Looper.dispatchMessage(Looper.java:333)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Looper.loopOnce(Looper.java:263)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Looper.loop(Looper.java:367)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.HandlerThread.run(HandlerThread.java:139)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: Caused by: java.lang.RuntimeException: error: 9
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BluetoothPowerStatsCollector$1.onBluetoothActivityEnergyInfoError(BluetoothPowerStatsCollector.java:180)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at android.bluetooth.BluetoothAdapter.lambda$requestControllerActivityEnergyInfo$27(BluetoothAdapter.java:2513)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at android.bluetooth.BluetoothAdapter$$ExternalSyntheticLambda27.run(D8$$SyntheticClass:0)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.SystemServerInitThreadPool$$ExternalSyntheticLambda0.execute(R8$$SyntheticClass:0)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at android.bluetooth.BluetoothAdapter.requestControllerActivityEnergyInfo(BluetoothAdapter.java:2511)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BatteryStatsImpl$BluetoothStatsRetrieverImpl.requestControllerActivityEnergyInfo(BatteryStatsImpl.java:471)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BluetoothPowerStatsCollector.collectBluetoothActivityInfo(BluetoothPowerStatsCollector.java:169)
+06-04 22:01:18.601 15424 15548 E BluetoothPowerStatsCollector: 	... 11 more
+06-04 22:01:18.751 30139 30139 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+06-04 22:01:18.751 30139 30139 W libbinder.BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+06-04 22:01:18.751 30139 30139 W libbinder.ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+06-04 22:01:18.774 30141 30141 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package
+06-04 22:01:18.830 15690 19596 I artd    : GetBestInfo: odex next to the dex file (/product/priv-app/PrebuiltGmsCore/oat/arm64/PrebuiltGmsCore.odex) is kOatUpToDate with filter 'verify' executable 'false'
+06-04 22:01:18.832 15690 19596 W artd    : Could not get dex checksums for location /data/app/~~n4kQt_qV4sELtgvUB_MreQ==/com.arrowagain.game-eWnpHANVuymeyIjJp0n_fg==/base.apk, fd=-1
+06-04 22:01:18.832 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/0000000a/dl-MlkitOcrCommon.optional_253434100400.apk has no usable artifacts
+06-04 22:01:18.833 15690 19596 I artd    : GetBestInfo: /data/user/0/com.google.android.gms/app_dg_cache/DD26CFCA40A2391A1E3626BBAF83BD500298C9F7/the.apk has no usable artifacts
+06-04 22:01:18.834 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000001/CronetDynamite.apk has no usable artifacts
+06-04 22:01:18.834 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.apk has no usable artifacts
+06-04 22:01:18.834 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000005/GoogleCertificates.apk has no usable artifacts
+06-04 22:01:18.834 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000009/dl-TfliteDynamiteDynamite.integ_252130102100400.apk has no usable artifacts
+06-04 22:01:18.834 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000008/dl-VisionOcr.optional_253434100000.apk has no usable artifacts
+06-04 22:01:18.836 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000007/MeasurementDynamite.apk has no usable artifacts
+06-04 22:01:20.277 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:21.812 17076 17252 D SatelliteController: iisInCarrierRoamingNbIotNtn: satellite is disabled
+06-04 22:01:21.813 17076 17252 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-04 22:01:23.281 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:23.811 30116 30116 W simpleperf: type=1400 audit(0.0:5526): avc:  denied  { read } for  name="kallsyms" dev="proc" ino=4026532037 scontext=u:r:simpleperf:s0:c228,c256,c512,c768 tcontext=u:object_r:proc_kallsyms:s0 tclass=file permissive=0 app=com.professionballarena.game
+06-04 22:01:23.815 30116 30116 W simpleperf: type=1400 audit(0.0:5527): avc:  denied  { read } for  name="kptr_restrict" dev="proc" ino=10881539 scontext=u:r:simpleperf:s0:c228,c256,c512,c768 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0 app=com.professionballarena.game
+06-04 22:01:24.699 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:01:25.052 15424 16829 D TelephonyManager: requestModemActivityInfo: Sending result to app: ModemActivityInfo{ mTimestamp=1256141343 mSleepTimeMs=24318 mIdleTimeMs=8106 mActivityStatsTechSpecificInfo=[{mRat=UNKNOWN,mFrequencyRange=UNKNOWN,mTxTimeMs[]=[579, 1737, 3474, 4632, 5211],mRxTimeMs=5211}]}
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: Cannot acquire BluetoothActivityEnergyInfo
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: java.util.concurrent.ExecutionException: java.lang.RuntimeException: error: 9
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at java.util.concurrent.CompletableFuture.reportGet(CompletableFuture.java:372)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at java.util.concurrent.CompletableFuture.get(CompletableFuture.java:2072)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BluetoothPowerStatsCollector.collectBluetoothActivityInfo(BluetoothPowerStatsCollector.java:191)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BluetoothPowerStatsCollector.collectStats(BluetoothPowerStatsCollector.java:155)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.PowerStatsCollector.collectAndDeliverStats(PowerStatsCollector.java:196)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.PowerStatsCollector.lambda$forceSchedule$1(PowerStatsCollector.java:185)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.PowerStatsCollector.$r8$lambda$S8t6eDCBuELjdSNvyveTMprEzE0(PowerStatsCollector.java:0)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.PowerStatsCollector$$ExternalSyntheticLambda0.run(R8$$SyntheticClass:0)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Handler.handleCallback(Handler.java:1070)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Handler.dispatchMessage(Handler.java:125)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Looper.dispatchMessage(Looper.java:333)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Looper.loopOnce(Looper.java:263)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.Looper.loop(Looper.java:367)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at android.os.HandlerThread.run(HandlerThread.java:139)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: Caused by: java.lang.RuntimeException: error: 9
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BluetoothPowerStatsCollector$1.onBluetoothActivityEnergyInfoError(BluetoothPowerStatsCollector.java:180)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at android.bluetooth.BluetoothAdapter.lambda$requestControllerActivityEnergyInfo$27(BluetoothAdapter.java:2513)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at android.bluetooth.BluetoothAdapter$$ExternalSyntheticLambda27.run(D8$$SyntheticClass:0)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.SystemServerInitThreadPool$$ExternalSyntheticLambda0.execute(R8$$SyntheticClass:0)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at android.bluetooth.BluetoothAdapter.requestControllerActivityEnergyInfo(BluetoothAdapter.java:2511)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BatteryStatsImpl$BluetoothStatsRetrieverImpl.requestControllerActivityEnergyInfo(BatteryStatsImpl.java:471)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	at com.android.server.power.stats.BluetoothPowerStatsCollector.collectBluetoothActivityInfo(BluetoothPowerStatsCollector.java:169)
+06-04 22:01:25.061 15424 15548 E BluetoothPowerStatsCollector: 	... 11 more
+06-04 22:01:25.100  3474  3474 D BoundBrokerSvc: onBind: Intent { act=com.google.android.gms.potokens.service.IntegrityTokenRefreshTaskService.ACTION_TASK_READY dat=chimera-action:/... xflg=0x4 cmp=com.google.android.gms/.chimera.GmsInternalBoundBrokerService }
+06-04 22:01:25.102  3474  3474 D BoundBrokerSvc: Loading bound service for intent: Intent { act=com.google.android.gms.potokens.service.IntegrityTokenRefreshTaskService.ACTION_TASK_READY dat=chimera-action:/... xflg=0x4 cmp=com.google.android.gms/.chimera.GmsInternalBoundBrokerService }
+06-04 22:01:25.106 26297 30175 I NetworkScheduler.Stats: (REDACTED) Task %s/%s started execution. cause:%s exec_start_elapsed_seconds: %s
+06-04 22:01:25.107 26297 30174 E WorkSourceUtil: Could not find package: com.google.android.gms.westworld
+06-04 22:01:25.112 26297 30177 I NetworkScheduler.Stats: (REDACTED) Task %s/%s finished executing. cause:%s result: %s elapsed_millis: %s uptime_millis: %s exec_start_elapsed_seconds: %s
+06-04 22:01:25.114  3474  3474 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.potokens.service.IntegrityTokenRefreshTaskService.ACTION_TASK_READY dat=chimera-action:/... xflg=0x4 cmp=com.google.android.gms/.chimera.GmsInternalBoundBrokerService }
+06-04 22:01:26.282 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:28.797 30204 30204 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package
+06-04 22:01:28.857 15690 19816 I artd    : GetBestInfo: odex next to the dex file (/product/priv-app/PrebuiltGmsCore/oat/arm64/PrebuiltGmsCore.odex) is kOatUpToDate with filter 'verify' executable 'false'
+06-04 22:01:28.857 15690 19596 W artd    : Could not get dex checksums for location /data/app/~~n4kQt_qV4sELtgvUB_MreQ==/com.arrowagain.game-eWnpHANVuymeyIjJp0n_fg==/base.apk, fd=-1
+06-04 22:01:28.858 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/0000000a/dl-MlkitOcrCommon.optional_253434100400.apk has no usable artifacts
+06-04 22:01:28.862 15690 19816 I artd    : GetBestInfo: /data/user/0/com.google.android.gms/app_dg_cache/DD26CFCA40A2391A1E3626BBAF83BD500298C9F7/the.apk has no usable artifacts
+06-04 22:01:28.863 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000001/CronetDynamite.apk has no usable artifacts
+06-04 22:01:28.863 15690 19596 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.apk has no usable artifacts
+06-04 22:01:28.863 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000005/GoogleCertificates.apk has no usable artifacts
+06-04 22:01:28.864 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000009/dl-TfliteDynamiteDynamite.integ_252130102100400.apk has no usable artifacts
+06-04 22:01:28.866 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000008/dl-VisionOcr.optional_253434100000.apk has no usable artifacts
+06-04 22:01:28.866 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000007/MeasurementDynamite.apk has no usable artifacts
+06-04 22:01:29.288 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:31.811 17076 17252 D SatelliteController: iisInCarrierRoamingNbIotNtn: satellite is disabled
+06-04 22:01:31.811 17076 17252 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-04 22:01:32.291 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:34.750 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:01:35.299 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:35.430 15949 30233 D NetworkMonitor/101: PROBE_DNS www.google.com 26ms OK 69.171.235.22,2001::1
+06-04 22:01:35.441 15949 30234 D NetworkMonitor/101: PROBE_DNS connectivitycheck.gstatic.com 33ms OK 120.253.255.34
+06-04 22:01:35.555 15949 30234 D NetworkMonitor/101: PROBE_HTTP http://connectivitycheck.gstatic.com/generate_204 time=111ms ret=204 request={Connection=[close], User-Agent=[Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36]} headers={null=[HTTP/1.1 204 No Content], Connection=[close], Content-Length=[0], Cross-Origin-Resource-Policy=[cross-origin], Date=[Thu, 04 Jun 2026 14:01:51 GMT], X-Android-Received-Millis=[1780581695555], X-Android-Response-Source=[NETWORK 204], X-Android-Selected-Protocol=[http/1.1], X-Android-Sent-Millis=[1780581695494]}
+06-04 22:01:35.745 28301 28387 W libbinder.Binder: Binder transaction to com.google.android.gms.droidguard.internal.IDroidGuardHandle code 5 took 60035ms. Data bytes: 336 Reply bytes: 16 Flags: 18
+06-04 22:01:38.303 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:38.804 30256 30256 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: package
+06-04 22:01:38.845 15690 19514 I artd    : GetBestInfo: odex next to the dex file (/product/priv-app/PrebuiltGmsCore/oat/arm64/PrebuiltGmsCore.odex) is kOatUpToDate with filter 'verify' executable 'false'
+06-04 22:01:38.845 15690 19514 W artd    : Could not get dex checksums for location /data/app/~~n4kQt_qV4sELtgvUB_MreQ==/com.arrowagain.game-eWnpHANVuymeyIjJp0n_fg==/base.apk, fd=-1
+06-04 22:01:38.846 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/0000000a/dl-MlkitOcrCommon.optional_253434100400.apk has no usable artifacts
+06-04 22:01:38.848 15690 15692 I artd    : GetBestInfo: /data/user/0/com.google.android.gms/app_dg_cache/DD26CFCA40A2391A1E3626BBAF83BD500298C9F7/the.apk has no usable artifacts
+06-04 22:01:38.848 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000001/CronetDynamite.apk has no usable artifacts
+06-04 22:01:38.848 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.apk has no usable artifacts
+06-04 22:01:38.848 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000005/GoogleCertificates.apk has no usable artifacts
+06-04 22:01:38.849 15690 19816 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000009/dl-TfliteDynamiteDynamite.integ_252130102100400.apk has no usable artifacts
+06-04 22:01:38.849 15690 15692 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000008/dl-VisionOcr.optional_253434100000.apk has no usable artifacts
+06-04 22:01:38.849 15690 19514 I artd    : GetBestInfo: /data/user_de/0/com.google.android.gms/app_chimera/m/00000007/MeasurementDynamite.apk has no usable artifacts
+06-04 22:01:41.308 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:41.817 17076 17252 D SatelliteController: iisInCarrierRoamingNbIotNtn: satellite is disabled
+06-04 22:01:41.818 17076 17252 D SatelliteController: getCarrierRoamingNtnConnectType: Falling back to global carrier config connect type: 0
+06-04 22:01:44.311 15424 15736 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+06-04 22:01:44.799 29627 29737 I CapacitorCookies: Getting cookies at: 'https://firebaseinstallations.googleapis.com/v1/projects/profession-ball-arena/installations'
+06-04 22:01:44.888 30262 30262 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: SurfaceFlingerAIDL
+06-04 22:01:44.888 30262 30262 W libbinder.BpBinder: Linking to death on android.gui.ISurfaceComposer but there are no threads (yet?) listening to incoming transactions. See ProcessState::startThreadPool and ProcessState::setThreadPoolMaxThreadCount. Generally you should setup the binder threadpool before other initialization steps.
+06-04 22:01:44.888 30262 30262 W libbinder.ProcessState: Extra binder thread started, but 0 threads requested. Do not use *startThreadPool when zero threads are requested.
+06-04 22:01:45.037 30264 30264 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: gfxinfo
+06-04 22:01:45.037 15424 17061 D ActivityManager: freezer override set to true
+06-04 22:01:45.038 15424 17061 D ActivityManager: sync unfroze 23983 android.process.media for 19
+06-04 22:01:45.038 15424 17061 D ActivityManager: sync unfroze 18915 com.google.android.settings.intelligence for 19
+06-04 22:01:45.039 15424 17061 D ActivityManager: sync unfroze 22615 com.android.providers.calendar for 19
+06-04 22:01:45.039 15424 17061 D ActivityManager: sync unfroze 23252 com.google.android.partnersetup for 19
+06-04 22:01:45.040 15424 17061 D ActivityManager: sync unfroze 26446 com.google.android.apps.photos for 19
+06-04 22:01:45.040 15424 17061 D ActivityManager: sync unfroze 24532 com.android.vending:quick_launch for 19
+06-04 22:01:45.041 15424 17061 D ActivityManager: sync unfroze 22378 com.google.android.adservices.api for 19
+06-04 22:01:45.041 15424 17061 D ActivityManager: sync unfroze 28956 com.google.android.as.oss for 19
+06-04 22:01:45.041 15424 17061 D ActivityManager: sync unfroze 29258 com.android.providers.partnerbookmarks for 19
+06-04 22:01:45.043 15424 17061 D ActivityManager: sync unfroze 23802 com.android.vending:background for 19
+06-04 22:01:45.043 15424 17061 D ActivityManager: sync unfroze 23675 com.android.keychain for 19
+06-04 22:01:45.045 15424 17061 D ActivityManager: sync unfroze 22302 com.google.android.webview:webview_service for 19
+06-04 22:01:45.045 15424 17061 D ActivityManager: sync unfroze 22390 com.google.android.permissioncontroller for 19
+06-04 22:01:45.045 15424 17061 D ActivityManager: sync unfroze 26137 com.android.settings for 19
+06-04 22:01:45.045 15424 17061 D ActivityManager: sync unfroze 22525 android.process.acore for 19
+06-04 22:01:45.045 15424 17061 D ActivityManager: sync unfroze 23853 com.google.android.documentsui for 19
+06-04 22:01:45.048 15424 17061 D ActivityManager: sync unfroze 28283 com.android.vending for 19
+06-04 22:01:45.048 15424 17061 D ActivityManager: sync unfroze 23930 com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0 for 19
+06-04 22:01:45.048 15424 17061 D ActivityManager: sync unfroze 23759 com.arrowagain.game for 19
+06-04 22:01:45.061 15424 17061 D ActivityManager: freezer override set to false
+06-04 22:01:45.073 28283 28283 I Finsky  : [2] Memory trim requested to level 40
+06-04 22:01:45.094 30270 30270 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: gfxinfo
+06-04 22:01:45.095 15424 17061 D ActivityManager: freezer override set to true
+06-04 22:01:45.103 15424 17061 D ActivityManager: freezer override set to false
+06-04 22:01:45.104 24532 24532 I Finsky:quick_launch: [2] Memory trim requested to level 40
+06-04 22:01:45.112 23802 23802 I Finsky:background: [2] Memory trim requested to level 40
+06-04 22:01:45.133 30278 30278 W libbinder.BackendUnifiedServiceManager: Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: meminfo
+06-04 22:01:45.134 15424 17061 D ActivityManager: freezer override set to true
+06-04 22:01:45.139 28283 28283 I Finsky  : [2] Flushing in-memory image cache
+06-04 22:01:45.184 26297 30259 I AlarmManager: setExactAndAllowWhileIdle [name: GCM_HB_ALARM type: 2 triggerAtMillis: 1256221475]
+06-04 22:01:45.189 26297 30259 W WakeLock: GCM_HB_ALARM release without a matched acquire!
+06-04 22:01:45.300 29627 29776 I nballarena.game: Explicit concurrent mark compact GC freed 2336KB AllocSpace bytes, 3(60KB) LOS objects, 49% free, 5057KB/10115KB, paused 74us,898us total 125.697ms
+06-04 22:01:45.333 15424 17061 D ActivityManager: freezer override set to false

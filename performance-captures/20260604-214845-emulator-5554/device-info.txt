@@ -1,0 +1,8 @@
+serial: emulator-5554
+package: com.professionballarena.game
+captured_at: 2026-06-04T21:49:10+08:00
+model: sdk_gphone64_arm64
+android: 16
+Physical size: 1080x2400
+Physical density: 420
+ranchu

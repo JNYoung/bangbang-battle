@@ -1,0 +1,1 @@
+/data/misc/perfetto-traces/mock-gameplay-20260604-220034.pftrace
