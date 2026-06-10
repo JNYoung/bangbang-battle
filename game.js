@@ -2109,9 +2109,7 @@ async function acceptLegalAndEnterMenu() {
   trackGameInitSuccess("legal_accept");
   setScreen(Screen.MAIN_MENU);
   complianceState.recordReviewSessionStarted();
-  if (!consumePendingBattleDeepLink()) {
-    void maybeShowAppOpenAd("legal_accept");
-  }
+  consumePendingBattleDeepLink();
 }
 
 function openMatchSetup() {
@@ -9008,6 +9006,7 @@ function finishMatch(winnerSide) {
   analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
   trackMatchCompletionFunnelEvents(winnerSide, progressAfterMatch);
   setScreen(Screen.RESULT);
+  void maybeShowAppOpenAd("match_complete");
   finalizeMatchRecording(winnerSide);
   maybeRequestReviewAfterMatch(progressAfterMatch, winnerSide);
 }
@@ -16632,9 +16631,7 @@ async function bootGame() {
   screen = complianceState.hasAcceptedCurrentLegal() ? Screen.MAIN_MENU : Screen.CONSENT;
   if (screen === Screen.MAIN_MENU) {
     complianceState.recordReviewSessionStarted();
-    if (!consumePendingBattleDeepLink()) {
-      void maybeShowAppOpenAd("boot");
-    }
+    consumePendingBattleDeepLink();
   }
   lastFrameTime = performance.now();
   requestAnimationFrame(gameLoop);
