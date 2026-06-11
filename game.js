@@ -158,6 +158,7 @@ const RENDER_QUALITY_CONFIG = Object.freeze({
 const AD_CHAIN_CONFIG = Object.freeze({
   appOpen: {
     placement: "app_open",
+    dailyMatchMilestones: Object.freeze([3, 8, 15, 30]),
     minCloseMs: 1500,
     autoCloseMs: 4200,
   },
@@ -3431,8 +3432,8 @@ function getHardwareConcurrency() {
 
 function createAdSessionState() {
   return {
-    appOpenShown: false,
     appOpenRequestPending: false,
+    appOpenLastShownDailyMatchCount: 0,
     battleBanner: null,
     battleBannerMatchId: "",
     battleBannerShownAtMs: 0,
@@ -3529,8 +3530,16 @@ function trackAdEvent(eventName, placement, result = {}, extraPayload = {}) {
 }
 
 async function maybeShowAppOpenAd(source = "boot") {
-  if (!canShowAds() || adSessionState.appOpenShown || adSessionState.appOpenRequestPending) {
+  if (!canShowAds() || adSessionState.appOpenRequestPending) {
     return;
+  }
+
+  if (source === "match_complete") {
+    const dailyMatchCount = getCurrentPlayerProgress().daily.matches;
+    const shouldShowForMilestone = AD_CHAIN_CONFIG.appOpen.dailyMatchMilestones.includes(dailyMatchCount);
+    if (!shouldShowForMilestone || adSessionState.appOpenLastShownDailyMatchCount === dailyMatchCount) {
+      return;
+    }
   }
 
   const placement = AD_CHAIN_CONFIG.appOpen.placement;
@@ -3545,7 +3554,9 @@ async function maybeShowAppOpenAd(source = "boot") {
       return;
     }
 
-    adSessionState.appOpenShown = true;
+    if (source === "match_complete") {
+      adSessionState.appOpenLastShownDailyMatchCount = getCurrentPlayerProgress().daily.matches;
+    }
     if (result.render === "canvas_mock") {
       activeAdOverlay = createAppOpenAdOverlay(result, source);
       trackAdEvent(AnalyticsEvents.adShow, placement, result, { source });
