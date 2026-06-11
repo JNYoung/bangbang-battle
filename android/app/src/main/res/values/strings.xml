@@ -4,5 +4,4 @@
     <string name="title_activity_main">斗球球</string>
     <string name="package_name">com.professionballarena.game</string>
     <string name="custom_url_scheme">com.professionballarena.game</string>
-    <string name="admob_app_id">ca-app-pub-2481288993515154~4798979229</string>
 </resources>

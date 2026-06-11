@@ -94,9 +94,8 @@ No login is required. On first launch, accept the Privacy Policy and User Agreem
 
 ### Ads
 
-- Does your app contain ads? `Yes`
-- Ad SDK/provider: Google AdMob
-- Notes: Ads are consent-gated in the app runtime. Android release builds use the configured production AdMob app id and ad units. Requests default to non-personalized ads.
+- Does your app contain ads? `No`
+- Notes: The current build does not include an ad SDK, ad app id, ad units, or runtime ad requests.
 
 ### Target Audience
 
@@ -132,7 +131,7 @@ The final form must match the live SDK behavior at submission time. Current reco
 
 Does the app collect or share user data?
 
-Answer: `Yes`, because Firebase Analytics and AdMob may process analytics, diagnostics, app activity, device identifiers, and advertising-related signals after user consent.
+Answer: `Yes`, because Firebase Analytics may process analytics, diagnostics, app activity, and device identifiers after user consent. The current build does not process advertising-related signals through an ad SDK.
 
 ### Data Types
 
@@ -228,7 +227,6 @@ Recommended sequence:
 - Play Console showed a crawler warning for `https://professionballarena.top/data-deletion/`, but local HTTP checks returned `200 OK`; recheck this warning before sending for review if it persists.
 - Data safety answers must be rechecked if SDK behavior changes.
 - Feature graphic 1024 x 500 should be generated/uploaded if Play Console marks it required.
-- If publishing broadly outside test tracks, confirm AdMob app approval and ad serving status.
 - If targeting mainland China distribution through Google Play is considered, confirm legal/commercial availability separately.
 
 ## Official References

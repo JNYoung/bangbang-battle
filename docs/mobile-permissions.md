@@ -12,7 +12,7 @@ Release permissions to account for:
 
 - `android.permission.INTERNET`: required by the WebView shell and Firebase Analytics upload.
 - `android.permission.VIBRATE`: required for the optional vibration feedback setting.
-- `android.permission.ACCESS_NETWORK_STATE`: brought in by AdMob/Firebase dependencies in the merged manifest for network availability checks.
+- `android.permission.ACCESS_NETWORK_STATE`: brought in by Firebase dependencies in the merged manifest for network availability checks.
 
 Removed or disabled analytics-advertising identifiers:
 
@@ -21,21 +21,20 @@ Removed or disabled analytics-advertising identifiers:
 - Dependency-added `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, and `FOREGROUND_SERVICE` permissions are removed from the merged manifest because the game does not use background services.
 - Firebase Analytics collection and ad ID collection default to disabled at process start.
 
-AdMob configuration:
+Ad configuration:
 
-- The native AdMob plugin is configured with the production Android app ID `ca-app-pub-2481288993515154~4798979229`.
-- Android ad requests default to non-personalized mode (`VITE_ADMOB_NPA=true`). Local, debug, and internal QA builds use Google test ad units by default; set `VITE_ADMOB_MODE=real` or use `npm run android:release` for production ad units on formal release builds.
-- Rewarded ads are optional and user-initiated from the result screen. They grant one high-energy encore pass, are capped locally, and do not change the completed match result.
-- The app adds game-context metadata in the ad service, but final "game ads only" category filtering must be configured in the AdMob console.
+- The current build does not include the native AdMob plugin.
+- Android has no AdMob app id metadata and no ad unit configuration.
+- The runtime does not request or show ads.
 
 Runtime flow:
 
 1. First launch shows the privacy policy and user agreement.
 2. Before consent, Firebase Analytics collection remains disabled and game events are not sent.
-3. Accepting the policy enables analytics and ads, then logs `legal_accept` plus `game_init_success`.
-4. The Settings screen includes Analytics and Ads toggles. Turning them off disables the corresponding runtime capability.
-5. Review-prompt and rewarded-ad throttling state is saved locally so native rating prompts and rewarded encore claims are not repeated too frequently.
-6. Withdrawing consent disables analytics and ads and returns the user to the consent screen.
+3. Accepting the policy enables analytics, then logs `legal_accept` plus `game_init_success`.
+4. The Settings screen includes an Analytics toggle. Turning it off disables analytics collection.
+5. Review-prompt throttling state is saved locally so native rating prompts are not repeated too frequently.
+6. Withdrawing consent disables analytics and returns the user to the consent screen.
 
 No notification, camera, microphone, contacts, location, storage, or photo permissions are requested.
 
@@ -43,15 +42,15 @@ No notification, camera, microphone, contacts, location, storage, or photo permi
 
 The iOS target does not request camera, microphone, location, contacts, calendar, photo library, Bluetooth, tracking, or notification permissions.
 
-AdMob configuration:
+Ad configuration:
 
-- `GADApplicationIdentifier` currently uses the Google sample iOS app ID until an iOS AdMob app and production ad units are created.
-- `SKAdNetworkItems` includes Google's SKAdNetwork identifier for install attribution support.
-- The app does not call the ATT prompt in the current runtime flow; ad requests default to non-personalized mode.
+- The current iOS target does not include AdMob.
+- `Info.plist` does not include `GADApplicationIdentifier` or ad SKAdNetwork entries.
+- The app does not call the ATT prompt in the current runtime flow.
 
 Configured privacy files:
 
-- `ios/App/App/Info.plist`: no sensitive permission usage descriptions are present because the app does not request those capabilities; it does include AdMob app and SKAdNetwork configuration.
+- `ios/App/App/Info.plist`: no sensitive permission usage descriptions are present because the app does not request those capabilities.
 - `ios/App/App/PrivacyInfo.xcprivacy`: declares no tracking, no tracking domains, no collected data types, and the app-container UserDefaults required-reason API category for app-local preferences.
 
 Runtime flow mirrors Android at the Web layer. The current iOS native shell includes a StoreKit review prompt bridge but does not include Firebase Analytics, so the Analytics setting will only become active on iOS after an iOS analytics bridge is added.

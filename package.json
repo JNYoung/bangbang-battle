@@ -17,10 +17,10 @@
     "aso:screenshots": "node scripts/capture-aso-screenshots.mjs",
     "ops:capture-youtube": "node scripts/capture-youtube-materials.mjs",
     "android:prepare-signing": "node scripts/generate-android-keystore.mjs",
-    "android:debug": "VITE_ADMOB_MODE=test npm run build && cap sync android && cd android && ./gradlew assembleDebug",
-    "android:internal-test": "VITE_ADMOB_MODE=test npm run build && cap sync android && cd android && ./gradlew assembleRelease",
-    "android:gp:bundle": "VITE_ADMOB_MODE=real npm run build && cap sync android && cd android && ./gradlew :app:bundleRelease",
-    "android:release": "VITE_ADMOB_MODE=real npm run build && cap sync android && cd android && ./gradlew assembleRelease",
+    "android:debug": "npm run build && cap sync android && cd android && ./gradlew assembleDebug",
+    "android:internal-test": "npm run build && cap sync android && cd android && ./gradlew assembleRelease",
+    "android:gp:bundle": "npm run build && cap sync android && cd android && ./gradlew :app:bundleRelease",
+    "android:release": "npm run build && cap sync android && cd android && ./gradlew assembleRelease",
     "android:ga:smoke": "node scripts/ga-release-smoke.mjs",
     "ios:ipa:unsigned": "npm run build && cap sync ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -sdk iphoneos -archivePath ios/build/App.xcarchive archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO && rm -rf release/ios/Payload && mkdir -p release/ios/Payload && cp -R ios/build/App.xcarchive/Products/Applications/App.app release/ios/Payload/ && cd release/ios && /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload profession-ball-arena-unsigned.ipa",
     "mobile:release": "npm run android:release && npm run ios:ipa:unsigned",
@@ -30,7 +30,6 @@
     "build:all": "npm run build && node scripts/build-meta.mjs && cap sync"
   },
   "dependencies": {
-    "@capacitor-community/admob": "^8.0.0",
     "@capacitor/android": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capacitor/ios": "^8.0.0"
