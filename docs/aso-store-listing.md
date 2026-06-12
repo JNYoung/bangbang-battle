@@ -10,7 +10,7 @@ Overall: 82 / 100
 
 - Metadata: 25 / 30. The name is clear and under both Apple and Google 30-character limits. Descriptions are ready, but should be localized beyond zh-CN/en-US before broad global launch.
 - Screenshots and visual assets: 18 / 25. App icon assets exist and screenshot capture is automated. Final upload still needs a human pass in App Store Connect / Play Console to confirm every required device slot.
-- Compliance: 22 / 25. Privacy, terms, support, data deletion, consent gating, AdMob disclosure, and age-rating guidance are in place. Apple China mainland availability remains a hard compliance decision.
+- Compliance: 22 / 25. Privacy, terms, support, data deletion, consent gating, no-ads disclosure, and age-rating guidance are in place. Apple China mainland availability remains a hard compliance decision.
 - Ratings strategy: 9 / 10. Native in-app review bridges are implemented for Android and iOS, with post-result timing, match/session thresholds, per-version gating, and a 30-day cooldown. Final App Store manual review links still need the real App Store app id after the App Store Connect record exists.
 - Launch operations: 10 / 10. Local `npm run test:ci` passes and release docs already describe Android/iOS packaging constraints.
 
@@ -182,7 +182,7 @@ Implementation status:
 - Full Xcode installed and selected.
 - Apple Developer team, signing certificate, provisioning profile, and App Store Connect app record.
 - Signed archive uploaded through Xcode Organizer or Transporter.
-- App privacy answers aligned with actual behavior: local preferences, Firebase Analytics after consent, AdMob ads after consent, no account system, no precise location, no contacts/camera/microphone.
+- App privacy answers aligned with actual behavior: local preferences, Firebase Analytics after consent, no ads, no account system, no precise location, no contacts/camera/microphone.
 - Age rating answered as mild cartoon/fantasy violence, not Made for Kids.
 - If releasing in China mainland, prepare ICP filing and game approval/ISBN materials or exclude China mainland from availability.
 
@@ -190,7 +190,7 @@ Implementation status:
 
 - Google Play developer account and app record.
 - Release AAB signed with the project release key or Play App Signing setup.
-- Data safety form aligned with actual behavior: local app data, analytics after consent, AdMob ads after consent, no account system, no real IAP.
+- Data safety form aligned with actual behavior: local app data, analytics after consent, no ads, no account system, no real IAP.
 - App category: Game. Suggested tags: casual, action, offline, single player if available in Play Console.
 - Content rating questionnaire answered as mild cartoon/fantasy violence.
 - App access instructions: no login required.
@@ -202,7 +202,6 @@ Implementation status:
 - Terms: `https://professionballarena.top/terms/`
 - Support: `https://professionballarena.top/support/`
 - Data deletion: `https://professionballarena.top/data-deletion/`
-- app-ads.txt: `https://professionballarena.top/app-ads.txt`
 
 ## Official References Checked
 

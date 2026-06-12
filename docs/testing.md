@@ -49,17 +49,17 @@ ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
 ## 覆盖范围
 
 - `lint:syntax`：检查核心 JS、平台脚本和打包脚本语法。
-- `npm test`：验证职业配置、速度曲线、技能伤害、挂件/攻击特效配置、合规同意状态、职业选择持久化、统计接口、广告服务链路和 IAP 预留接口。
+- `npm test`：验证职业配置、速度曲线、技能伤害、挂件/攻击特效配置、合规同意状态、职业选择持久化、统计接口、广告禁用适配层和 IAP 预留接口。
 - `test:matchups`：按场景职业池跑职业对战模拟，并覆盖道具模式每局 6 个道具 + 4 个建筑的当局道具池，确保胜负时间仍落在 18-75 秒目标曲线内。
 - `test:artifacts`：使用 `VITE_PLATFORM_TARGET=meta` 构建 Web 产物、生成 Meta Instant Games ZIP，并验证 SDK 注入、`fbapp-config.json`、ZIP 文件，以及 Meta 包不包含 AdMob SDK 导入路径。
 - `test:ci`：串联以上所有检查，适合 GitHub Actions。
 
 ## 差异化打包回归重点
 
-- Meta Instant Games 包必须只走 Meta 广告链路：`index.html` 注入 `FBInstant` SDK，广告服务使用 `FBInstant.getInterstitialAdAsync()`，结果页激励连战使用 `FBInstant.getRewardedVideoAsync()`。
+- Meta Instant Games 包会注入 `FBInstant` SDK 用于平台初始化，但当前广告服务必须保持禁用，不调用 Meta 广告 API。
 - Meta 包不得包含 `@capacitor-community/admob` SDK 导入路径；`npm run test:artifacts` 会在 `.tmp/meta-instant/assets` 中检查这一点。
-- Meta 环境不支持 `battle_banner` 横幅位，布局不应为战斗横幅预留空间；广告请求应以 `meta_banner_not_supported` 安全跳过。
-- Android/iOS 原生构建仍应保留 AdMob 路径；调试和内测默认测试广告，正式发布通过 `VITE_ADMOB_MODE=real` 启用生产广告单元。
+- 战斗布局不应为广告横幅预留空间。
+- Android/iOS 原生构建不得包含 AdMob 插件、广告 App ID 或广告请求入口。
 - 每次改动 `services.js`、`game.js`、`scripts/build-meta.mjs` 或 `scripts/verify-build-artifacts.mjs` 后，都要跑 `npm run lint:syntax && npm test && npm run test:artifacts`。
 
 ## 开发约束
