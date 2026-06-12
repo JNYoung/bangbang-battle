@@ -2,69 +2,14 @@ const ANALYTICS_PARAM_LIMIT = 25;
 const ANALYTICS_NAME_LIMIT = 40;
 const ANALYTICS_STRING_VALUE_LIMIT = 100;
 const RESERVED_ANALYTICS_PREFIXES = ["firebase_", "ga_", "google_"];
-const GOOGLE_TEST_AD_UNITS = Object.freeze({
-  android: {
-    appOpen: "ca-app-pub-3940256099942544/1033173712",
-    battleBanner: "ca-app-pub-3940256099942544/6300978111",
-    rewardedVideo: "ca-app-pub-3940256099942544/5224354917",
-  },
-  ios: {
-    appOpen: "ca-app-pub-3940256099942544/4411468910",
-    battleBanner: "ca-app-pub-3940256099942544/2934735716",
-    rewardedVideo: "ca-app-pub-3940256099942544/1712485313",
-  },
-  web: {
-    appOpen: "mock-game-app-open",
-    battleBanner: "mock-game-battle-banner",
-    rewardedVideo: "mock-game-rewarded-video",
-  },
-});
-const REAL_AD_UNITS = Object.freeze({
-  android: {
-    appOpen: "ca-app-pub-2481288993515154/2687290972",
-    battleBanner: "ca-app-pub-2481288993515154/6818107670",
-  },
-});
-const AD_UNIT_ENV_KEYS = Object.freeze({
-  app_open: "APP_OPEN",
-  battle_banner: "BATTLE_BANNER",
-  rewarded_video: "REWARDED_VIDEO",
-});
-const AD_FALLBACK_ENV_KEYS = Object.freeze({
-  appOpen: "APP_OPEN",
-  battleBanner: "BATTLE_BANNER",
-  rewardedVideo: "REWARDED_VIDEO",
-});
-const AD_MOB_MODES = Object.freeze({
-  auto: "auto",
-  mock: "mock",
-  real: "real",
-  test: "test",
-});
-const META_AD_NETWORK = "meta_instant_games";
-const META_INTERSTITIAL_FORMAT = "interstitial";
-const META_REWARDED_FORMAT = "rewarded";
-const META_PLACEMENT_ENV_KEYS = Object.freeze({
-  app_open: {
-    interstitial: [
-      "VITE_META_APP_OPEN_AD_PLACEMENT_ID",
-      "VITE_META_INTERSTITIAL_PLACEMENT_ID",
-      "VITE_META_APP_OPEN_PLACEMENT_ID",
-    ],
-  },
-  rewarded_video: {
-    rewarded: [
-      "VITE_META_REWARDED_VIDEO_PLACEMENT_ID",
-      "VITE_META_REWARDED_AD_PLACEMENT_ID",
-      "VITE_META_REWARDED_PLACEMENT_ID",
-    ],
-  },
+const AD_DISABLED_MODE = "disabled";
+const AD_DISABLED_REASON = "ads_removed";
+const AD_FORMATS = Object.freeze({
+  banner: "banner",
+  interstitial: "interstitial",
+  rewarded: "rewarded",
 });
 const IS_META_BUILD_TARGET = import.meta.env?.VITE_PLATFORM_TARGET === "meta";
-const GAME_AD_CONTEXT = Object.freeze({
-  category: "games",
-  keywords: ["arcade game", "mobile game", "battle game", "pixel game"],
-});
 const DEFAULT_SHARE_BASE_URL = "https://professionballarena.top";
 const DEFAULT_WEB_STORE_URL = "https://professionballarena.top/download/";
 const DEFAULT_GOOGLE_PLAY_PACKAGE = "com.professionballarena.game";
@@ -73,17 +18,6 @@ const BATTLE_SHARE_PATH = "/battle/";
 const CUSTOM_DEEP_LINK_SCHEME = "professionballarena:";
 const BATTLE_REPLAY_SEED_MAX = 0xffffffff;
 let analyticsCollectionEnabled = false;
-const adMobState = {
-  importPromise: null,
-  module: null,
-  initialized: false,
-  initializationError: null,
-  activeBannerPlacement: null,
-};
-const metaAdState = {
-  initialized: false,
-  initializationError: null,
-};
 
 export const AnalyticsEvents = Object.freeze({
   adClick: "ad_click",
@@ -299,10 +233,6 @@ function normalizeAnalyticsValue(value) {
 
 function getNativeAnalyticsPlugin() {
   return globalThis.Capacitor?.Plugins?.GameAnalytics || null;
-}
-
-function getNativeAdsPlugin() {
-  return globalThis.Capacitor?.Plugins?.GameAds || null;
 }
 
 function getNativeSocialPlugin() {
@@ -585,415 +515,56 @@ function normalizeShareTarget(target) {
 }
 
 export const ads = {
-  enabled: true,
+  enabled: false,
   get mode() {
-    if (getNativeAdsPlugin()) {
-      return "native";
-    }
-    if (isMetaInstantRuntime()) {
-      return META_AD_NETWORK;
-    }
-    if (adMobState.initialized) {
-      return "admob";
-    }
-    return "mock";
+    return AD_DISABLED_MODE;
   },
   isAvailable() {
-    if (getNativeAdsPlugin()) {
-      return true;
-    }
-    if (isMetaInstantRuntime()) {
-      return hasMetaAdApi(META_INTERSTITIAL_FORMAT) || hasMetaAdApi(META_REWARDED_FORMAT);
-    }
-    return true;
+    return false;
   },
-  supportsPlacement(placement = "default", format = "interstitial") {
-    const nativePlugin = getNativeAdsPlugin();
-    if (nativePlugin) {
-      return true;
-    }
-
-    if (isMetaInstantRuntime()) {
-      if (format === "banner") {
-        return false;
-      }
-      if (format === META_REWARDED_FORMAT) {
-        return hasMetaAdApi(META_REWARDED_FORMAT);
-      }
-      return hasMetaAdApi(META_INTERSTITIAL_FORMAT);
-    }
-
-    if (format === META_REWARDED_FORMAT) {
-      return !shouldUseNativeAdMob() || canUseAdMobRewardedVideo();
-    }
-
-    return format === "banner" || format === "interstitial";
+  supportsPlacement() {
+    return false;
   },
   async initialize() {
-    const nativePlugin = getNativeAdsPlugin();
-    if (nativePlugin?.initialize) {
-      return nativePlugin.initialize({ context: GAME_AD_CONTEXT });
-    }
-
-    if (isMetaInstantRuntime()) {
-      return initializeMetaInstantAds();
-    }
-
-    if (!shouldUseNativeAdMob()) {
-      return {
-        available: true,
-        initialized: false,
-        mode: "mock",
-        context: GAME_AD_CONTEXT,
-        reason: "web_mock_ads",
-      };
-    }
-
-    if (adMobState.initialized) {
-      return {
-        available: true,
-        initialized: true,
-        mode: "admob",
-        testing: isAdMobTestingEnabled(),
-        admob_mode: getResolvedAdMobMode(),
-        non_personalized_ads: shouldRequestNonPersonalizedAds(),
-        context: GAME_AD_CONTEXT,
-      };
-    }
-
-    try {
-      const adMobModule = await loadAdMobModule();
-      await adMobModule.AdMob.initialize({
-        initializeForTesting: isAdMobTestingEnabled(),
-        tagForChildDirectedTreatment: false,
-        tagForUnderAgeOfConsent: false,
-        maxAdContentRating: adMobModule.MaxAdContentRating?.ParentalGuidance || "ParentalGuidance",
-      });
-      adMobState.initialized = true;
-      adMobState.initializationError = null;
-
-      return {
-        available: true,
-        initialized: true,
-        mode: "admob",
-        testing: isAdMobTestingEnabled(),
-        admob_mode: getResolvedAdMobMode(),
-        non_personalized_ads: shouldRequestNonPersonalizedAds(),
-        context: GAME_AD_CONTEXT,
-      };
-    } catch (error) {
-      adMobState.initializationError = error;
-      console.warn("AdMob initialization failed", error);
-      return {
-        available: false,
-        initialized: false,
-        mode: "admob",
-        reason: "admob_initialization_failed",
-        error,
-      };
-    }
-  },
-  getStatus() {
-    return {
-      available: this.isAvailable(),
-      mode: this.mode,
-      admobInitialized: adMobState.initialized,
-      admobInitializationError: adMobState.initializationError?.message || null,
-      activeBannerPlacement: adMobState.activeBannerPlacement,
-      metaInitialized: metaAdState.initialized,
-      metaInitializationError: metaAdState.initializationError?.message || null,
-      metaSupportedAPIs: getSupportedMetaApis(),
-      metaPlacements: getMetaPlacementStatus(),
-      testing: isAdMobTestingEnabled(),
-      configuredAdMobMode: getConfiguredAdMobMode(),
-      resolvedAdMobMode: getResolvedAdMobMode(),
-      liveAdMobEnabled: getResolvedAdMobMode() === AD_MOB_MODES.real,
-      realAdUnitsConfigured: hasRealAdUnitsConfigured(getNativePlatform()),
-      non_personalized_ads: shouldRequestNonPersonalizedAds(),
-      game_ad_context: GAME_AD_CONTEXT,
-      placements: {
-        app_open_interstitial: this.supportsPlacement("app_open", "interstitial"),
-        battle_banner_banner: this.supportsPlacement("battle_banner", "banner"),
-        rewarded_video: this.supportsPlacement("rewarded_video", META_REWARDED_FORMAT),
-      },
-    };
-  },
-  getBanner(placement = "default", options = {}) {
-    const nativePlugin = getNativeAdsPlugin();
-    if (nativePlugin?.getBanner) {
-      return nativePlugin.getBanner({ placement, ...options, context: GAME_AD_CONTEXT });
-    }
-
-    if (isMetaInstantRuntime()) {
-      return createMetaAdNotShownResult(placement, "banner", "meta_banner_not_supported");
-    }
-
-    if (shouldUseNativeAdMob()) {
-      return showAdMobBanner(placement, options);
-    }
-
-    return createMockAdResult(placement, "banner");
-  },
-  async showInterstitial(placement = "default") {
-    const nativePlugin = getNativeAdsPlugin();
-    if (nativePlugin?.showInterstitial) {
-      return nativePlugin.showInterstitial({ placement, context: GAME_AD_CONTEXT });
-    }
-
-    if (isMetaInstantRuntime()) {
-      return showMetaInstantInterstitial(placement);
-    }
-
-    if (shouldUseNativeAdMob()) {
-      return showAdMobInterstitial(placement);
-    }
-
-    return createMockAdResult(placement, "interstitial");
-  },
-  async showRewardedVideo(placement = "rewarded_video") {
-    const nativePlugin = getNativeAdsPlugin();
-    if (nativePlugin?.showRewardedVideo) {
-      return nativePlugin.showRewardedVideo({ placement, context: GAME_AD_CONTEXT });
-    }
-
-    if (isMetaInstantRuntime()) {
-      return showMetaInstantRewardedVideo(placement);
-    }
-
-    if (shouldUseNativeAdMob()) {
-      return showAdMobRewardedVideo(placement);
-    }
-
-    return createMockAdResult(placement, META_REWARDED_FORMAT);
-  },
-  async hideBanner(placement = "default") {
-    const nativePlugin = getNativeAdsPlugin();
-    if (nativePlugin?.hideBanner) {
-      return nativePlugin.hideBanner({ placement });
-    }
-
-    if (isMetaInstantRuntime()) {
-      return {
-        hidden: false,
-        placement,
-        network: META_AD_NETWORK,
-        reason: "meta_banner_not_supported",
-      };
-    }
-
-    if (!adMobState.module?.AdMob || !adMobState.activeBannerPlacement) {
-      return {
-        hidden: false,
-        placement,
-        reason: "no_active_banner",
-      };
-    }
-
-    try {
-      await adMobState.module.AdMob.hideBanner();
-      adMobState.activeBannerPlacement = null;
-      return {
-        hidden: true,
-        placement,
-        network: "admob",
-      };
-    } catch (error) {
-      console.warn("AdMob banner hide failed", error);
-      return {
-        hidden: false,
-        placement,
-        network: "admob",
-        reason: "hide_failed",
-        error,
-      };
-    }
-  },
-};
-
-function initializeMetaInstantAds() {
-  try {
-    const supportsInterstitial = hasMetaAdApi(META_INTERSTITIAL_FORMAT);
-    const supportsRewarded = hasMetaAdApi(META_REWARDED_FORMAT);
-    metaAdState.initialized = true;
-    metaAdState.initializationError = null;
-
-    return {
-      available: supportsInterstitial || supportsRewarded,
-      initialized: true,
-      mode: META_AD_NETWORK,
-      network: META_AD_NETWORK,
-      supports: {
-        interstitial: supportsInterstitial,
-        rewarded: supportsRewarded,
-        banner: false,
-      },
-      placements: getMetaPlacementStatus(),
-      context: GAME_AD_CONTEXT,
-    };
-  } catch (error) {
-    metaAdState.initializationError = error;
     return {
       available: false,
       initialized: false,
-      mode: META_AD_NETWORK,
-      network: META_AD_NETWORK,
-      reason: "meta_ads_initialization_failed",
-      error,
+      mode: AD_DISABLED_MODE,
+      reason: AD_DISABLED_REASON,
     };
-  }
-}
-
-async function showMetaInstantInterstitial(placement) {
-  if (!hasMetaAdApi(META_INTERSTITIAL_FORMAT)) {
-    return createMetaAdNotShownResult(placement, META_INTERSTITIAL_FORMAT, "meta_interstitial_unavailable");
-  }
-
-  return showMetaInstantAd(placement, META_INTERSTITIAL_FORMAT);
-}
-
-async function showMetaInstantRewardedVideo(placement) {
-  if (!hasMetaAdApi(META_REWARDED_FORMAT)) {
-    return createMetaAdNotShownResult(placement, META_REWARDED_FORMAT, "meta_rewarded_unavailable");
-  }
-
-  return showMetaInstantAd(placement, META_REWARDED_FORMAT);
-}
-
-async function showMetaInstantAd(placement, format) {
-  const fb = getMetaInstant();
-  const placementId = getMetaPlacementId(placement, format);
-  if (!placementId) {
-    return createMetaAdNotShownResult(placement, format, "meta_placement_id_missing");
-  }
-
-  try {
-    const ad =
-      format === META_REWARDED_FORMAT
-        ? await fb.getRewardedVideoAsync(placementId)
-        : await fb.getInterstitialAdAsync(placementId);
-    await ad.loadAsync();
-    await ad.showAsync();
-    return createMetaAdResult(placement, format, `meta_${format}`, placementId);
-  } catch (error) {
-    console.warn("Meta Instant ad failed", placement, error);
-    return createMetaAdNotShownResult(placement, format, "meta_ad_failed", error);
-  }
-}
-
-async function showAdMobInterstitial(placement) {
-  const adMobModule = await getReadyAdMobModule();
-  if (!adMobModule?.AdMob) {
-    return createAdNotShownResult(placement, "interstitial", "admob_unavailable");
-  }
-
-  const adId = getAdUnitId(placement, "appOpen");
-  try {
-    await adMobModule.AdMob.prepareInterstitial({
-      adId,
-      isTesting: isAdMobTestingEnabled(),
-      npa: shouldRequestNonPersonalizedAds(),
-      immersiveMode: true,
-    });
-    await adMobModule.AdMob.showInterstitial();
-    return createNativeAdResult(placement, "interstitial", "native_interstitial", adId);
-  } catch (error) {
-    console.warn("AdMob interstitial failed", placement, error);
-    return createAdNotShownResult(placement, "interstitial", "admob_interstitial_failed", error);
-  }
-}
-
-async function showAdMobBanner(placement, options = {}) {
-  const adMobModule = await getReadyAdMobModule();
-  if (!adMobModule?.AdMob) {
-    return createAdNotShownResult(placement, "banner", "admob_unavailable");
-  }
-
-  const adId = getAdUnitId(placement, "battleBanner");
-  const margin = Math.max(0, Math.round(Number(options.marginBottom) || 0));
-  try {
-    await adMobModule.AdMob.showBanner({
-      adId,
-      adSize: adMobModule.BannerAdSize?.BANNER || "BANNER",
-      position: adMobModule.BannerAdPosition?.BOTTOM_CENTER || "BOTTOM_CENTER",
-      margin,
-      isTesting: isAdMobTestingEnabled(),
-      npa: shouldRequestNonPersonalizedAds(),
-    });
-    adMobState.activeBannerPlacement = placement;
-    return createNativeAdResult(placement, "banner", "native_banner", adId, {
-      margin_bottom: margin,
-      requested_width: options.width,
-      requested_height: options.height,
-    });
-  } catch (error) {
-    console.warn("AdMob banner failed", placement, error);
-    return createAdNotShownResult(placement, "banner", "admob_banner_failed", error);
-  }
-}
-
-async function showAdMobRewardedVideo(placement) {
-  const adMobModule = await getReadyAdMobModule();
-  if (!adMobModule?.AdMob) {
-    return createAdNotShownResult(placement, META_REWARDED_FORMAT, "admob_unavailable");
-  }
-
-  if (!canUseAdMobRewardedVideo()) {
-    return createAdNotShownResult(placement, META_REWARDED_FORMAT, "admob_rewarded_unit_missing");
-  }
-
-  const adId = getAdUnitId(placement, "rewardedVideo");
-  try {
-    await adMobModule.AdMob.prepareRewardVideoAd({
-      adId,
-      isTesting: isAdMobTestingEnabled(),
-      npa: shouldRequestNonPersonalizedAds(),
-      immersiveMode: true,
-    });
-    const reward = await adMobModule.AdMob.showRewardVideoAd();
-    return createNativeAdResult(placement, META_REWARDED_FORMAT, "native_rewarded", adId, {
-      rewarded: true,
-      reward_type: reward?.type || "ad_reward",
-      reward_amount: normalizeRewardAmount(reward?.amount),
-    });
-  } catch (error) {
-    console.warn("AdMob rewarded video failed", placement, error);
-    return createAdNotShownResult(placement, META_REWARDED_FORMAT, "admob_rewarded_failed", error);
-  }
-}
-
-async function getReadyAdMobModule() {
-  const initResult = await ads.initialize();
-  if (!initResult?.available || !adMobState.module) {
-    return null;
-  }
-  return adMobState.module;
-}
-
-async function loadAdMobModule() {
-  if (isMetaBuildTarget()) {
-    throw new Error("AdMob is disabled for Meta Instant Games builds.");
-  }
-
-  if (adMobState.module) {
-    return adMobState.module;
-  }
-
-  adMobState.importPromise ||= import("@capacitor-community/admob")
-    .then((module) => {
-      adMobState.module = module;
-      return module;
-    })
-    .catch((error) => {
-      adMobState.importPromise = null;
-      throw error;
-    });
-
-  return adMobState.importPromise;
-}
-
-function shouldUseNativeAdMob() {
-  return !isMetaBuildTarget() && isNativeRuntime() && getResolvedAdMobMode() !== AD_MOB_MODES.mock;
-}
+  },
+  getStatus() {
+    return {
+      available: false,
+      mode: AD_DISABLED_MODE,
+      initialized: false,
+      reason: AD_DISABLED_REASON,
+      metaRuntime: isMetaInstantRuntime() || isMetaBuildTarget(),
+      placements: {
+        app_open_interstitial: false,
+        battle_banner_banner: false,
+        rewarded_video: false,
+      },
+    };
+  },
+  getBanner(placement = "default") {
+    return createAdNotShownResult(placement, AD_FORMATS.banner, AD_DISABLED_REASON);
+  },
+  async showInterstitial(placement = "default") {
+    return createAdNotShownResult(placement, AD_FORMATS.interstitial, AD_DISABLED_REASON);
+  },
+  async showRewardedVideo(placement = "rewarded_video") {
+    return createAdNotShownResult(placement, AD_FORMATS.rewarded, AD_DISABLED_REASON);
+  },
+  async hideBanner(placement = "default") {
+    return {
+      hidden: false,
+      placement,
+      network: AD_DISABLED_MODE,
+      reason: "no_active_banner",
+    };
+  },
+};
 
 function getNativePlatform() {
   const platform = globalThis.Capacitor?.getPlatform?.();
@@ -1001,90 +572,6 @@ function getNativePlatform() {
     return platform;
   }
   return isNativeRuntime() ? "android" : "web";
-}
-
-function getAdUnitId(placement, fallbackKey) {
-  const platform = getNativePlatform();
-  const placementKey = getPlacementEnvKey(placement, fallbackKey);
-  const resolvedMode = getResolvedAdMobMode();
-
-  if (resolvedMode === AD_MOB_MODES.real) {
-    return (
-      getEnvAdUnitId(platform, placementKey) ||
-      REAL_AD_UNITS[platform]?.[fallbackKey] ||
-      GOOGLE_TEST_AD_UNITS[platform]?.[fallbackKey] ||
-      GOOGLE_TEST_AD_UNITS.web[fallbackKey]
-    );
-  }
-
-  if (resolvedMode === AD_MOB_MODES.test) {
-    return GOOGLE_TEST_AD_UNITS[platform]?.[fallbackKey] || GOOGLE_TEST_AD_UNITS.web[fallbackKey];
-  }
-
-  return GOOGLE_TEST_AD_UNITS.web[fallbackKey];
-}
-
-function isAdMobTestingEnabled() {
-  return getResolvedAdMobMode() === AD_MOB_MODES.test;
-}
-
-function getResolvedAdMobMode() {
-  const configuredMode = getConfiguredAdMobMode();
-  const platform = getNativePlatform();
-
-  if (!isNativeRuntime() || configuredMode === AD_MOB_MODES.mock) {
-    return AD_MOB_MODES.mock;
-  }
-
-  if (configuredMode === AD_MOB_MODES.real) {
-    return hasRealAdUnitsConfigured(platform) ? AD_MOB_MODES.real : AD_MOB_MODES.test;
-  }
-
-  if (configuredMode === AD_MOB_MODES.test) {
-    return AD_MOB_MODES.test;
-  }
-
-  return AD_MOB_MODES.test;
-}
-
-function getConfiguredAdMobMode() {
-  const explicitMode = normalizeAdMobMode(getBuildEnvValue("VITE_ADMOB_MODE"));
-  if (explicitMode) {
-    return explicitMode;
-  }
-
-  const explicitTesting = getExplicitBooleanBuildEnvValue("VITE_ADMOB_TESTING");
-  if (explicitTesting !== null) {
-    return explicitTesting ? AD_MOB_MODES.test : AD_MOB_MODES.real;
-  }
-
-  const explicitReleaseAds = getExplicitBooleanBuildEnvValue("VITE_ADMOB_RELEASE_ADS");
-  if (explicitReleaseAds === true) {
-    return AD_MOB_MODES.real;
-  }
-
-  return AD_MOB_MODES.auto;
-}
-
-function normalizeAdMobMode(value) {
-  if (value === undefined || value === null || value === "") {
-    return null;
-  }
-
-  const normalized = String(value).trim().toLowerCase();
-  if (normalized === "production" || normalized === "prod" || normalized === "live") {
-    return AD_MOB_MODES.real;
-  }
-  if (normalized === "testing" || normalized === "debug") {
-    return AD_MOB_MODES.test;
-  }
-  if (normalized === "off" || normalized === "disabled" || normalized === "canvas") {
-    return AD_MOB_MODES.mock;
-  }
-  if (Object.hasOwn(AD_MOB_MODES, normalized)) {
-    return AD_MOB_MODES[normalized];
-  }
-  return null;
 }
 
 function isNativeRuntime() {
@@ -1101,96 +588,6 @@ function getMetaInstant() {
 
 function isMetaInstantRuntime() {
   return Boolean(getMetaInstant());
-}
-
-function hasMetaAdApi(format) {
-  const fb = getMetaInstant();
-  if (!fb) {
-    return false;
-  }
-
-  const methodName = format === META_REWARDED_FORMAT ? "getRewardedVideoAsync" : "getInterstitialAdAsync";
-  if (typeof fb[methodName] !== "function") {
-    return false;
-  }
-
-  const supportedApis = getSupportedMetaApis();
-  return supportedApis.length === 0 || supportedApis.includes(methodName);
-}
-
-function getSupportedMetaApis() {
-  const fb = getMetaInstant();
-  if (typeof fb?.getSupportedAPIs !== "function") {
-    return [];
-  }
-
-  try {
-    const supportedApis = fb.getSupportedAPIs();
-    return Array.isArray(supportedApis) ? supportedApis : [];
-  } catch {
-    return [];
-  }
-}
-
-function getMetaPlacementStatus() {
-  return {
-    appOpen: Boolean(getMetaPlacementId("app_open", META_INTERSTITIAL_FORMAT)),
-    rewardedVideo: Boolean(getMetaPlacementId("rewarded_video", META_REWARDED_FORMAT)),
-  };
-}
-
-function getMetaPlacementId(placement, format) {
-  const key = String(placement || "");
-  const envKeys = META_PLACEMENT_ENV_KEYS[key]?.[format] || [];
-  for (const envKey of envKeys) {
-    const value = getBuildEnvValue(envKey);
-    if (value) {
-      return value;
-    }
-  }
-  return null;
-}
-
-function shouldRequestNonPersonalizedAds() {
-  return getBooleanBuildEnvValue("VITE_ADMOB_NPA", true);
-}
-
-function hasRealAdUnitsConfigured(platform) {
-  return Boolean(
-    getEnvAdUnitId(platform, AD_FALLBACK_ENV_KEYS.appOpen) ||
-    REAL_AD_UNITS[platform]?.appOpen
-  ) && Boolean(
-    getEnvAdUnitId(platform, AD_FALLBACK_ENV_KEYS.battleBanner) ||
-    REAL_AD_UNITS[platform]?.battleBanner
-  );
-}
-
-function canUseAdMobRewardedVideo(platform = getNativePlatform()) {
-  if (getResolvedAdMobMode() !== AD_MOB_MODES.real) {
-    return true;
-  }
-
-  return Boolean(
-    getEnvAdUnitId(platform, AD_FALLBACK_ENV_KEYS.rewardedVideo) ||
-    REAL_AD_UNITS[platform]?.rewardedVideo
-  );
-}
-
-function normalizeRewardAmount(amount) {
-  const parsedAmount = Number(amount);
-  return Number.isFinite(parsedAmount) ? parsedAmount : 1;
-}
-
-function getPlacementEnvKey(placement, fallbackKey) {
-  return AD_UNIT_ENV_KEYS[placement] || AD_FALLBACK_ENV_KEYS[fallbackKey] || String(placement || fallbackKey).toUpperCase();
-}
-
-function getEnvAdUnitId(platform, placementKey) {
-  const platformPrefix = platform.toUpperCase();
-  return (
-    getBuildEnvValue(`VITE_ADMOB_${platformPrefix}_${placementKey}_AD_UNIT_ID`) ||
-    getBuildEnvValue(`VITE_ADMOB_${placementKey}_AD_UNIT_ID`)
-  );
 }
 
 function getBooleanBuildEnvValue(key, fallback) {
@@ -1260,75 +657,13 @@ function openExternalUrl(url) {
   }
 }
 
-function createMockAdResult(placement, format) {
-  return {
-    shown: true,
-    available: true,
-    placement,
-    format,
-    network: "mock_game_ads",
-    render: "canvas_mock",
-    creative_id: `mock_game_${placement}_${format}`,
-    campaign: "game_ad_debug_chain",
-    testing: true,
-    game_ad_context: GAME_AD_CONTEXT.category,
-  };
-}
-
-function createNativeAdResult(placement, format, render, creativeId, extra = {}) {
-  return {
-    shown: true,
-    available: true,
-    placement,
-    format,
-    network: "admob",
-    render,
-    creative_id: creativeId,
-    campaign: "admob_game_context",
-    testing: isAdMobTestingEnabled(),
-    admob_mode: getResolvedAdMobMode(),
-    game_ad_context: GAME_AD_CONTEXT.category,
-    ...extra,
-  };
-}
-
-function createMetaAdResult(placement, format, render, creativeId, extra = {}) {
-  return {
-    shown: true,
-    available: true,
-    placement,
-    format,
-    network: META_AD_NETWORK,
-    render,
-    creative_id: creativeId,
-    campaign: "meta_instant_games",
-    testing: false,
-    game_ad_context: GAME_AD_CONTEXT.category,
-    ...extra,
-  };
-}
-
 function createAdNotShownResult(placement, format, reason, error = null) {
   return {
     shown: false,
     available: false,
     placement,
     format,
-    network: "admob",
-    reason,
-    testing: isAdMobTestingEnabled(),
-    admob_mode: getResolvedAdMobMode(),
-    error,
-  };
-}
-
-function createMetaAdNotShownResult(placement, format, reason, error = null) {
-  return {
-    shown: false,
-    available: false,
-    placement,
-    format,
-    network: META_AD_NETWORK,
+    network: AD_DISABLED_MODE,
     reason,
     testing: false,
     error,

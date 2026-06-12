@@ -33,7 +33,6 @@ import { GamePlatform, initializePlatform } from "./platform.js";
 import {
   AnalyticsEvents,
   ShareTargets,
-  ads,
   analytics,
   createBattleReplaySeed,
   createBattleReplayShareUrl,
@@ -154,30 +153,6 @@ const RENDER_QUALITY_CONFIG = Object.freeze({
   mediumJankPct: 10,
   lowFrameP95Ms: 58,
   lowJankPct: 18,
-});
-const AD_CHAIN_CONFIG = Object.freeze({
-  appOpen: {
-    placement: "app_open",
-    dailyMatchMilestones: Object.freeze([3, 8, 15, 30]),
-    minCloseMs: 1500,
-    autoCloseMs: 4200,
-  },
-  battleBanner: {
-    placement: "battle_banner",
-    minWidth: 220,
-    maxWidth: 420,
-    height: 54,
-    compactHeight: 46,
-    gap: 10,
-    refreshMs: 30000,
-    failureRetryMs: 15000,
-  },
-  rewardedVideo: {
-    placement: "rewarded_video",
-    dailyLimit: 3,
-    cooldownMs: 75 * 1000,
-    maxPendingPasses: 2,
-  },
 });
 const NEUTRAL_SCENE_SPAWN_CONFIG = Object.freeze({
   initialCount: 2,
@@ -496,9 +471,6 @@ let battleDanmakuLaneCooldowns = [];
 let nextBattleDanmakuAt = 0;
 let lastBattleDanmakuEventAt = -Infinity;
 let battleDanmakuSequence = 0;
-let activeAdOverlay = null;
-let adSessionState = createAdSessionState();
-let rewardedAdRequestPending = false;
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
 let shareTargetOverlayOpen = false;
 let deepLinkListenerHandle = null;
@@ -2069,9 +2041,6 @@ function setScreen(nextScreen) {
   if (fromScreen === Screen.RESULT && nextScreen !== Screen.RESULT) {
     clearPendingReviewPrompt();
   }
-  if (fromScreen === Screen.PLAYING && nextScreen !== Screen.PLAYING) {
-    void ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
-  }
   if (nextScreen !== Screen.PROFESSION_SELECT) {
     resetProfessionScroll();
   }
@@ -2102,10 +2071,9 @@ async function acceptLegalAndEnterMenu() {
   settings = complianceState.saveSettings({
     ...settings,
     analyticsEnabled: true,
-    adsEnabled: true,
+    adsEnabled: false,
   });
   await syncAnalyticsCollection();
-  await initializeAdsIfAllowed();
   analytics.track(AnalyticsEvents.legalAccept, { version: LegalConfig.version });
   trackGameInitSuccess("legal_accept");
   setScreen(Screen.MAIN_MENU);
@@ -2380,8 +2348,6 @@ function withdrawConsent() {
     adsEnabled: false,
   });
   void syncAnalyticsCollection();
-  void ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
-  closeActiveAdOverlay("consent_withdrawn");
   hasCheckedLegalConsent = false;
   serviceMessage = t("messages.consentWithdrawn");
   setScreen(Screen.CONSENT);
@@ -3430,19 +3396,6 @@ function getHardwareConcurrency() {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-function createAdSessionState() {
-  return {
-    appOpenRequestPending: false,
-    appOpenLastShownDailyMatchCount: 0,
-    battleBanner: null,
-    battleBannerMatchId: "",
-    battleBannerShownAtMs: 0,
-    battleBannerImpressionTracked: false,
-    battleBannerRequestPending: false,
-    battleBannerRetryAfterMs: 0,
-  };
-}
-
 function resetPerformanceStats() {
   performanceStats = createPerformanceStatsState(getNowMs());
 }
@@ -3493,34 +3446,30 @@ function trackGameInitSuccess(consentSource = "boot") {
 }
 
 function canShowAds() {
-  return complianceState.hasAcceptedCurrentLegal() && Boolean(settings.adsEnabled) && ads.isAvailable();
+  return false;
 }
 
 function canShowBattleBannerAds() {
-  return canShowAds() && ads.supportsPlacement(AD_CHAIN_CONFIG.battleBanner.placement, "banner");
+  return false;
 }
 
 function canShowRewardedVideoAds() {
-  return canShowAds() && ads.supportsPlacement(AD_CHAIN_CONFIG.rewardedVideo.placement, "rewarded");
+  return false;
 }
 
 async function initializeAdsIfAllowed() {
-  if (!canShowAds()) {
-    await ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
-    return {
-      available: false,
-      reason: "ads_disabled_or_no_consent",
-    };
-  }
-
-  return ads.initialize();
+  return {
+    available: false,
+    initialized: false,
+    reason: "ads_removed",
+  };
 }
 
 function trackAdEvent(eventName, placement, result = {}, extraPayload = {}) {
   analytics.track(eventName, {
     placement,
     ad_format: result.format || extraPayload.ad_format || "unknown",
-    ad_network: result.network || ads.mode || "unknown",
+    ad_network: result.network || "disabled",
     creative_id: result.creative_id || "unknown",
     scene: selectedProfessions.scene,
     surface: getRuntimeSurface(),
@@ -3530,167 +3479,31 @@ function trackAdEvent(eventName, placement, result = {}, extraPayload = {}) {
 }
 
 async function maybeShowAppOpenAd(source = "boot") {
-  if (!canShowAds() || adSessionState.appOpenRequestPending) {
-    return;
-  }
-
-  if (source === "match_complete") {
-    const dailyMatchCount = getCurrentPlayerProgress().daily.matches;
-    const shouldShowForMilestone = AD_CHAIN_CONFIG.appOpen.dailyMatchMilestones.includes(dailyMatchCount);
-    if (!shouldShowForMilestone || adSessionState.appOpenLastShownDailyMatchCount === dailyMatchCount) {
-      return;
-    }
-  }
-
-  const placement = AD_CHAIN_CONFIG.appOpen.placement;
-  adSessionState.appOpenRequestPending = true;
-  trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "interstitial" }, { source });
-
-  try {
-    await initializeAdsIfAllowed();
-    const result = await ads.showInterstitial(placement);
-    if (!result?.shown) {
-      trackAdEvent(AnalyticsEvents.adClose, placement, result || {}, { source, reason: result?.reason || "not_shown" });
-      return;
-    }
-
-    if (source === "match_complete") {
-      adSessionState.appOpenLastShownDailyMatchCount = getCurrentPlayerProgress().daily.matches;
-    }
-    if (result.render === "canvas_mock") {
-      activeAdOverlay = createAppOpenAdOverlay(result, source);
-      trackAdEvent(AnalyticsEvents.adShow, placement, result, { source });
-    } else {
-      trackAdEvent(AnalyticsEvents.adShow, placement, result, { source, render: result.render || "native" });
-    }
-  } catch (error) {
-    trackAdEvent(AnalyticsEvents.adClose, placement, { format: "interstitial", network: ads.mode }, { source, reason: "request_failed" });
-  } finally {
-    adSessionState.appOpenRequestPending = false;
-  }
-}
-
-function createAppOpenAdOverlay(result, source) {
-  const now = getNowMs();
-  return {
-    placement: AD_CHAIN_CONFIG.appOpen.placement,
-    result,
-    source,
-    startedAtMs: now,
-    closeAtMs: now + AD_CHAIN_CONFIG.appOpen.minCloseMs,
-    autoCloseAtMs: now + AD_CHAIN_CONFIG.appOpen.autoCloseMs,
-  };
+  void source;
 }
 
 function closeActiveAdOverlay(reason = "closed") {
-  if (!activeAdOverlay) {
-    return;
-  }
-
-  const overlay = activeAdOverlay;
-  activeAdOverlay = null;
-  trackAdEvent(AnalyticsEvents.adClose, overlay.placement, overlay.result, {
-    source: overlay.source,
-    reason,
-  });
+  void reason;
 }
 
 function updateAdState(timestamp) {
-  if (activeAdOverlay && timestamp >= activeAdOverlay.autoCloseAtMs) {
-    closeActiveAdOverlay("auto_close");
-  }
-
-  if (screen === Screen.PLAYING && !gameOver) {
-    ensureBattleBannerAd(timestamp);
-  }
+  void timestamp;
 }
 
 function resetBattleBannerAd() {
-  adSessionState.battleBanner = null;
-  adSessionState.battleBannerMatchId = matchTelemetry.matchId;
-  adSessionState.battleBannerShownAtMs = 0;
-  adSessionState.battleBannerImpressionTracked = false;
-  adSessionState.battleBannerRequestPending = false;
-  adSessionState.battleBannerRetryAfterMs = 0;
+  return;
 }
 
 function ensureBattleBannerAd(timestamp) {
-  if (!canShowBattleBannerAds() || !layout?.battleAd || adSessionState.battleBannerRequestPending) {
-    return;
-  }
-  if (timestamp < adSessionState.battleBannerRetryAfterMs) {
-    return;
-  }
-
-  const shouldRefresh =
-    !adSessionState.battleBanner ||
-    adSessionState.battleBannerMatchId !== matchTelemetry.matchId ||
-    timestamp - adSessionState.battleBannerShownAtMs >= AD_CHAIN_CONFIG.battleBanner.refreshMs;
-  if (!shouldRefresh) {
-    return;
-  }
-
-  requestBattleBannerAd(timestamp);
+  void timestamp;
 }
 
 function requestBattleBannerAd(timestamp) {
-  const placement = AD_CHAIN_CONFIG.battleBanner.placement;
-  adSessionState.battleBannerRequestPending = true;
-  trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "banner" }, {
-    match_id: matchTelemetry.matchId,
-  });
-
-  Promise.resolve(ads.getBanner(placement, getBattleBannerAdOptions()))
-    .then((result) => {
-      if (result?.available || result?.shown) {
-        adSessionState.battleBanner = result;
-        adSessionState.battleBannerMatchId = matchTelemetry.matchId;
-        adSessionState.battleBannerShownAtMs = timestamp;
-        adSessionState.battleBannerImpressionTracked = false;
-        adSessionState.battleBannerRetryAfterMs = 0;
-        return;
-      }
-
-      adSessionState.battleBannerRetryAfterMs = timestamp + AD_CHAIN_CONFIG.battleBanner.failureRetryMs;
-      trackAdEvent(AnalyticsEvents.adClose, placement, result || { format: "banner" }, {
-        match_id: matchTelemetry.matchId,
-        reason: result?.reason || "not_available",
-      });
-    })
-    .catch(() => {
-      adSessionState.battleBannerRetryAfterMs = timestamp + AD_CHAIN_CONFIG.battleBanner.failureRetryMs;
-      trackAdEvent(AnalyticsEvents.adClose, placement, { format: "banner", network: ads.mode }, {
-        match_id: matchTelemetry.matchId,
-        reason: "request_failed",
-      });
-    })
-    .finally(() => {
-      adSessionState.battleBannerRequestPending = false;
-    });
-}
-
-function getBattleBannerAdOptions() {
-  const rect = layout?.battleAd;
-  if (!rect) {
-    return {};
-  }
-
-  return {
-    width: rect.width,
-    height: rect.height,
-    marginBottom: Math.max(0, viewport.height - rect.y - rect.height),
-  };
+  void timestamp;
 }
 
 function trackBattleBannerShown(result) {
-  if (adSessionState.battleBannerImpressionTracked) {
-    return;
-  }
-
-  adSessionState.battleBannerImpressionTracked = true;
-  trackAdEvent(AnalyticsEvents.adShow, AD_CHAIN_CONFIG.battleBanner.placement, result, {
-    match_id: matchTelemetry.matchId,
-  });
+  void result;
 }
 
 function getRewardedEncoreEligibility(nowMs = Date.now()) {
@@ -3716,134 +3529,32 @@ function getRewardedEncoreEligibility(nowMs = Date.now()) {
     };
   }
 
-  if (!canShowRewardedVideoAds()) {
-    return {
-      eligible: false,
-      hasPendingPass: false,
-      reason: "rewarded_ads_unavailable",
-      rewardState,
-    };
-  }
-
-  if (rewardState.dailyClaimCount >= AD_CHAIN_CONFIG.rewardedVideo.dailyLimit) {
-    return {
-      eligible: false,
-      hasPendingPass: false,
-      reason: "daily_limit_reached",
-      rewardState,
-    };
-  }
-
-  const cooldownRemainingMs = Math.max(
-    0,
-    rewardState.lastClaimedAt + AD_CHAIN_CONFIG.rewardedVideo.cooldownMs - nowMs,
-  );
-  if (cooldownRemainingMs > 0) {
-    return {
-      eligible: false,
-      hasPendingPass: false,
-      reason: "cooldown_active",
-      cooldownRemainingMs,
-      rewardState,
-    };
-  }
-
-  if (rewardState.pendingEncorePasses >= AD_CHAIN_CONFIG.rewardedVideo.maxPendingPasses) {
-    return {
-      eligible: false,
-      hasPendingPass: false,
-      reason: "pending_pass_limit_reached",
-      rewardState,
-    };
-  }
-
   return {
-    eligible: true,
+    eligible: false,
     hasPendingPass: false,
-    reason: "result_encore_offer",
+    reason: "rewarded_ads_unavailable",
     rewardState,
   };
 }
 
 function shouldDrawRewardedEncoreButton() {
   const eligibility = getRewardedEncoreEligibility();
-  return rewardedAdRequestPending || eligibility.hasPendingPass || eligibility.eligible;
+  return eligibility.hasPendingPass;
 }
 
 function getRewardedEncoreButtonLabel() {
-  if (rewardedAdRequestPending) {
-    return t("ads.rewardLoading");
-  }
-
   const eligibility = getRewardedEncoreEligibility();
   return eligibility.hasPendingPass ? t("result.rewardedEncoreStart") : t("result.rewardedEncoreWatch");
 }
 
 async function handleRewardedEncoreAction() {
-  if (rewardedAdRequestPending) {
-    return;
-  }
-
   const pendingEligibility = getRewardedEncoreEligibility();
   if (pendingEligibility.hasPendingPass) {
     startRewardedEncoreMatch();
     return;
   }
 
-  if (!pendingEligibility.eligible) {
-    serviceMessage = getRewardedEncoreUnavailableMessage(pendingEligibility);
-    return;
-  }
-
-  const placement = AD_CHAIN_CONFIG.rewardedVideo.placement;
-  rewardedAdRequestPending = true;
-  trackAdEvent(AnalyticsEvents.adRequest, placement, { format: "rewarded" }, {
-    source: "result_encore",
-    daily_claim_count: pendingEligibility.rewardState.dailyClaimCount,
-  });
-
-  try {
-    await initializeAdsIfAllowed();
-    const result = await ads.showRewardedVideo(placement);
-    if (!result?.shown) {
-      trackAdEvent(AnalyticsEvents.adClose, placement, result || { format: "rewarded" }, {
-        source: "result_encore",
-        reason: result?.reason || "not_shown",
-      });
-      serviceMessage = getRewardedEncoreUnavailableMessage({ reason: result?.reason || "not_shown" });
-      return;
-    }
-
-    trackAdEvent(AnalyticsEvents.adShow, placement, result, {
-      source: "result_encore",
-      reward_type: "encore_variant",
-    });
-    const rewardState = complianceState.recordRewardedAdClaim({
-      nowMs: Date.now(),
-      dateKey: getLocalDateKey(),
-      pendingEncorePasses: 1,
-    });
-    analytics.track(AnalyticsEvents.rewardedAdGrant, createFunnelAnalyticsPayload({
-      placement,
-      reward_type: "encore_variant",
-      daily_claim_count: rewardState.dailyClaimCount,
-      total_claim_count: rewardState.totalClaimCount,
-      pending_passes: rewardState.pendingEncorePasses,
-      ad_network: result.network || ads.mode || "unknown",
-      creative_id: result.creative_id || "unknown",
-    }));
-    serviceMessage = t("messages.rewardAdGranted", {
-      remaining: Math.max(0, AD_CHAIN_CONFIG.rewardedVideo.dailyLimit - rewardState.dailyClaimCount),
-    });
-  } catch (error) {
-    trackAdEvent(AnalyticsEvents.adClose, placement, { format: "rewarded", network: ads.mode }, {
-      source: "result_encore",
-      reason: "request_failed",
-    });
-    serviceMessage = getRewardedEncoreUnavailableMessage({ reason: "request_failed" });
-  } finally {
-    rewardedAdRequestPending = false;
-  }
+  serviceMessage = getRewardedEncoreUnavailableMessage(pendingEligibility);
 }
 
 function startRewardedEncoreMatch() {
@@ -4614,30 +4325,6 @@ async function toggleAnalyticsSetting() {
   }
 }
 
-async function toggleAdsSetting() {
-  const previousValue = Boolean(settings.adsEnabled);
-  const nextValue = !previousValue;
-
-  settings = complianceState.saveSettings({
-    ...settings,
-    adsEnabled: nextValue,
-  });
-  trackSettingSelect("ads", nextValue ? "on" : "off", {
-    previous_value: previousValue ? "on" : "off",
-  });
-
-  if (!nextValue) {
-    closeActiveAdOverlay("settings_disabled");
-    await ads.hideBanner(AD_CHAIN_CONFIG.battleBanner.placement);
-    return;
-  }
-
-  await initializeAdsIfAllowed();
-  if (screen === Screen.PLAYING) {
-    resetBattleBannerAd();
-  }
-}
-
 function ensureAudioContext() {
   if (audioContext) {
     return audioContext;
@@ -5055,20 +4742,14 @@ function createTopHudLayout(metrics) {
   const hudHeight = titleHeight;
   const arenaControlsHeight = contentWidth < 430 ? 36 : 40;
   const arenaControlsGap = clamp(gap * 0.75, 6, 12);
-  const showBattleAd = canShowBattleBannerAds();
-  const battleAdHeight = showBattleAd ? (contentWidth < 430 ? AD_CHAIN_CONFIG.battleBanner.compactHeight : AD_CHAIN_CONFIG.battleBanner.height) : 0;
-  const battleAdGap = showBattleAd ? clamp(AD_CHAIN_CONFIG.battleBanner.gap, 8, 12) : 0;
-  const battleAdReserve = showBattleAd ? battleAdHeight + battleAdGap : 0;
-  const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap - arenaControlsGap - arenaControlsHeight - battleAdReserve);
+  const arenaMaxHeight = Math.max(120, contentHeight - hudHeight - gap - arenaControlsGap - arenaControlsHeight);
   const arenaSize = Math.floor(Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight));
   const spareHeight = Math.max(0, arenaMaxHeight - arenaSize);
   const arenaX = Math.round(left + (contentWidth - arenaSize) / 2);
   const arenaY = Math.round(top + hudHeight + gap + spareHeight * 0.5);
   const arenaControlsWidth = Math.round(Math.min(Math.max(128, arenaSize * 0.54), Math.min(260, arenaSize)));
   const arenaControlsHeightRounded = Math.round(arenaControlsHeight);
-  const battleAdWidth = Math.round(Math.min(AD_CHAIN_CONFIG.battleBanner.maxWidth, Math.max(AD_CHAIN_CONFIG.battleBanner.minWidth, Math.min(contentWidth, arenaSize * 0.78))));
   const arenaControlsY = Math.round(arenaY + arenaSize + arenaControlsGap);
-  const battleAdY = Math.round(arenaControlsY + arenaControlsHeightRounded + battleAdGap);
 
   return {
     mode: "top",
@@ -5095,14 +4776,7 @@ function createTopHudLayout(metrics) {
       width: arenaControlsWidth,
       height: arenaControlsHeightRounded,
     },
-    battleAd: showBattleAd
-      ? {
-          x: Math.round(left + (contentWidth - battleAdWidth) / 2),
-          y: battleAdY,
-          width: battleAdWidth,
-          height: battleAdHeight,
-        }
-      : null,
+    battleAd: null,
   };
 }
 
@@ -5110,19 +4784,14 @@ function createLandscapeLayout(metrics) {
   const { left, top, contentWidth, contentHeight, gap } = metrics;
   const arenaControlsHeight = contentHeight < 430 ? 34 : 38;
   const arenaControlsGap = clamp(gap * 0.55, 6, 10);
-  const showBattleAd = contentHeight >= 430 && canShowBattleBannerAds();
-  const battleAdHeight = showBattleAd ? AD_CHAIN_CONFIG.battleBanner.compactHeight : 0;
-  const battleAdGap = showBattleAd ? clamp(AD_CHAIN_CONFIG.battleBanner.gap, 7, 10) : 0;
-  const arenaMaxHeight = Math.max(120, contentHeight - arenaControlsHeight - arenaControlsGap - battleAdHeight - battleAdGap);
+  const arenaMaxHeight = Math.max(120, contentHeight - arenaControlsHeight - arenaControlsGap);
   const arenaSize = Math.floor(Math.min(ARENA_SIZE, contentWidth, arenaMaxHeight));
   const arenaX = Math.round(left + (contentWidth - arenaSize) / 2);
-  const reservedHeight = arenaSize + arenaControlsHeight + arenaControlsGap + battleAdHeight + battleAdGap;
+  const reservedHeight = arenaSize + arenaControlsHeight + arenaControlsGap;
   const arenaY = Math.round(top + (contentHeight - reservedHeight) / 2);
   const arenaControlsWidth = Math.round(Math.min(Math.max(126, arenaSize * 0.48), Math.min(240, arenaSize)));
   const arenaControlsHeightRounded = Math.round(arenaControlsHeight);
-  const battleAdWidth = Math.round(Math.min(AD_CHAIN_CONFIG.battleBanner.maxWidth, Math.max(AD_CHAIN_CONFIG.battleBanner.minWidth, Math.min(contentWidth, arenaSize * 0.58))));
   const arenaControlsY = Math.round(arenaY + arenaSize + arenaControlsGap);
-  const battleAdY = Math.round(arenaControlsY + arenaControlsHeightRounded + battleAdGap);
 
   return {
     mode: "landscape",
@@ -5149,14 +4818,7 @@ function createLandscapeLayout(metrics) {
       width: arenaControlsWidth,
       height: arenaControlsHeightRounded,
     },
-    battleAd: showBattleAd
-      ? {
-          x: Math.round(left + (contentWidth - battleAdWidth) / 2),
-          y: battleAdY,
-          width: battleAdWidth,
-          height: battleAdHeight,
-        }
-      : null,
+    battleAd: null,
   };
 }
 
@@ -5167,7 +4829,6 @@ function gameLoop(timestamp) {
 
   const isMatchActive = screen === Screen.PLAYING && !gameOver;
   recordPerformanceFrame(frameTimeMs, timestamp, isMatchActive);
-  updateAdState(timestamp);
 
   if (isMatchActive) {
     const scaledDeltaTime = deltaTime * getEffectiveGameSpeedMultiplier();
@@ -9017,7 +8678,6 @@ function finishMatch(winnerSide) {
   analytics.track(AnalyticsEvents.gameEnd, createGameEndAnalyticsPayload(resultMessage, winnerSide));
   trackMatchCompletionFunnelEvents(winnerSide, progressAfterMatch);
   setScreen(Screen.RESULT);
-  void maybeShowAppOpenAd("match_complete");
   finalizeMatchRecording(winnerSide);
   maybeRequestReviewAfterMatch(progressAfterMatch, winnerSide);
 }
@@ -9331,7 +8991,6 @@ function draw() {
       drawHud(t("status.playing"));
       drawArenaScene();
       drawShakeArenaButton();
-      drawBattleBannerAd();
       if (shouldDrawAmbientEffects()) {
         drawBattleIntroOverlay();
       }
@@ -9353,7 +9012,6 @@ function draw() {
   }
 
   drawMatchRecordingOverlay();
-  drawActiveAdOverlay();
 }
 
 function drawBackground() {
@@ -9654,203 +9312,6 @@ function drawShakeGlyphLines(x, y) {
     ctx.lineTo(x + 3, lineY + 3);
     ctx.lineTo(x + 8, lineY);
     ctx.stroke();
-  }
-}
-
-function drawBattleBannerAd() {
-  const rect = layout?.battleAd;
-  if (!rect || !canShowBattleBannerAds()) {
-    return;
-  }
-
-  const result = adSessionState.battleBanner;
-  if (!result) {
-    drawBattleBannerPlaceholder(rect);
-    return;
-  }
-
-  trackBattleBannerShown(result);
-
-  if (result.render === "native_banner") {
-    drawNativeBattleBannerSlot(rect);
-    return;
-  }
-
-  ctx.save();
-  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
-    fill: "#12364b",
-    border: "#fbbf24",
-    shadow: "#050711",
-    inset: "#fff6d6",
-    texture: voxelAssets.blocks.glowstone,
-  });
-
-  ctx.fillStyle = "#050711";
-  ctx.globalAlpha = 0.16;
-  ctx.fillRect(rect.x + 12, rect.y + 10, rect.width - 24, rect.height - 20);
-  ctx.globalAlpha = 1;
-
-  setCanvasDirection(ctx);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = COLORS.text;
-  ctx.font = canvasFont(getFittedFontSize(t("ads.battleTitle"), rect.width - 80, 13, 9, 900), 900);
-  ctx.fillText(t("ads.battleTitle"), rect.x + rect.width / 2, rect.y + rect.height * 0.38);
-  ctx.fillStyle = COLORS.muted;
-  ctx.font = canvasFont(getFittedFontSize(t("ads.testLabel"), rect.width - 80, 10, 8, 700), 700);
-  ctx.fillText(t("ads.testLabel"), rect.x + rect.width / 2, rect.y + rect.height * 0.68);
-
-  ctx.fillStyle = "#fbbf24";
-  ctx.font = canvasFont(10, 900);
-  ctx.textAlign = "left";
-  ctx.fillText("AD", rect.x + 12, rect.y + 15);
-  ctx.restore();
-
-  addInteractiveElement({
-    id: "battle-banner-ad",
-    rect,
-    action: () => {
-      trackAdEvent(AnalyticsEvents.adClick, AD_CHAIN_CONFIG.battleBanner.placement, result, {
-        match_id: matchTelemetry.matchId,
-      });
-    },
-  });
-}
-
-function drawNativeBattleBannerSlot(rect) {
-  ctx.save();
-  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
-    fill: "#0f1e2c",
-    border: "#37d7ff",
-    shadow: "#050711",
-    inset: "#fff6d6",
-    texture: voxelAssets.blocks.deepslate,
-  });
-  ctx.fillStyle = COLORS.muted;
-  ctx.font = canvasFont(getFittedFontSize("AdMob", rect.width - 24, 11, 8, 900), 900);
-  setCanvasDirection(ctx);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("AdMob", rect.x + rect.width / 2, rect.y + rect.height / 2);
-  ctx.restore();
-}
-
-function drawBattleBannerPlaceholder(rect) {
-  ctx.save();
-  drawPixelFrame(rect.x, rect.y, rect.width, rect.height, {
-    fill: "#172033",
-    border: "#4d5575",
-    shadow: "#050711",
-    inset: "#8aa0c8",
-    texture: voxelAssets.blocks.deepslate,
-  });
-  ctx.fillStyle = COLORS.muted;
-  ctx.font = canvasFont(getFittedFontSize(t("ads.loading"), rect.width - 24, 11, 8, 700), 700);
-  setCanvasDirection(ctx);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(t("ads.loading"), rect.x + rect.width / 2, rect.y + rect.height / 2);
-  ctx.restore();
-}
-
-function drawActiveAdOverlay() {
-  if (!activeAdOverlay) {
-    return;
-  }
-
-  const now = getNowMs();
-  const canClose = now >= activeAdOverlay.closeAtMs;
-  const remainingSeconds = Math.max(0, Math.ceil((activeAdOverlay.closeAtMs - now) / 1000));
-  const panelWidth = Math.min(420, viewport.width - 42);
-  const panelHeight = Math.min(360, viewport.height - 100);
-  const panelX = Math.round((viewport.width - panelWidth) / 2);
-  const panelY = Math.round((viewport.height - panelHeight) / 2);
-  const closeSize = 42;
-  const closeRect = {
-    x: panelX + panelWidth - closeSize - 18,
-    y: panelY + 16,
-    width: closeSize,
-    height: closeSize,
-  };
-
-  ctx.save();
-  ctx.fillStyle = "rgba(5, 7, 17, 0.72)";
-  ctx.fillRect(0, 0, viewport.width, viewport.height);
-  drawPixelFrame(panelX, panelY, panelWidth, panelHeight, {
-    fill: "#263249",
-    border: "#fbbf24",
-    shadow: "#050711",
-    inset: "#fff6d6",
-    texture: voxelAssets.blocks.stone,
-  });
-
-  ctx.fillStyle = "#050711";
-  ctx.globalAlpha = 0.22;
-  ctx.fillRect(panelX + 24, panelY + 78, panelWidth - 48, 112);
-  ctx.globalAlpha = 1;
-
-  setCanvasDirection(ctx);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "#fbbf24";
-  ctx.font = canvasFont(12, 900);
-  ctx.fillText("TEST AD", panelX + panelWidth / 2, panelY + 48);
-  ctx.fillStyle = COLORS.text;
-  ctx.font = canvasFont(getFittedFontSize(t("ads.appOpenTitle"), panelWidth - 72, 28, 18, 900), 900);
-  ctx.fillText(t("ads.appOpenTitle"), panelX + panelWidth / 2, panelY + 126);
-  ctx.fillStyle = COLORS.muted;
-  ctx.font = canvasFont(getFittedFontSize(t("ads.appOpenBody"), panelWidth - 56, 14, 10, 700), 700);
-  ctx.fillText(t("ads.appOpenBody"), panelX + panelWidth / 2, panelY + 182);
-
-  const ctaRect = {
-    x: panelX + 34,
-    y: panelY + panelHeight - 92,
-    width: panelWidth - 68,
-    height: 46,
-  };
-  drawPixelFrame(ctaRect.x, ctaRect.y, ctaRect.width, ctaRect.height, {
-    fill: "#12364b",
-    border: "#8be8ff",
-    shadow: "#050711",
-    inset: "#fff6d6",
-    texture: voxelAssets.blocks.glowstone,
-  });
-  ctx.fillStyle = COLORS.text;
-  ctx.font = canvasFont(getFittedFontSize(t("ads.cta"), ctaRect.width - 18, 16, 10, 900), 900);
-  ctx.fillText(t("ads.cta"), ctaRect.x + ctaRect.width / 2, ctaRect.y + ctaRect.height / 2);
-
-  drawPixelFrame(closeRect.x, closeRect.y, closeRect.width, closeRect.height, {
-    fill: canClose ? COLORS.button : "#4d5575",
-    border: canClose ? "#8be8ff" : "#8aa0c8",
-    shadow: "#050711",
-    inset: "#fff6d6",
-    texture: canClose ? voxelAssets.blocks.plank : voxelAssets.blocks.stone,
-  });
-  ctx.fillStyle = canClose ? COLORS.buttonText : COLORS.muted;
-  ctx.font = canvasFont(12, 900);
-  ctx.fillText(canClose ? "X" : `${remainingSeconds}`, closeRect.x + closeRect.width / 2, closeRect.y + closeRect.height / 2);
-  ctx.restore();
-
-  addInteractiveElement({
-    id: "ad-overlay-blocker",
-    rect: { x: 0, y: 0, width: viewport.width, height: viewport.height },
-    action: () => {},
-  });
-  addInteractiveElement({
-    id: "app-open-ad-cta",
-    rect: ctaRect,
-    action: () => {
-      trackAdEvent(AnalyticsEvents.adClick, activeAdOverlay.placement, activeAdOverlay.result, {
-        source: activeAdOverlay.source,
-      });
-    },
-  });
-  if (canClose) {
-    addInteractiveElement({
-      id: "app-open-ad-close",
-      rect: closeRect,
-      action: () => closeActiveAdOverlay("close_button"),
-    });
   }
 }
 
@@ -10798,30 +10259,16 @@ function drawSettingsScreen() {
   y += actionButtonHeight + actionRowGap;
 
   const analyticsEnabled = Boolean(settings.analyticsEnabled);
-  const adsEnabled = Boolean(settings.adsEnabled);
-  const settingToggleWidth = (panel.width - 68) / 2;
   drawButton(
     `${t("settings.analytics")}: ${analyticsEnabled ? t("settings.on") : t("settings.off")}`,
     panel.x + 28,
     y,
-    settingToggleWidth,
+    panel.width - 56,
     compact ? 38 : 40,
     toggleAnalyticsSetting,
     {
       active: analyticsEnabled,
       id: "settings-analytics",
-    },
-  );
-  drawButton(
-    `${t("settings.ads")}: ${adsEnabled ? t("settings.on") : t("settings.off")}`,
-    panel.x + 40 + settingToggleWidth,
-    y,
-    settingToggleWidth,
-    compact ? 38 : 40,
-    toggleAdsSetting,
-    {
-      active: adsEnabled,
-      id: "settings-ads",
     },
   );
   y += (compact ? 38 : 40) + actionRowGap;
@@ -10864,7 +10311,6 @@ function drawSettingsScreen() {
     y = drawWrappedText(
       t("settings.statsInfo", {
         analytics: getAnalyticsStatusText(),
-        ads: getAdsStatusText(),
         iap: t("common.iap"),
       }),
       panel.x + 28,
@@ -10891,14 +10337,6 @@ function getAnalyticsStatusText() {
   }
 
   return analytics.available ? t("common.enabled") : t("common.unavailable");
-}
-
-function getAdsStatusText() {
-  if (!settings.adsEnabled) {
-    return t("settings.off");
-  }
-
-  return ads.isAvailable() ? t("common.enabled") : t("common.unavailable");
 }
 
 function drawLegalDocumentScreen() {
@@ -11013,7 +10451,6 @@ function drawResultOverlay() {
     drawButton(getRewardedEncoreButtonLabel(), buttonX, currentButtonY, fullButtonWidth, buttonHeight, handleRewardedEncoreAction, {
       id: "result-rewarded-encore",
       active: getRewardedEncoreEligibility().hasPendingPass,
-      disabled: rewardedAdRequestPending,
     });
     currentButtonY += buttonHeight + buttonGap;
   }
@@ -16295,13 +15732,6 @@ function scrollProfessionGridBy(deltaY) {
 }
 
 function handleKeyDown(event) {
-  if (activeAdOverlay) {
-    if (event.key === "Escape" && getNowMs() >= activeAdOverlay.closeAtMs) {
-      closeActiveAdOverlay("escape");
-    }
-    return;
-  }
-
   if (event.key === "Escape") {
     if (screen === Screen.LEGAL_DOCUMENT) {
       setScreen(previousScreen);

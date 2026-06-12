@@ -131,211 +131,83 @@ test("analytics event names include render quality monitoring", () => {
   assert.equal(AnalyticsEvents.rewardedAdGrant, "rewarded_ad_grant");
 });
 
-test("ads test chain returns mock placements safely", async () => {
-  assert.equal(ads.isAvailable(), true);
-  assert.equal(ads.supportsPlacement("rewarded_video", "rewarded"), true);
+test("ads service is disabled and never shows placements", async () => {
+  assert.equal(ads.enabled, false);
+  assert.equal(ads.mode, "disabled");
+  assert.equal(ads.isAvailable(), false);
+  assert.equal(ads.supportsPlacement("rewarded_video", "rewarded"), false);
 
-  const result = await ads.showInterstitial("result");
-  assert.equal(result.shown, true);
-  assert.equal(result.placement, "result");
-  assert.equal(result.network, "mock_game_ads");
-  assert.equal(result.render, "canvas_mock");
-  assert.equal(result.game_ad_context, "games");
+  const init = await ads.initialize();
+  assert.equal(init.available, false);
+  assert.equal(init.reason, "ads_removed");
+
+  const interstitial = await ads.showInterstitial("app_open");
+  assert.equal(interstitial.shown, false);
+  assert.equal(interstitial.network, "disabled");
+  assert.equal(interstitial.reason, "ads_removed");
 
   const banner = ads.getBanner("battle_banner");
-  assert.equal(banner.available, true);
+  assert.equal(banner.available, false);
   assert.equal(banner.format, "banner");
+  assert.equal(banner.reason, "ads_removed");
 
   const rewarded = await ads.showRewardedVideo("rewarded_video");
-  assert.equal(rewarded.shown, true);
+  assert.equal(rewarded.shown, false);
   assert.equal(rewarded.format, "rewarded");
-  assert.equal(rewarded.network, "mock_game_ads");
+  assert.equal(rewarded.reason, "ads_removed");
+
+  const hide = await ads.hideBanner("battle_banner");
+  assert.equal(hide.hidden, false);
+  assert.equal(hide.network, "disabled");
 });
 
-test("ads delegates to native game ad bridge with game context", async () => {
+test("ads service does not delegate to native or Meta ad APIs", async () => {
   const calls = [];
   const capacitor = {
     Plugins: {
       GameAds: {
-        initialize(options) {
-          calls.push(["initialize", options]);
-          return { available: true, transport: "native_game_ads" };
+        initialize() {
+          calls.push("native.initialize");
         },
-        getBanner(options) {
-          calls.push(["getBanner", options]);
-          return { available: true, shown: true, placement: options.placement, format: "banner", network: "native_game_ads" };
+        getBanner() {
+          calls.push("native.getBanner");
         },
-        showInterstitial(options) {
-          calls.push(["showInterstitial", options]);
-          return { shown: true, placement: options.placement, format: "interstitial", network: "native_game_ads" };
+        showInterstitial() {
+          calls.push("native.showInterstitial");
         },
-        showRewardedVideo(options) {
-          calls.push(["showRewardedVideo", options]);
-          return { shown: true, rewarded: true, placement: options.placement, format: "rewarded", network: "native_game_ads" };
+        showRewardedVideo() {
+          calls.push("native.showRewardedVideo");
         },
-        hideBanner(options) {
-          calls.push(["hideBanner", options]);
-          return { hidden: true, placement: options.placement };
+        hideBanner() {
+          calls.push("native.hideBanner");
         },
       },
     },
   };
-
-  await withCapacitor(capacitor, async () => {
-    assert.equal(ads.mode, "native");
-    assert.equal((await ads.initialize()).transport, "native_game_ads");
-    assert.equal((await ads.showInterstitial("app_open")).network, "native_game_ads");
-    assert.equal((await ads.showRewardedVideo("rewarded_video")).rewarded, true);
-    assert.equal((await ads.getBanner("battle_banner", { marginBottom: 24 })).network, "native_game_ads");
-    assert.equal((await ads.hideBanner("battle_banner")).hidden, true);
-    assert.deepEqual(calls.map(([name]) => name), ["initialize", "showInterstitial", "showRewardedVideo", "getBanner", "hideBanner"]);
-    assert.equal(calls[1][1].context.category, "games");
-    assert.deepEqual(calls[3][1].context.keywords, ["arcade game", "mobile game", "battle game", "pixel game"]);
-  });
-});
-
-test("meta instant games uses FBInstant ads and disables banner placements", async () => {
-  const calls = [];
   const fbInstant = {
     getSupportedAPIs() {
+      calls.push("meta.getSupportedAPIs");
       return ["getInterstitialAdAsync", "getRewardedVideoAsync"];
     },
-    async getInterstitialAdAsync(placementId) {
-      calls.push(["getInterstitialAdAsync", placementId]);
-      return {
-        async loadAsync() {
-          calls.push(["interstitial.loadAsync", placementId]);
-        },
-        async showAsync() {
-          calls.push(["interstitial.showAsync", placementId]);
-        },
-      };
+    async getInterstitialAdAsync() {
+      calls.push("meta.getInterstitialAdAsync");
     },
-    async getRewardedVideoAsync(placementId) {
-      calls.push(["getRewardedVideoAsync", placementId]);
-      return {
-        async loadAsync() {
-          calls.push(["rewarded.loadAsync", placementId]);
-        },
-        async showAsync() {
-          calls.push(["rewarded.showAsync", placementId]);
-        },
-      };
+    async getRewardedVideoAsync() {
+      calls.push("meta.getRewardedVideoAsync");
     },
   };
 
-  await withMetaInstant(fbInstant, async () => {
-    await withBuildEnv({
-      VITE_META_APP_OPEN_AD_PLACEMENT_ID: "meta-app-open-placement",
-      VITE_META_REWARDED_VIDEO_PLACEMENT_ID: "meta-rewarded-placement",
-    }, async () => {
-      assert.equal(ads.mode, "meta_instant_games");
-      assert.equal(ads.isAvailable(), true);
-      assert.equal(ads.supportsPlacement("app_open", "interstitial"), true);
-      assert.equal(ads.supportsPlacement("battle_banner", "banner"), false);
-
-      const init = await ads.initialize();
-      assert.equal(init.mode, "meta_instant_games");
-      assert.equal(init.supports.banner, false);
-      assert.equal(init.placements.appOpen, true);
-
-      const interstitial = await ads.showInterstitial("app_open");
-      assert.equal(interstitial.shown, true);
-      assert.equal(interstitial.network, "meta_instant_games");
-      assert.equal(interstitial.creative_id, "meta-app-open-placement");
-
-      const rewarded = await ads.showRewardedVideo("rewarded_video");
-      assert.equal(rewarded.shown, true);
-      assert.equal(rewarded.network, "meta_instant_games");
-      assert.equal(rewarded.creative_id, "meta-rewarded-placement");
-
-      const banner = ads.getBanner("battle_banner");
-      assert.equal(banner.shown, false);
-      assert.equal(banner.reason, "meta_banner_not_supported");
-      assert.deepEqual(calls.map(([name]) => name), [
-        "getInterstitialAdAsync",
-        "interstitial.loadAsync",
-        "interstitial.showAsync",
-        "getRewardedVideoAsync",
-        "rewarded.loadAsync",
-        "rewarded.showAsync",
-      ]);
-    });
-  });
-});
-
-test("meta instant ads fail closed when placement ids are not configured", async () => {
-  await withMetaInstant({
-    getSupportedAPIs() {
-      return ["getInterstitialAdAsync"];
-    },
-    async getInterstitialAdAsync() {
-      throw new Error("Should not request without placement id");
-    },
-  }, async () => {
-    await withBuildEnv({}, async () => {
-      const result = await ads.showInterstitial("app_open");
-      assert.equal(result.shown, false);
-      assert.equal(result.network, "meta_instant_games");
-      assert.equal(result.reason, "meta_placement_id_missing");
-    });
-  });
-});
-
-test("native AdMob status keeps live ads explicit and testable", () => {
-  withCapacitor({
-    isNativePlatform: () => true,
-    getPlatform: () => "android",
-  }, () => {
-    withBuildEnv({}, () => {
-      const status = ads.getStatus();
-      assert.equal(status.configuredAdMobMode, "auto");
-      assert.equal(status.resolvedAdMobMode, "test");
-      assert.equal(status.testing, true);
-      assert.equal(status.liveAdMobEnabled, false);
-      assert.equal(status.realAdUnitsConfigured, true);
-      assert.equal(status.placements.rewarded_video, true);
-    });
-
-    withBuildEnv({ VITE_ADMOB_MODE: "real" }, () => {
-      const status = ads.getStatus();
-      assert.equal(status.configuredAdMobMode, "real");
-      assert.equal(status.resolvedAdMobMode, "real");
-      assert.equal(status.testing, false);
-      assert.equal(status.liveAdMobEnabled, true);
-      assert.equal(status.placements.rewarded_video, false);
-    });
-
-    withBuildEnv({
-      VITE_ADMOB_MODE: "real",
-      VITE_ADMOB_ANDROID_REWARDED_VIDEO_AD_UNIT_ID: "ca-app-pub-example/rewarded",
-    }, () => {
-      const status = ads.getStatus();
-      assert.equal(status.resolvedAdMobMode, "real");
-      assert.equal(status.placements.rewarded_video, true);
-    });
-
-    withBuildEnv({ VITE_ADMOB_TESTING: "false" }, () => {
-      const status = ads.getStatus();
-      assert.equal(status.configuredAdMobMode, "real");
-      assert.equal(status.resolvedAdMobMode, "real");
-      assert.equal(status.testing, false);
+  await withCapacitor(capacitor, async () => {
+    await withMetaInstant(fbInstant, async () => {
+      assert.equal((await ads.initialize()).reason, "ads_removed");
+      assert.equal((await ads.showInterstitial("app_open")).shown, false);
+      assert.equal((await ads.showRewardedVideo("rewarded_video")).shown, false);
+      assert.equal(ads.getBanner("battle_banner").shown, false);
+      assert.equal((await ads.hideBanner("battle_banner")).hidden, false);
     });
   });
 
-  withCapacitor({
-    isNativePlatform: () => true,
-    getPlatform: () => "ios",
-  }, () => {
-    withBuildEnv({ VITE_ADMOB_MODE: "real" }, () => {
-      const status = ads.getStatus();
-      assert.equal(status.configuredAdMobMode, "real");
-      assert.equal(status.resolvedAdMobMode, "test");
-      assert.equal(status.testing, true);
-      assert.equal(status.liveAdMobEnabled, false);
-      assert.equal(status.realAdUnitsConfigured, false);
-    });
-  });
+  assert.deepEqual(calls, []);
 });
 
 test("battle replay share URLs carry matchup and deterministic seed", () => {
