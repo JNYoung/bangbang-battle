@@ -212,4 +212,3 @@ Needed product work:
 3. Do users start a second battle after a result-card next-match recommendation?
 4. Does item mode produce better short-video hooks than profession mode?
 5. Can the store page explain the game in three screenshots without long text?
-

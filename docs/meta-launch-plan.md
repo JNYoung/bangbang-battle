@@ -21,7 +21,7 @@
 - `platform.js` 已支持 `FBInstant.initializeAsync()`、`setLoadingProgress()`、`startGameAsync()` 和 `getEntryPointData()`。
 - 官网可构建：`official-site/dist/`
 - 已配置公开域名：`professionballarena.top`
-- `app-ads.txt` 已配置 AdMob 发布商 ID：`pub-2481288993515154`，仅用于 Android/iOS/Google 广告链路；Meta 小游戏广告改走 Meta Instant Games 广告接口。
+- 当前版本不展示广告，也不会发起广告请求；Meta 包仅保留 `FBInstant` 平台初始化链路。
 
 ## 2026-05-29/30 后台实操记录
 
@@ -81,11 +81,10 @@
   - `https://professionballarena.top/terms/`
   - `https://professionballarena.top/support/`
   - `https://professionballarena.top/data-deletion/`
-  - `https://professionballarena.top/app-ads.txt`
 - 开发者联系邮箱：当前为 `j.n.young0209@gmail.com`，如要换邮箱需要同步应用内文案、官网和后台。
 - 数据删除说明是否满足你的实际运营流程。当前方案是本地数据清除 + 邮件联系。
 - 内容分级问卷答案：轻微卡通/幻想对战，不面向儿童定向投放。
-- 隐私问卷答案：当前主要涉及本地存储、基础统计预留/启用、Meta Instant Games 广告能力；移动端表单另按 Firebase/AdMob 如实填写。
+- 隐私问卷答案：当前主要涉及本地存储、基础统计预留/启用；移动端表单按 Firebase Analytics 和无广告状态如实填写。
 
 ### 审核素材
 
@@ -114,7 +113,7 @@
   - 游戏是 Canvas 2D 自动对战。
   - 用户先同意隐私政策和用户协议，再进入主菜单。
   - 当前没有真实 IAP。
-  - 广告能力已按平台拆分：Meta 小游戏包使用 Meta Instant Games 广告接口，移动端使用 AdMob；具体启用以对应平台后台为准。
+  - 当前版本不展示广告，也不会发起广告请求。
 
 ## 下一步推进计划
 
@@ -128,8 +127,6 @@
 - 确认当前 Meta 账号是否具备 Instant Games Developer Platform 访问权限。
 - 如果后台仍只显示 `业务` / `消费者`，需要先申请或开通 Instant Games / Gaming Services 访问；不要继续创建普通消费者应用。
 - 在出现 Instant Games 应用类型或产品入口后，创建正确应用并进入 Web Hosting / Upload Bundle 页面。
-- 创建 Meta 广告 placement，并把插屏 ID 配置为 `VITE_META_APP_OPEN_AD_PLACEMENT_ID`；结果页激励连战需要再配置 `VITE_META_REWARDED_VIDEO_PLACEMENT_ID`。当前仅推进到 Audience Network 开通页，未提交国家/地区和变现资料，且尚无 Instant Games placement ID。
-- 如果你确认继续 Audience Network 变现档案开通，下一步只提交国家/地区并进入后续页面；遇到支付方式、税务或结算资料时先暂停核对。
 - 上传 `release/meta-instant/profession-ball-arena-meta.zip`。
 - 用后台测试入口启动游戏，确认能进入合规弹窗、主菜单和一局战斗。
 
@@ -178,10 +175,9 @@
 ## 回归测试重点
 
 - 差异化打包必须持续通过：Meta ZIP 注入 `FBInstant` SDK，且不包含 `@capacitor-community/admob` 导入路径。
-- Meta 广告只能走 `FBInstant.getInterstitialAdAsync()` / `FBInstant.getRewardedVideoAsync()`；缺少 Meta placement ID 时安全跳过，不能回退到 AdMob。
-- Android/iOS 仍走 AdMob，`VITE_ADMOB_MODE=real` 只用于正式移动端发布构建。
-- 每次改动 `services.js`、`platform.js`、`scripts/build-meta.mjs`、`scripts/verify-build-artifacts.mjs` 或广告/合规文案后，至少执行 `npm run lint:syntax && npm test && npm run test:artifacts`。
-- 手工回归时重点检查：首次合规弹窗、主菜单、职业选择、战斗、结算、广告跳过/展示结果、隐私政策/数据删除链接。
+- 广告服务必须保持禁用，不调用 Meta 广告 API、AdMob 或本地 mock 广告。
+- 每次改动 `services.js`、`platform.js`、`scripts/build-meta.mjs`、`scripts/verify-build-artifacts.mjs` 或合规文案后，至少执行 `npm run lint:syntax && npm test && npm run test:artifacts`。
+- 手工回归时重点检查：首次合规弹窗、主菜单、职业选择、战斗、结算、隐私政策/数据删除链接。
 
 ## 常用命令
 

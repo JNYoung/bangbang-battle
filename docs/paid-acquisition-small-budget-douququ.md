@@ -228,4 +228,3 @@ next_action: prepare 6 short creatives and a campaign readout sheet before spend
 ```text
 Make users curious enough to predict a matchup, then prove the game gives a fast, readable, surprising result.
 ```
-

@@ -138,29 +138,15 @@ release/meta-instant/profession-ball-arena-meta.zip
 - JSON 配置错误：检查 `public/fbapp-config.json`。
 - 启动卡住：检查后台测试日志、浏览器控制台，以及 `FBInstant` SDK 是否加载。
 
-## 4.1 配置 Meta 广告
+## 4.1 广告状态
 
-Meta 小游戏包不使用 Google AdMob。广告链路已经在代码里按平台拆分：
+当前版本不展示广告，也不会发起广告请求：
 
-- Meta Instant Games：使用 `FBInstant.getInterstitialAdAsync()` 和结果页激励连战入口的 `FBInstant.getRewardedVideoAsync()`。
-- Android/iOS：继续使用 Google AdMob。
-- 普通 Web 调试：使用本地 Canvas 测试广告。
+- Meta Instant Games 包仅使用 `FBInstant` 做平台初始化、加载进度和启动流程，不调用 Meta 广告 API。
+- Android/iOS 不包含 AdMob 插件、广告 App ID 或广告单元。
+- 普通 Web 调试不再渲染本地测试广告。
 
-在 Meta 后台创建广告 placement 后，构建 Meta ZIP 前配置：
-
-```bash
-VITE_META_APP_OPEN_AD_PLACEMENT_ID=你的_Meta_插屏广告位_ID npm run meta:bundle
-```
-
-如果要启用结果页激励连战广告，再增加：
-
-```bash
-VITE_META_REWARDED_VIDEO_PLACEMENT_ID=你的_Meta_激励视频广告位_ID npm run meta:bundle
-```
-
-没有配置 Meta placement ID 时，游戏会安全跳过广告请求，不会回退到 AdMob。
-
-当前 Meta ad account 只完成账号创建，没有付款方式和真实投放。Meta 小游戏广告 placement 仍需等 Instant Games / Audience Network 后台路径可用后再创建，并把 placement ID 通过环境变量写入 Meta 构建命令。
+如未来重新启用商业化，需要重新更新代码、隐私政策、商店表单、测试说明和审核材料后再创建 placement。
 
 当前 Audience Network 已推进到“请完善你的信息”弹窗。继续前需要你确认要提交的国家/地区；点继续后会进入 Meta Audience Network 变现资料开通流程。不要在这里添加付款方式或真实投放，除非你明确要开启商业化结算。
 
