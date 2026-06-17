@@ -54,6 +54,10 @@ export const ATTACK_ANIMATION_CONFIG = {
     duration: 0.42,
     hitFrame: 0.64,
   },
+  railgun: {
+    duration: 0.54,
+    hitFrame: 0.66,
+  },
   chain: {
     duration: 0.46,
     hitFrame: 0.58,
@@ -817,6 +821,77 @@ export const HeroConfig = {
       return Boolean(attackVariant?.heroSkillId);
     },
   },
+  stormEngineer: {
+    id: "stormEngineer",
+    nameKey: "heroes.stormEngineer.name",
+    maxHp: 118,
+    maxMp: 112,
+    manaRegen: 4.5,
+    radius: 24,
+    moveSpeed: 196,
+    attackDamage: 6,
+    attackCooldown: 1.08,
+    weaponRange: Infinity,
+    attackMode: "projectile",
+    bodyPattern: "stormEngineer",
+    color: "#155e75",
+    accentColor: "#67e8f9",
+    item: {
+      nameKey: "heroes.stormEngineer.weapon",
+      type: "coilBow",
+      animation: "磁轨点射",
+    },
+    projectileWeapon: {
+      speed: 660,
+      headRadius: 6,
+      shaftLength: 46,
+      spawnOffset: 34,
+    },
+    skills: [
+      {
+        id: "stormBeacon",
+        nameKey: "heroes.stormEngineer.skills.stormBeacon",
+        type: "homingProjectile",
+        manaCost: 36,
+        cooldown: 7.2,
+        autoPriority: 1,
+        damage: 9,
+        stunDuration: 0.58,
+        speed: 540,
+        headRadius: 15,
+        shaftLength: 32,
+        spawnOffset: 36,
+        knockbackMultiplier: 0.94,
+        color: "#67e8f9",
+      },
+      {
+        id: "voltageTrap",
+        nameKey: "heroes.stormEngineer.skills.voltageTrap",
+        type: "delayedLightning",
+        manaCost: 38,
+        cooldown: 8.4,
+        autoPriority: 2,
+        range: 370,
+        predictionTime: 0.52,
+        warningDuration: 0.68,
+        radius: 46,
+        damage: 11,
+        velocityChangeTolerance: 70,
+        positionChangeTolerance: 40,
+        knockbackMultiplier: 0.88,
+        color: "#22d3ee",
+      },
+    ],
+    getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant) {
+      return attackVariant?.damage || this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return attackVariant?.knockbackMultiplier || 0.8;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant) {
+      return Boolean(attackVariant?.heroSkillId);
+    },
+  },
   zeus: {
     id: "zeus",
     nameKey: "heroes.zeus.name",
@@ -899,7 +974,7 @@ export const SceneConfig = {
     type: "professions",
     nameKey: "scenes.super.name",
     descriptionKey: "scenes.super.description",
-    professionIds: ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo", "static"],
+    professionIds: ["bat", "venom", "spider", "lava", "reaper", "frost", "yoyo", "static", "railgun"],
     defaultProfessions: {
       a: "bat",
       b: "venom",
@@ -922,7 +997,7 @@ export const SceneConfig = {
     type: "heroes",
     nameKey: "scenes.heroes.name",
     descriptionKey: "scenes.heroes.description",
-    professionIds: ["demon", "dwarfKing", "minotaur", "elfKing", "wukong", "cryptLord", "zeus"],
+    professionIds: ["demon", "dwarfKing", "minotaur", "elfKing", "wukong", "cryptLord", "stormEngineer", "zeus"],
     defaultProfessions: {
       a: "demon",
       b: "dwarfKing",
@@ -1148,6 +1223,10 @@ export const ProfessionConfig = {
       collisionRadius: 36,
     },
     getDamage(attacker, defender) {
+      if (defender.profession === "railgun") {
+        return 32;
+      }
+
       return defender.profession === "reaper" ? 72 : this.attackDamage;
     },
     getKnockbackMultiplier() {
@@ -1270,6 +1349,40 @@ export const ProfessionConfig = {
     },
     isSkillHit(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
       return attackVariant?.staticDischarge === true;
+    },
+  },
+  railgun: {
+    id: "railgun",
+    name: "磁轨球",
+    maxHp: 100,
+    radius: 22,
+    moveSpeed: 168,
+    attackDamage: 9,
+    attackCooldown: 1.3,
+    weaponRange: Infinity,
+    color: "#0f766e",
+    accentColor: "#99f6e4",
+    skillName: "预判磁轨",
+    item: {
+      name: "磁轨短弩",
+      type: "railBow",
+      animation: "远程预判点射",
+    },
+    attackMode: "projectile",
+    projectileWeapon: {
+      speed: 700,
+      headRadius: 6,
+      shaftLength: 52,
+      spawnOffset: 36,
+    },
+    getDamage(attacker, defender, normalFromAttackerToDefender, attackVariant = null) {
+      return attackVariant?.damage || this.attackDamage;
+    },
+    getKnockbackMultiplier(attacker, defender, normalFromAttackerToDefender, damage, attackVariant = null) {
+      return attackVariant?.knockbackMultiplier || 0.82;
+    },
+    isSkillHit(attacker, defender, normalFromAttackerToDefender, damage) {
+      return damage > 0;
     },
   },
   summoner: {

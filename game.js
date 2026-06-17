@@ -18,6 +18,7 @@ import {
   ProfessionConfig,
   SceneConfig,
   SIDE_VISUAL_CONFIG,
+  SUPER_SCENE_ID,
   getAttackAnimationConfig,
   getItemDropPool,
   getItemInitialCount,
@@ -280,6 +281,8 @@ const QUICK_START_MATCHUPS = Object.freeze([
   { scene: DEFAULT_SCENE_ID, a: "spear", b: "blade" },
   { scene: DEFAULT_SCENE_ID, a: "shield", b: "assassin" },
   { scene: DEFAULT_SCENE_ID, a: "archer", b: "chain" },
+  { scene: SUPER_SCENE_ID, a: "railgun", b: "yoyo" },
+  { scene: HERO_SCENE_ID, a: "stormEngineer", b: "zeus" },
 ]);
 const ROLE_COUNTER_RECOMMENDATIONS = Object.freeze({
   spear: "archer",
@@ -296,14 +299,16 @@ const ROLE_COUNTER_RECOMMENDATIONS = Object.freeze({
   reaper: "shield",
   frost: "static",
   yoyo: "chain",
-  static: "spear",
+  static: "railgun",
+  railgun: "assassin",
   summoner: "blade",
   demon: "dwarfKing",
   dwarfKing: "elfKing",
   minotaur: "wukong",
   elfKing: "demon",
   wukong: "cryptLord",
-  cryptLord: "zeus",
+  cryptLord: "stormEngineer",
+  stormEngineer: "demon",
   zeus: "minotaur",
 });
 const DAILY_PLAYLIST_ENTRIES = Object.freeze([
@@ -354,6 +359,30 @@ const DAILY_PLAYLIST_ENTRIES = Object.freeze([
     scene: DEFAULT_SCENE_ID,
     a: "spear",
     b: "blade",
+  },
+  {
+    id: "railgunCheck",
+    titleKey: "playlist.railgunCheck.title",
+    taglineKey: "playlist.railgunCheck.tagline",
+    scene: SUPER_SCENE_ID,
+    a: "railgun",
+    b: "static",
+  },
+  {
+    id: "loopBreaker",
+    titleKey: "playlist.loopBreaker.title",
+    taglineKey: "playlist.loopBreaker.tagline",
+    scene: SUPER_SCENE_ID,
+    a: "railgun",
+    b: "yoyo",
+  },
+  {
+    id: "stormLab",
+    titleKey: "playlist.stormLab.title",
+    taglineKey: "playlist.stormLab.tagline",
+    scene: HERO_SCENE_ID,
+    a: "stormEngineer",
+    b: "zeus",
   },
 ]);
 const DAILY_PLAYLIST_SIZE = 3;
@@ -8963,6 +8992,7 @@ function getHeroSkillName(skillId) {
 
 function draw() {
   interactiveElements = [];
+  resetRecordingInteractiveRects();
   professionScrollArea = null;
   professionScrollInputArea = null;
   ctx.clearRect(0, 0, viewport.width, viewport.height);
@@ -12714,6 +12744,21 @@ function drawPixelProfessionIcon(x, y, size, professionId, isSelected) {
     ], {
       S: "#fff7a3",
     });
+  } else if (professionId === "railgun") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "....CCCCCCCC....",
+      "...C........C...",
+      "..C..BBBB..C....",
+      "...C.B..B.C.....",
+      "....CCCCCC......",
+      "......RRRRRR....",
+      "........RRRR....",
+    ], {
+      C: "#99f6e4",
+      B: "#050711",
+      R: "#67e8f9",
+    });
   } else if (professionId === "summoner") {
     drawPixelCells(left, top, cell, [
       "................",
@@ -12959,6 +13004,26 @@ function drawHeroProfessionIconDetails(professionId, left, top, cell) {
     return;
   }
 
+  if (professionId === "stormEngineer") {
+    drawPixelCells(left, top, cell, [
+      "................",
+      "....CCCCCCCC....",
+      "...CGGGGGGGC....",
+      "....EEEEEEEE....",
+      "...BBBBBBBBBB...",
+      "....BSSSSSSB....",
+      "......YYYY......",
+    ], {
+      C: "#050711",
+      G: "#67e8f9",
+      E: "#0f172a",
+      B: "#155e75",
+      S: "#22d3ee",
+      Y: "#fef3c7",
+    });
+    return;
+  }
+
   if (professionId === "zeus") {
     drawPixelCells(left, top, cell, [
       "................",
@@ -12988,6 +13053,7 @@ function getProfessionItemSprite(professionId) {
     elfKing: { sprite: items.bow, angle: 0, scale: 0.7 },
     wukong: { sprite: items.goldStaff, angle: -0.48, scale: 0.86 },
     cryptLord: null,
+    stormEngineer: { sprite: items.lightning, angle: -0.2, scale: 0.66 },
     zeus: { sprite: items.goldenSpear, angle: -0.78, scale: 0.9 },
     bat: null,
     venom: null,
@@ -12997,6 +13063,7 @@ function getProfessionItemSprite(professionId) {
     frost: { sprite: items.iceShard, angle: -0.38, scale: 0.62 },
     yoyo: { sprite: items.yoyo, angle: -0.28, scale: 0.58 },
     static: { sprite: items.lightning, angle: -0.2, scale: 0.64 },
+    railgun: { sprite: items.bow, angle: 0, scale: 0.72 },
     summoner: { sprite: items.totem, angle: -0.3, scale: 0.58 },
     spear: { sprite: items.spear, angle: -0.78, scale: 0.9 },
     assassin: { sprite: items.dagger, angle: -0.72, scale: 0.72 },
@@ -13291,6 +13358,29 @@ function getPanelRect(maxWidth, maxHeight) {
 
 function addInteractiveElement(element) {
   interactiveElements.push(element);
+  pushRecordingInteractiveRect(element);
+}
+
+function resetRecordingInteractiveRects() {
+  if (isMatchRecordingForcedByQuery()) {
+    globalThis.__bangbangInteractiveRects = [];
+  }
+}
+
+function pushRecordingInteractiveRect(element) {
+  if (!isMatchRecordingForcedByQuery() || !element?.id || !element.rect) {
+    return;
+  }
+
+  if (!Array.isArray(globalThis.__bangbangInteractiveRects)) {
+    globalThis.__bangbangInteractiveRects = [];
+  }
+
+  globalThis.__bangbangInteractiveRects.push({
+    id: element.id,
+    rect: { ...element.rect },
+    clipRect: element.clipRect ? { ...element.clipRect } : null,
+  });
 }
 
 function getInteractiveElementAt(point) {
@@ -13517,6 +13607,15 @@ function drawProfessionBodyDetails(ctx, ball, x, y, cell) {
     ctx.fillStyle = "#050711";
     ctx.fillRect(x + cell * 6, y + cell * 4, cell, cell);
     ctx.fillRect(x + cell * 5, y + cell * 7, cell, cell);
+  } else if (ball.profession === "railgun") {
+    ctx.fillStyle = "#99f6e4";
+    ctx.fillRect(x + cell * 3, y + cell * 4, cell * 6, cell);
+    ctx.fillRect(x + cell * 4, y + cell * 6, cell * 4, cell);
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(x + cell * 4, y + cell * 5, cell, cell);
+    ctx.fillRect(x + cell * 7, y + cell * 5, cell, cell);
+    ctx.fillStyle = "#67e8f9";
+    ctx.fillRect(x + cell * 8, y + cell * 3, cell, cell * 5);
   } else if (ball.profession === "summoner") {
     ctx.fillStyle = "#fde68a";
     ctx.fillRect(x + cell * 4, y + cell * 3, cell * 4, cell);
@@ -13647,6 +13746,25 @@ function drawHeroBodyDetails(ctx, ball, x, y, cell) {
     return;
   }
 
+  if (pattern === "stormEngineer") {
+    drawPixelCells(x, y, cell, [
+      "...CCCCCC...",
+      "..CGGGGGGC..",
+      "....EEEE....",
+      "...BBBBBB...",
+      "..BSSSSSSB..",
+      "....YYYY....",
+    ], {
+      C: "#050711",
+      G: "#67e8f9",
+      E: "#0f172a",
+      B: "#155e75",
+      S: "#22d3ee",
+      Y: "#fef3c7",
+    });
+    return;
+  }
+
   if (pattern === "zeus") {
     drawPixelCells(x, y, cell, [
       "...CCCCCC...",
@@ -13718,6 +13836,11 @@ function drawWeapon(ctx, ball, currentTime, target) {
 
   if (ball.profession === "static") {
     drawStaticField(ctx, ball, currentTime);
+    return;
+  }
+
+  if (ball.profession === "railgun") {
+    drawBowWeapon(ctx, ball, direction, progress);
     return;
   }
 
