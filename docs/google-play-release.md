@@ -1,28 +1,28 @@
 # Google Play Release Pack
 
-Updated: 2026-06-04
+Updated: 2026-06-15
 
 This document is the Google Play submission checklist for `斗球球` / `Profession Ball Arena`.
 
 ## Current GP Readiness
 
-Status: Play Console app created in draft state; App content declarations completed; ready for internal testing release creation.
+Status: Play Console app created; App content declarations completed; local release artifact is ready for closed testing / production access review. Production access still depends on Play Console closed-testing metrics.
 
 - Package name: `com.professionballarena.game`
 - App label: `斗球球`
 - Play Console developer ID: `6475068404690112678`
 - Play Console app ID: `4974008180505281318`
 - Android developer verification package status: registered on 2026-06-04.
-- Version: `versionCode 1`, `versionName 1.0`
+- Version: `versionCode 4`, `versionName 1.0.3`
 - Min SDK: 24
 - Target SDK: 36
 - Upload artifact: `android/app/build/outputs/bundle/release/app-release.aab`
 - AAB size: about 23 MB
-- AAB SHA-256: `5fdfc50397a2d1518e96d3ab67387ae4bd256752f77ba350c8f8be774c7844bf`
+- AAB SHA-256: `0e9825347caf14bd6c009baf607a52378164b1509c1ce08e06d9c5aeb0f069c4`
 - Release signing SHA-256: `35:59:BE:53:A5:E0:B3:D2:DB:DE:02:95:A6:42:27:E4:DB:25:07:3D:3E:6F:FD:49:D6:F2:77:6D:34:C7:FF:84`
 - Release signing valid until: 2053-10-08
 
-Official requirement note: Google Play requires Android App Bundles for new apps, and target API level requirements move over time. This project currently targets SDK 36, which is above the current Android 15 / API 35 requirement for new apps and updates after 2025-08-31.
+Official requirement note: Google Play requires Android App Bundles for new apps, and target API level requirements move over time. This project currently targets SDK 36, which is above the Android 15 / API 35 requirement for new apps and updates after 2025-08-31.
 
 ## Build Commands
 
@@ -71,7 +71,7 @@ Recommended production listing:
 Preview assets:
 
 - App icon: `public/icon-512.png`
-- Feature graphic: still needed if Play Console requests it; recommended export size is 1024 x 500.
+- Feature graphic: `store-assets/google-play/feature-graphic.png` and `store-assets/google-play/feature-graphic.jpg`.
 - Phone screenshots: `store-assets/screenshots/google-phone/`
   - `01-classic-battle.png`
   - `02-profession-select.png`
@@ -197,7 +197,7 @@ Recommended sequence:
 
 1. App record created in Play Console using package `com.professionballarena.game`.
 2. Play App Signing terms accepted during app creation; choose/confirm the signing key when creating the first bundle release.
-3. Upload `android/app/build/outputs/bundle/release/app-release.aab` to Internal testing.
+3. Upload `android/app/build/outputs/bundle/release/app-release.aab` to Internal testing for smoke verification, if not already done.
 4. Add at least one internal tester account.
 5. App content completed:
    - Privacy policy
@@ -219,15 +219,16 @@ Recommended sequence:
    - Start hero mode
    - Settings toggles
    - No crash after resume/background
-9. Promote to Closed testing or Production after Play review and tester smoke pass.
+9. Promote to Closed testing after internal smoke pass. Closed testing is the production-access gate for new personal developer accounts.
+10. After the required closed test is satisfied, apply for production access from the Play Console app dashboard.
 
 ## Known Blockers Before Production
 
-- Production access is locked until the app completes the required closed testing flow: at least 12 opted-in testers for at least 14 days, then apply for production access from the app dashboard.
+- Production access is locked until the app completes the required closed testing flow: at least 12 opted-in testers for at least 14 continuous days, then apply for production access from the app dashboard.
 - App content changes must be sent for review through Publishing overview with a release.
 - Play Console showed a crawler warning for `https://professionballarena.top/data-deletion/`, but local HTTP checks returned `200 OK`; recheck this warning before sending for review if it persists.
 - Data safety answers must be rechecked if SDK behavior changes.
-- Feature graphic 1024 x 500 should be generated/uploaded if Play Console marks it required.
+- Feature graphic exists locally; confirm it is uploaded in Play Console if the store listing still flags a missing graphic.
 - If publishing broadly outside test tracks, confirm AdMob app approval and ad serving status.
 - If targeting mainland China distribution through Google Play is considered, confirm legal/commercial availability separately.
 

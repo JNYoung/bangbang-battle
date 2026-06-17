@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
 import { chromium } from "playwright";
@@ -6,10 +6,19 @@ import { chromium } from "playwright";
 import { createBattleReplayShareUrl } from "../services.js";
 import { LegalConfig } from "../legal-config.js";
 import { translate } from "../i18n.js";
+import {
+  DAILY_YOUTUBE_CLIP_COUNT,
+  DEFAULT_DAILY_CANDIDATE_COUNT,
+  createCustomYoutubeVideoFormat,
+  createOpsStoryPackage,
+  resolveYoutubeVideoFormat,
+  scoreClipCandidate,
+  selectTopicClips,
+} from "./youtube-ops-utils.mjs";
 
 const DEFAULT_BASE_URL = "http://localhost:5173/";
 const DEFAULT_OUTPUT_ROOT = "ops-materials/youtube";
-const DEFAULT_VIEWPORT = { width: 1280, height: 720 };
+const DEFAULT_VIEWPORT = resolveYoutubeVideoFormat("landscape").viewport;
 const DEFAULT_MATCH_TIMEOUT_MS = 120000;
 const QUICK_BATTLE_POINT = { xRatio: 0.5, yRatio: 0.345 };
 const DOWNLOAD_BUTTON_POINT = { xRatio: 0.5, yRatio: 0.565 };
@@ -26,7 +35,22 @@ const RECORDING_TAG_LABELS = {
 };
 
 const options = parseArgs(process.argv.slice(2));
-const captureCount = Math.max(1, Number.parseInt(options.count || options.n || "3", 10) || 3);
+const dailyMode = Boolean(options.daily || process.env.YOUTUBE_CAPTURE_DAILY === "1");
+const selectedCount = Math.max(
+  1,
+  Number.parseInt(options.count || options.n || String(dailyMode ? DAILY_YOUTUBE_CLIP_COUNT : 3), 10) ||
+    DAILY_YOUTUBE_CLIP_COUNT,
+);
+const candidateCount = Math.max(
+  selectedCount,
+  Number.parseInt(
+    options.candidates ||
+      options.pool ||
+      process.env.YOUTUBE_CAPTURE_CANDIDATES ||
+      String(dailyMode ? DEFAULT_DAILY_CANDIDATE_COUNT : selectedCount),
+    10,
+  ) || selectedCount,
+);
 const baseUrl = options.url || process.env.YOUTUBE_CAPTURE_URL || DEFAULT_BASE_URL;
 const gameLocale = normalizeGameLocale(options.gameLocale || options.locale || process.env.YOUTUBE_CAPTURE_LOCALE || "zh");
 const browserLocale = options.browserLocale || (gameLocale === "zh" ? "zh-CN" : gameLocale);
@@ -35,21 +59,30 @@ const runId = createRunId();
 const runDir = join(outputRoot, runId);
 const videosDir = join(runDir, "videos");
 const metadataDir = join(runDir, "metadata");
+const candidateVideosDir = join(runDir, "candidates", "videos");
+const candidateMetadataDir = join(runDir, "candidates", "metadata");
 const renderQuality = options.renderQuality || process.env.YOUTUBE_CAPTURE_RENDER_QUALITY || "high";
 const matchTimeoutMs = Math.max(
   30000,
   Number.parseInt(options.timeoutMs || process.env.YOUTUBE_CAPTURE_TIMEOUT_MS || String(DEFAULT_MATCH_TIMEOUT_MS), 10) ||
     DEFAULT_MATCH_TIMEOUT_MS,
 );
-const viewport = parseViewport(options.viewport) || DEFAULT_VIEWPORT;
+const requestedFormat = resolveYoutubeVideoFormat(
+  options.format || process.env.YOUTUBE_CAPTURE_FORMAT || (dailyMode ? "short" : "landscape"),
+);
+const videoFormat = createCustomYoutubeVideoFormat(requestedFormat, parseViewport(options.viewport));
+const viewport = videoFormat.viewport || DEFAULT_VIEWPORT;
 const quickSettlementEnabled = options.realTime ? false : options.quickSettlement !== "0";
 const headed = Boolean(options.headed);
-const clips = [];
+const browserChannel = options.browserChannel || process.env.YOUTUBE_CAPTURE_BROWSER_CHANNEL || "";
+const candidateClips = [];
 
 await mkdir(videosDir, { recursive: true });
 await mkdir(metadataDir, { recursive: true });
+await mkdir(candidateVideosDir, { recursive: true });
+await mkdir(candidateMetadataDir, { recursive: true });
 
-const browser = await chromium.launch({ headless: !headed });
+const browser = await launchCaptureBrowser({ headed, browserChannel });
 const context = await browser.newContext({
   acceptDownloads: true,
   colorScheme: "dark",
@@ -96,18 +129,18 @@ try {
   });
   page.on("pageerror", (error) => consoleIssues.push(`pageerror: ${error.message}`));
 
-  for (let index = 1; index <= captureCount; index += 1) {
-    console.log(`Recording match ${index}/${captureCount}...`);
+  for (let index = 1; index <= candidateCount; index += 1) {
+    console.log(`Recording candidate ${index}/${candidateCount}...`);
     await page.goto(getCaptureUrl(baseUrl, { renderQuality }), { waitUntil: "domcontentloaded" });
     await page.locator("#gameCanvas").waitFor({ state: "visible" });
     await page.waitForTimeout(800);
 
     const downloadPromise = page.waitForEvent("download", { timeout: matchTimeoutMs });
-    await clickRatio(page, QUICK_BATTLE_POINT);
+    await clickInteractiveElement(page, "main-quick-start", QUICK_BATTLE_POINT);
     const download = await getRecordingDownload(page, downloadPromise);
     const suggestedFileName = sanitizeFileName(download.suggestedFilename());
     const savedFileName = `${String(index).padStart(2, "0")}-${suggestedFileName}`;
-    const videoPath = join(videosDir, savedFileName);
+    const videoPath = join(candidateVideosDir, savedFileName);
     await download.saveAs(videoPath);
 
     const match = await getLatestMatchHistory(page);
@@ -123,28 +156,67 @@ try {
       gameLocale,
       baseUrl,
     });
-    const metadataPath = join(metadataDir, `${String(index).padStart(2, "0")}-${clip.slug}.json`);
-    await writeFile(metadataPath, `${JSON.stringify(clip, null, 2)}\n`);
-    clips.push({
-      ...clip,
-      metadataPath,
+    candidateClips.push({
+      ...enrichClipWithOps({ clip, gameLocale, videoFormat }),
+      candidateMetadataPath: join(candidateMetadataDir, `${String(index).padStart(2, "0")}-${clip.slug}.json`),
     });
-    console.log(`Saved ${videoPath}`);
+    console.log(`Saved candidate ${videoPath}`);
+  }
+
+  const selectedCandidates = selectTopicClips(candidateClips, selectedCount);
+  const selectedRanks = new Map(selectedCandidates.map((clip) => [clip.index, clip.selectionRank]));
+  const selectedClips = [];
+
+  for (const selectedCandidate of selectedCandidates) {
+    const selectionRank = selectedCandidate.selectionRank;
+    const selectedFileName = createSelectedFileName(selectedCandidate.fileName, selectionRank);
+    const selectedVideoPath = join(videosDir, selectedFileName);
+    const metadataPath = join(metadataDir, `${String(selectionRank).padStart(2, "0")}-${selectedCandidate.slug}.json`);
+    const selectedClip = {
+      ...selectedCandidate,
+      selected: true,
+      selectionRank,
+      candidateVideoPath: selectedCandidate.videoPath,
+      videoPath: selectedVideoPath,
+      fileName: selectedFileName,
+      metadataPath,
+    };
+    await copyFile(selectedCandidate.videoPath, selectedVideoPath);
+    await writeFile(metadataPath, `${JSON.stringify(selectedClip, null, 2)}\n`);
+    selectedClips.push(selectedClip);
+    console.log(`Selected #${selectionRank} score ${selectedClip.topic.score}: ${selectedVideoPath}`);
+  }
+
+  const candidates = candidateClips.map((clip) => ({
+    ...clip,
+    selected: selectedRanks.has(clip.index),
+    selectionRank: selectedRanks.get(clip.index) || null,
+    selectedVideoPath: selectedClips.find((selectedClip) => selectedClip.index === clip.index)?.videoPath || "",
+  }));
+
+  for (const candidate of candidates) {
+    await writeFile(candidate.candidateMetadataPath, `${JSON.stringify(candidate, null, 2)}\n`);
   }
 
   const manifest = {
     generatedAt: new Date().toISOString(),
     runId,
+    dailyMode,
     baseUrl,
     gameLocale,
     viewport,
+    videoFormat,
     renderQuality,
     quickSettlementEnabled,
+    selectedCount,
+    candidateCount,
     outputDir: runDir,
-    clips,
+    clips: selectedClips,
+    candidates,
   };
   await writeFile(join(runDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   await writeFile(join(runDir, "youtube-upload-plan.md"), createUploadPlan(manifest));
+  await writeFile(join(runDir, "daily-ops-brief.md"), createDailyOpsBrief(manifest));
 
   if (consoleIssues.length) {
     console.warn("Captured with console warnings:");
@@ -156,6 +228,23 @@ try {
   console.log(`Done. Materials saved in ${runDir}`);
 } finally {
   await browser.close();
+}
+
+async function launchCaptureBrowser({ headed, browserChannel }) {
+  const launchOptions = { headless: !headed };
+  if (browserChannel) {
+    return chromium.launch({ ...launchOptions, channel: browserChannel });
+  }
+
+  try {
+    return await chromium.launch(launchOptions);
+  } catch (error) {
+    if (!String(error?.message || "").includes("Executable doesn't exist")) {
+      throw error;
+    }
+    console.warn("Bundled Playwright Chromium is missing; falling back to installed Google Chrome.");
+    return chromium.launch({ ...launchOptions, channel: "chrome" });
+  }
 }
 
 function parseArgs(argv) {
@@ -198,7 +287,7 @@ async function getRecordingDownload(page, downloadPromise) {
   } catch (error) {
     console.warn(`Auto-download did not fire: ${error.message}`);
     const manualDownloadPromise = page.waitForEvent("download", { timeout: 12000 });
-    await clickRatio(page, DOWNLOAD_BUTTON_POINT);
+    await clickInteractiveElement(page, "result-download-recording", DOWNLOAD_BUTTON_POINT, { timeoutMs: 8000 });
     return manualDownloadPromise;
   }
 }
@@ -212,6 +301,30 @@ async function getLatestMatchHistory(page) {
       return null;
     }
   });
+}
+
+function enrichClipWithOps({ clip, gameLocale, videoFormat }) {
+  const topic = scoreClipCandidate(clip);
+  const story = createOpsStoryPackage({ clip, topic, locale: gameLocale, videoFormat });
+  const title = story.titleIdeas[0] || clip.youtube?.title || "";
+  const description = createStoryYoutubeDescription({
+    baseDescription: clip.youtube?.description || "",
+    story,
+    topic,
+    gameLocale,
+  });
+
+  return {
+    ...clip,
+    topic,
+    story,
+    youtube: {
+      ...clip.youtube,
+      title,
+      description,
+      tags: [...new Set([...(clip.youtube?.tags || []), topic.primaryTag, story.angle].filter(Boolean))].slice(0, 20),
+    },
+  };
 }
 
 function createClipRecord({ index, runId, videoPath, savedFileName, suggestedFileName, recordingTags, match, gameLocale, baseUrl }) {
@@ -249,6 +362,13 @@ function createClipRecord({ index, runId, videoPath, savedFileName, suggestedFil
     sourceFileName: suggestedFileName,
     recordingTags,
     recordingTagLabels: tagLabels,
+    matchup,
+    winnerRoleName,
+    roleNames: {
+      own: ownRoleName,
+      opponent: opponentRoleName,
+    },
+    shareUrl,
     match,
     youtube: {
       title,
@@ -301,6 +421,29 @@ function createYoutubeDescription({ gameLocale, match, matchup, tagLabels, share
   ].filter(Boolean).join("\n");
 }
 
+function createStoryYoutubeDescription({ baseDescription, story, topic, gameLocale }) {
+  const zh = gameLocale === "zh" || gameLocale === "zh-TW";
+  const storyLines = zh
+    ? [
+        "",
+        "运营剧情：",
+        `钩子：${story.hook}`,
+        `开场字幕：${story.openingCaption}`,
+        `话题评分：${topic.score}`,
+        `入选理由：${topic.reasons.join(" / ") || "节奏完整"}`,
+      ]
+    : [
+        "",
+        "Ops story:",
+        `Hook: ${story.hook}`,
+        `Opening caption: ${story.openingCaption}`,
+        `Topic score: ${topic.score}`,
+        `Selection reasons: ${topic.reasons.join(" / ") || "clean pacing"}`,
+      ];
+
+  return [baseDescription, ...storyLines].filter(Boolean).join("\n");
+}
+
 function createYoutubeTags({ gameLocale, recordingTags, tagLabels, ownRoleName, opponentRoleName }) {
   const baseTags =
     gameLocale === "zh" || gameLocale === "zh-TW"
@@ -309,22 +452,38 @@ function createYoutubeTags({ gameLocale, recordingTags, tagLabels, ownRoleName, 
   return [...new Set([...baseTags, ...recordingTags, ...tagLabels, ownRoleName, opponentRoleName].filter(Boolean))].slice(0, 20);
 }
 
+function createSelectedFileName(fileName, selectionRank) {
+  const rank = String(selectionRank).padStart(2, "0");
+  return `${rank}-${String(fileName || "clip.webm").replace(/^\d+-/, "")}`;
+}
+
 function createUploadPlan(manifest) {
   const lines = [
     `# YouTube Upload Plan - ${manifest.runId}`,
     "",
     `Output: ${manifest.outputDir}`,
     `Generated: ${manifest.generatedAt}`,
+    `Format: ${manifest.videoFormat.label} (${manifest.viewport.width}x${manifest.viewport.height})`,
+    `Selected: ${manifest.clips.length}/${manifest.candidateCount}`,
     "",
     "Use YouTube Studio to upload the files under `videos/`, then copy the matching title, description, and tags below.",
     "",
   ];
 
   for (const clip of manifest.clips) {
-    lines.push(`## ${clip.index}. ${clip.fileName}`);
+    lines.push(`## ${clip.selectionRank}. ${clip.fileName}`);
     lines.push("");
     lines.push(`Video: ${clip.videoPath}`);
     lines.push(`Metadata: ${clip.metadataPath}`);
+    lines.push(`Candidate source: ${clip.candidateVideoPath || clip.videoPath}`);
+    lines.push(`Topic score: ${clip.topic?.score || 0}`);
+    if (clip.topic?.reasons?.length) {
+      lines.push(`Why selected: ${clip.topic.reasons.join(" / ")}`);
+    }
+    if (clip.story?.hook) {
+      lines.push(`Hook: ${clip.story.hook}`);
+      lines.push(`Opening caption: ${clip.story.openingCaption}`);
+    }
     lines.push("");
     lines.push(`Title: ${clip.youtube.title}`);
     lines.push("");
@@ -335,7 +494,77 @@ function createUploadPlan(manifest) {
     lines.push("");
     lines.push(`Tags: ${clip.youtube.tags.join(", ")}`);
     lines.push("");
+    if (clip.story?.thumbnailPrompt) {
+      lines.push("Thumbnail prompt:");
+      lines.push("```text");
+      lines.push(clip.story.thumbnailPrompt);
+      lines.push("```");
+      lines.push("");
+    }
+    if (clip.story?.editingPrompt) {
+      lines.push("Editing prompt:");
+      lines.push("```text");
+      lines.push(clip.story.editingPrompt);
+      lines.push("```");
+      lines.push("");
+    }
   }
+
+  return `${lines.join("\n")}\n`;
+}
+
+function createDailyOpsBrief(manifest) {
+  const lines = [
+    `# Daily YouTube Ops Brief - ${manifest.runId}`,
+    "",
+    `生成时间：${manifest.generatedAt}`,
+    `精选素材：${manifest.clips.length} 条`,
+    `候选池：${manifest.candidateCount} 条`,
+    `画幅：${manifest.videoFormat.label} (${manifest.viewport.width}x${manifest.viewport.height})`,
+    `正式素材目录：${manifest.outputDir}/videos`,
+    "",
+    "## 今日 3 条",
+    "",
+  ];
+
+  for (const clip of manifest.clips) {
+    lines.push(`### ${clip.selectionRank}. ${clip.story?.angle || clip.topic?.angle || "备选素材"} - ${clip.fileName}`);
+    lines.push("");
+    lines.push(`- 分数：${clip.topic?.score || 0}`);
+    lines.push(`- 标题：${clip.youtube.title}`);
+    lines.push(`- 钩子：${clip.story?.hook || ""}`);
+    lines.push(`- 开场字幕：${clip.story?.openingCaption || ""}`);
+    lines.push(`- 视频：${clip.videoPath}`);
+    lines.push(`- 元数据：${clip.metadataPath}`);
+    lines.push("");
+    if (clip.story?.threeActStory?.length) {
+      lines.push("剧情三段：");
+      for (const beat of clip.story.threeActStory) {
+        lines.push(`- ${beat.beat}：${beat.copy}`);
+      }
+      lines.push("");
+    }
+  }
+
+  lines.push("## 候选排行");
+  lines.push("");
+  lines.push("| 分数 | 入选 | 标签 | 文件 | 理由 |");
+  lines.push("| --- | --- | --- | --- | --- |");
+  for (const candidate of [...manifest.candidates].sort((a, b) => (b.topic?.score || 0) - (a.topic?.score || 0))) {
+    const score = candidate.topic?.score || 0;
+    const selected = candidate.selected ? `#${candidate.selectionRank}` : "否";
+    const labels = ((candidate.recordingTagLabels || candidate.recordingTags || []).join(" / ") || "normal").replace(/\|/g, "/");
+    const fileName = String(candidate.fileName || "").replace(/\|/g, "/");
+    const reasons = (candidate.topic?.reasons || []).join("；").replace(/\|/g, "/");
+    lines.push(`| ${score} | ${selected} | ${labels} | ${fileName} | ${reasons} |`);
+  }
+
+  lines.push("");
+  lines.push("## Prompt 调优提示");
+  lines.push("");
+  lines.push("- 点击率低：先改 `story.thumbnailPrompt` 和 `story.titleIdeas[0]`。");
+  lines.push("- 完播率低：缩短中段，只保留开场、转折、最后一击。");
+  lines.push("- 评论少：把开场字幕改成问题句，并在置顶评论里让观众判定胜负。");
 
   return `${lines.join("\n")}\n`;
 }
@@ -417,6 +646,31 @@ async function clickRatio(page, point) {
     Math.round(viewportSize.width * point.xRatio),
     Math.round(viewportSize.height * point.yRatio),
   );
+}
+
+async function clickInteractiveElement(page, elementId, fallbackPoint, { timeoutMs = 5000 } = {}) {
+  try {
+    await page.waitForFunction(
+      (id) => Array.isArray(globalThis.__bangbangInteractiveRects) &&
+        globalThis.__bangbangInteractiveRects.some((element) => element.id === id),
+      elementId,
+      { timeout: timeoutMs },
+    );
+    const rect = await page.evaluate((id) => {
+      const elements = Array.isArray(globalThis.__bangbangInteractiveRects)
+        ? globalThis.__bangbangInteractiveRects
+        : [];
+      return elements.find((element) => element.id === id)?.rect || null;
+    }, elementId);
+    if (rect) {
+      await page.mouse.click(Math.round(rect.x + rect.width / 2), Math.round(rect.y + rect.height / 2));
+      return;
+    }
+  } catch (error) {
+    console.warn(`Could not click ${elementId} by interactive rect: ${error.message}`);
+  }
+
+  await clickRatio(page, fallbackPoint);
 }
 
 function sanitizeFileName(fileName) {
