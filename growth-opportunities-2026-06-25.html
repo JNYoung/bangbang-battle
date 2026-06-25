@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>斗球球增长方式判断 - 2026-06-25</title>
+    <style>
+      :root {
+        --ink: #151821;
+        --muted: #626a7c;
+        --paper: #ffffff;
+        --soft: #f5f7fa;
+        --line: #dce2eb;
+        --blue: #205fba;
+        --green: #0b7d63;
+        --red: #be3a34;
+        --amber: #a96d14;
+        --violet: #6750a4;
+        --shadow: 0 18px 46px rgba(22, 31, 49, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          linear-gradient(180deg, rgba(32, 95, 186, 0.09), rgba(255, 255, 255, 0) 420px),
+          var(--soft);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "PingFang SC", "Microsoft YaHei", sans-serif;
+        line-height: 1.56;
+      }
+
+      a {
+        color: var(--blue);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .page {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 32px 0 64px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+        gap: 24px;
+        align-items: stretch;
+        min-height: 430px;
+      }
+
+      .hero-copy {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 12px 0;
+      }
+
+      .eyebrow {
+        color: var(--blue);
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      h1 {
+        max-width: 760px;
+        margin: 14px 0 18px;
+        font-size: clamp(38px, 7vw, 78px);
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        max-width: 700px;
+        margin: 0;
+        color: #363d4e;
+        font-size: 18px;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 26px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 0 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 780;
+        box-shadow: 0 8px 20px rgba(22, 31, 49, 0.08);
+      }
+
+      .button.primary {
+        border-color: #173f7d;
+        background: #173f7d;
+        color: #fff;
+      }
+
+      .hero-media {
+        position: relative;
+        min-height: 430px;
+        overflow: hidden;
+        border: 1px solid rgba(21, 24, 33, 0.12);
+        border-radius: 8px;
+        background: #10141d;
+        box-shadow: var(--shadow);
+      }
+
+      .hero-media img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .hero-media .caption {
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
+        padding: 12px 14px;
+        border-radius: 8px;
+        color: #fff;
+        background: rgba(13, 17, 24, 0.82);
+        backdrop-filter: blur(8px);
+        font-size: 13px;
+      }
+
+      .section {
+        margin-top: 38px;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 22px;
+        margin-bottom: 14px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 27px;
+        line-height: 1.18;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      .section-note {
+        max-width: 620px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .grid.four {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .card {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: 0 10px 28px rgba(22, 31, 49, 0.07);
+      }
+
+      .pad {
+        padding: 18px;
+      }
+
+      .metric {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 150px;
+      }
+
+      .metric .label {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 780;
+      }
+
+      .metric .value {
+        font-size: 34px;
+        font-weight: 880;
+        line-height: 1;
+      }
+
+      .metric .detail {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .metric strong {
+        color: var(--ink);
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        min-height: 26px;
+        padding: 0 9px;
+        border-radius: 999px;
+        color: #fff;
+        background: var(--amber);
+        font-size: 12px;
+        font-weight: 820;
+      }
+
+      .status.red {
+        background: var(--red);
+      }
+
+      .status.green {
+        background: var(--green);
+      }
+
+      .bar {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e8edf4;
+      }
+
+      .bar > span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--blue);
+      }
+
+      .bar > span.green {
+        background: var(--green);
+      }
+
+      .bar > span.red {
+        background: var(--red);
+      }
+
+      .opportunity {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr);
+        gap: 14px;
+      }
+
+      .rank {
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        border-radius: 8px;
+        color: #fff;
+        background: var(--blue);
+        font-weight: 880;
+      }
+
+      .opportunity p,
+      .note p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 0 9px;
+        border: 1px solid #d7dee9;
+        border-radius: 999px;
+        background: #f8fafc;
+        color: #354052;
+        font-size: 12px;
+        font-weight: 760;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      th,
+      td {
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: #384153;
+        background: #f8fafc;
+        font-size: 12px;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .timeline {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .step {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        padding: 16px;
+      }
+
+      .step .kicker {
+        color: var(--blue);
+        font-size: 12px;
+        font-weight: 820;
+      }
+
+      .step p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .sources {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .source {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        padding: 14px;
+      }
+
+      .source p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .callout {
+        border-left: 5px solid var(--amber);
+        background: #fff8ed;
+      }
+
+      .mono {
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      }
+
+      @media (max-width: 920px) {
+        .hero,
+        .grid.four,
+        .grid.three,
+        .grid.two,
+        .timeline,
+        .sources {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-media {
+          min-height: 360px;
+        }
+
+        .section-head {
+          display: block;
+        }
+
+        .section-note {
+          margin-top: 8px;
+        }
+      }
+
+      @media (max-width: 620px) {
+        .page {
+          width: min(100% - 20px, 1180px);
+          padding-top: 20px;
+        }
+
+        h1 {
+          font-size: 42px;
+        }
+
+        table {
+          display: block;
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow">2026-06-25 · 斗球球增长方式判断</div>
+          <h1>先验证循环，再找增量。</h1>
+          <p class="lead">
+            当前最值得测的不是“多投几个渠道”，而是哪一种 matchup / counter
+            承诺能带来会完成首局、愿意进入第二局、并且次日回来的用户。
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#opportunities">查看增长方式</a>
+            <a class="button" href="#experiments">看 72 小时实验</a>
+            <a class="button" href="#sources">外部依据</a>
+          </div>
+        </div>
+        <figure class="hero-media">
+          <img
+            src="store-assets/screenshots/google-phone/01-matchup-question-battle.png"
+            alt="斗球球 Google Play 截图：Spear vs Shield 对阵问题"
+          />
+          <figcaption class="caption">
+            当前最强主线：Pick a matchup -> Watch the battle -> Try the counter.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section class="section" id="snapshot">
+        <div class="section-head">
+          <h2>当前读数</h2>
+          <p class="section-note">
+            来源：本地运营闭环报告，GA 数据日期为 2026-06-23。样本仍小，只做方向和断点判断。
+          </p>
+        </div>
+        <div class="grid four">
+          <article class="card pad metric">
+            <span class="label">开局率</span>
+            <span class="value">35.3%</span>
+            <div class="bar"><span style="width: 35.3%"></span></div>
+            <span class="detail"><strong>6 / 17</strong> game_start / game_init_success，首屏承诺仍弱。</span>
+          </article>
+          <article class="card pad metric">
+            <span class="label">首局完成</span>
+            <span class="value">66.7%</span>
+            <div class="bar"><span class="green" style="width: 66.7%"></span></div>
+            <span class="detail"><strong>4 / 6</strong> game_end / game_start，但 first_battle_complete 当前为 0。</span>
+          </article>
+          <article class="card pad metric">
+            <span class="label">二局启动</span>
+            <span class="value">0%</span>
+            <div class="bar"><span class="red" style="width: 1%"></span></div>
+            <span class="detail">second_battle_start 和 next-match click 都是 0，结果页循环未成立。</span>
+          </article>
+          <article class="card pad metric">
+            <span class="label">投放状态</span>
+            <span class="value">Hold</span>
+            <span class="status">USD 0-10/day</span>
+            <span class="detail">Play acquisition、广告来源、D1 cohort 和二局完成口径还未补齐。</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="card pad callout">
+          <h2>结论</h2>
+          <p>
+            目前优先增长方式是“低成本学习”，不是放量：把商店页、首页首屏、结果页和 Shorts
+            都统一到同一句承诺：选对阵、看结果、挑战反制。录屏素材优先用道具模式和英雄模式，
+            用更强的画面变化制造停留和反转。只有某个素材或来源同时改善开局、首局完成、二局启动和留存信号，才进入下一轮预算。
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="opportunities">
+        <div class="section-head">
+          <h2>可能的增长方式</h2>
+          <p class="section-note">按优先级排序：先补数据和产品承接，再做渠道。</p>
+        </div>
+        <div class="grid two">
+          <article class="card pad opportunity">
+            <div class="rank">01</div>
+            <div>
+              <h3>Google Play ASO：matchup 首图和短描述实验</h3>
+              <p>
+                当前缺 Play acquisition，先导出商店访问、安装、retained installers。首轮只测一个主资产：
+                第一张图和短描述主打 “Spear vs Shield: who wins?”。
+              </p>
+              <div class="tag-row">
+                <span class="tag">目标：开局率 50%+</span>
+                <span class="tag">指标：visitors -> installers</span>
+                <span class="tag">指标：game_start</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="card pad opportunity">
+            <div class="rank">02</div>
+            <div>
+              <h3>产品首屏：一键进入推荐 matchup</h3>
+              <p>
+                如果用户打开后不知道做什么，买量只会放大浪费。隐私同意后直接给可点的 matchup
+                CTA：Pick a matchup / Start the duel，减少配置摩擦。
+              </p>
+              <div class="tag-row">
+                <span class="tag">目标：game_start 50%+</span>
+                <span class="tag">看 start_source</span>
+                <span class="tag">首局完成不低于 55%</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="card pad opportunity">
+            <div class="rank">03</div>
+            <div>
+              <h3>结果页：verdict -> Try the counter</h3>
+              <p>
+                当前二局和下一局点击都是 0，说明结果页没有把“反制下一局”变成主动作。把分享、战报等降级，
+                主按钮只服务 Try the counter。
+              </p>
+              <div class="tag-row">
+                <span class="tag">目标：next click 20%+</span>
+                <span class="tag">目标：second battle 20%+</span>
+                <span class="tag">需要补二局完成</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="card pad opportunity">
+            <div class="rank">04</div>
+            <div>
+              <h3>YouTube Shorts：道具模式 + 英雄模式录屏</h3>
+              <p>
+                YouTube 不是现在的主放量渠道，而是素材预筛器。录屏优先用道具模式做随机武器反转，
+                用英雄模式做角色辨识和克制冲突。每条 Short 带 UTM/creative_id，看 0-3 秒留存、完播、
+                评论争议点，再把赢家反哺 ASO 和广告。
+              </p>
+              <div class="tag-row">
+                <span class="tag">道具模式 2 条候选</span>
+                <span class="tag">英雄模式 1 条候选</span>
+                <span class="tag">3 天复盘</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="card pad opportunity">
+            <div class="rank">05</div>
+            <div>
+              <h3>留存机制：daily matchup / daily champion</h3>
+              <p>
+                next_day_return 只能当回访信号，不等于 D1。先做两个轻量回访理由，不做复杂养成：
+                每日对阵和每日冠军/连胜挑战。
+              </p>
+              <div class="tag-row">
+                <span class="tag">指标：D1 cohort</span>
+                <span class="tag">指标：daily_match_complete</span>
+                <span class="tag">按 creative_id 拆</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="card pad opportunity">
+            <div class="rank">06</div>
+            <div>
+              <h3>合规和数据口径：先修可读性</h3>
+              <p>
+                广告事件与“当前包无广告”口径冲突，first_battle_complete 与 game_end 不一致。
+                这些不是文档问题，会直接影响投放判断和商店披露。
+              </p>
+              <div class="tag-row">
+                <span class="tag">P0：广告来源</span>
+                <span class="tag">P0：首局完成口径</span>
+                <span class="tag">P0：D1 cohort</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="experiments">
+        <div class="section-head">
+          <h2>72 小时实验板</h2>
+          <p class="section-note">每个实验只改一个主变量，避免小样本里看不出是谁起作用。</p>
+        </div>
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>增长假设</th>
+                <th>第一动作</th>
+                <th>主指标</th>
+                <th>继续条件</th>
+                <th>停止条件</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>matchup 问题比泛自动战斗更能促发开局</td>
+                <td>首图改为 Spear vs Shield: who wins?</td>
+                <td>store visitors -> installers；game_start / game_init_success</td>
+                <td>开局率向 50% 靠近，首局完成不跌</td>
+                <td>开局仍低于 35%，商店转化下滑</td>
+              </tr>
+              <tr>
+                <td>结果页 counter 按钮能激活第二局</td>
+                <td>主按钮改为 Try the counter，补推荐理由</td>
+                <td>next_match_recommend_click / game_end；second_battle_start / game_start</td>
+                <td>两项都从 0 变为可读，目标 20%+</td>
+                <td>点击提升但次局完成低于 55%</td>
+              </tr>
+              <tr>
+                <td>道具模式/英雄模式比普通职业模式更适合录屏获客</td>
+                <td>A: 道具模式随机武器反转；B: 英雄模式克制/翻盘</td>
+                <td>YouTube 0-3 秒留存；GA game_start by creative_id</td>
+                <td>观看和游戏内承接同向改善</td>
+                <td>只涨观看，不涨开局或二局</td>
+              </tr>
+              <tr>
+                <td>每日对阵能成为回访理由</td>
+                <td>daily matchup vs daily champion 两套素材和入口</td>
+                <td>D1 cohort；daily_match_complete；next_day_return</td>
+                <td>至少一个来源/素材角度 D1 明显更好</td>
+                <td>D1/D7 都无信号，暂停加预算</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>执行节奏</h2>
+          <p class="section-note">先让数据闭环能判断，再把赢家推到小预算学习。</p>
+        </div>
+        <div class="timeline">
+          <div class="step">
+            <div class="kicker">Day 0</div>
+            <h3>补数据</h3>
+            <p>导入 Play acquisition；核对广告事件；验证 first_battle_complete。</p>
+          </div>
+          <div class="step">
+            <div class="kicker">Day 1</div>
+            <h3>改承诺</h3>
+            <p>ASO 首图/短描述、首页 CTA、结果页 Try the counter 统一表达。</p>
+          </div>
+          <div class="step">
+            <div class="kicker">Day 2-3</div>
+            <h3>发素材</h3>
+            <p>优先录道具模式和英雄模式；所有链接带 UTM/creative_id；同步生成截图。</p>
+          </div>
+          <div class="step">
+            <div class="kicker">Day 4-7</div>
+            <h3>复盘</h3>
+            <p>看开局、首局完成、二局、D1；只保留上下游都改善的方向。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>预算闸门</h2>
+          <p class="section-note">当前保持 Hold，预算服务于学习，不服务于规模。</p>
+        </div>
+        <div class="grid three">
+          <article class="card pad note">
+            <span class="status red">Stop / 不投</span>
+            <h3>数据不可读或承接断裂</h3>
+            <p>Play acquisition 缺失、广告事件来源不清、二局持续为 0、first_battle_complete 口径不可信。</p>
+          </article>
+          <article class="card pad note">
+            <span class="status">Hold / USD 0-10</span>
+            <h3>低成本学习</h3>
+            <p>只跑 ASO、Shorts 和极小预算素材学习；每天看下游行为，不按 CTR 盲目加钱。</p>
+          </article>
+          <article class="card pad note">
+            <span class="status green">Go / 小幅加码</span>
+            <h3>同一方向连续赢</h3>
+            <p>game_start 50%+、首局完成 60%+、二局启动 20%+，D1 cohort 至少有一个来源有信号。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="sources">
+        <div class="section-head">
+          <h2>依据与可核对来源</h2>
+          <p class="section-note">官方来源用于实验方法和数据口径，行业 benchmark 只做参照，不做硬门槛。</p>
+        </div>
+        <div class="sources">
+          <div class="source">
+            <a href="https://play.google.com/console/about/store-listing-experiments/">Google Play Store Listing Experiments</a>
+            <p>支持用商店素材和文案做 A/B，用于设计首图、短描述、feature graphic 实验。</p>
+          </div>
+          <div class="source">
+            <a href="https://support.google.com/googleplay/android-developer/answer/6263332?hl=en">Play Console acquisition and retention reports</a>
+            <p>用于导出 acquisition、渠道、国家和 retained installers 视角，避免只看安装后 GA。</p>
+          </div>
+          <div class="source">
+            <a href="https://support.google.com/youtube/answer/9314415">YouTube audience retention / key moments</a>
+            <p>用于判断 Shorts 前 3 秒、完播和关键时刻是否值得反哺 ASO 或广告素材。</p>
+          </div>
+          <div class="source">
+            <a href="https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema">GA Data API schema</a>
+            <p>用于确认 creative_id、start_source、recommendation_reason 等参数能否进入可查询口径。</p>
+          </div>
+          <div class="source">
+            <a href="https://www.gameanalytics.com/reports/2025-mobile-gaming-benchmarks">GameAnalytics 2025 Mobile Gaming Benchmarks</a>
+            <p>只作为轻度游戏留存/变现外部参照；当前样本小，仍以自身 cohort 改善为准。</p>
+          </div>
+          <div class="source">
+            <a href="execution-plan-2026-06-25.md">本地执行计划</a>
+            <p>记录当前指标、深度研究、增长调研方式和 Go / Hold / Stop 闸门。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
