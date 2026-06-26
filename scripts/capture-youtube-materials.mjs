@@ -7,6 +7,15 @@ import { createBattleReplayShareUrl } from "../services.js";
 import { LegalConfig } from "../legal-config.js";
 import { translate } from "../i18n.js";
 import {
+  DEFAULT_SCENE_ID,
+  HERO_SCENE_ID,
+  ITEM_SCENE_ID,
+  SceneConfig,
+  getSceneDefaultProfessions,
+  isHeroScene,
+  isItemScene,
+} from "../game-config.js";
+import {
   DAILY_YOUTUBE_CLIP_COUNT,
   DEFAULT_DAILY_CANDIDATE_COUNT,
   createCustomYoutubeVideoFormat,
@@ -20,7 +29,11 @@ const DEFAULT_BASE_URL = "http://localhost:5173/";
 const DEFAULT_OUTPUT_ROOT = "ops-materials/youtube";
 const DEFAULT_VIEWPORT = resolveYoutubeVideoFormat("landscape").viewport;
 const DEFAULT_MATCH_TIMEOUT_MS = 120000;
+const DEFAULT_DAILY_CAPTURE_SCENES = [ITEM_SCENE_ID, HERO_SCENE_ID];
+const DEFAULT_DAILY_ITEM_BALL_COUNT = 4;
 const QUICK_BATTLE_POINT = { xRatio: 0.5, yRatio: 0.345 };
+const MAIN_START_POINT = { xRatio: 0.5, yRatio: 0.49 };
+const SETUP_RANDOM_START_POINT = { xRatio: 0.5, yRatio: 0.79 };
 const DOWNLOAD_BUTTON_POINT = { xRatio: 0.5, yRatio: 0.565 };
 const RECORDING_TAG_LABELS = {
   perfect: "result.recordingTagPerfect",
@@ -75,6 +88,7 @@ const viewport = videoFormat.viewport || DEFAULT_VIEWPORT;
 const quickSettlementEnabled = options.realTime ? false : options.quickSettlement !== "0";
 const headed = Boolean(options.headed);
 const browserChannel = options.browserChannel || process.env.YOUTUBE_CAPTURE_BROWSER_CHANNEL || "";
+const captureProfiles = resolveCaptureProfiles({ dailyMode, options });
 const candidateClips = [];
 
 await mkdir(videosDir, { recursive: true });
@@ -130,13 +144,14 @@ try {
   page.on("pageerror", (error) => consoleIssues.push(`pageerror: ${error.message}`));
 
   for (let index = 1; index <= candidateCount; index += 1) {
-    console.log(`Recording candidate ${index}/${candidateCount}...`);
-    await page.goto(getCaptureUrl(baseUrl, { renderQuality }), { waitUntil: "domcontentloaded" });
+    const captureProfile = captureProfiles[(index - 1) % captureProfiles.length];
+    console.log(`Recording candidate ${index}/${candidateCount} (${captureProfile.label})...`);
+    await page.goto(getCaptureUrl(baseUrl, { renderQuality, captureProfile }), { waitUntil: "domcontentloaded" });
     await page.locator("#gameCanvas").waitFor({ state: "visible" });
     await page.waitForTimeout(800);
 
     const downloadPromise = page.waitForEvent("download", { timeout: matchTimeoutMs });
-    await clickInteractiveElement(page, "main-quick-start", QUICK_BATTLE_POINT);
+    await startCaptureMatch(page, captureProfile);
     const download = await getRecordingDownload(page, downloadPromise);
     const suggestedFileName = sanitizeFileName(download.suggestedFilename());
     const savedFileName = `${String(index).padStart(2, "0")}-${suggestedFileName}`;
@@ -155,6 +170,7 @@ try {
       match,
       gameLocale,
       baseUrl,
+      captureProfile,
     });
     candidateClips.push({
       ...enrichClipWithOps({ clip, gameLocale, videoFormat }),
@@ -208,6 +224,7 @@ try {
     videoFormat,
     renderQuality,
     quickSettlementEnabled,
+    captureProfiles,
     selectedCount,
     candidateCount,
     outputDir: runDir,
@@ -273,12 +290,131 @@ function parseArgs(argv) {
   return parsed;
 }
 
-function getCaptureUrl(baseUrl, { renderQuality }) {
+function resolveCaptureProfiles({ dailyMode, options }) {
+  const requestedScenes = parseSceneList(
+    options.scenes ||
+      options.scene ||
+      process.env.YOUTUBE_CAPTURE_SCENES ||
+      (dailyMode ? DEFAULT_DAILY_CAPTURE_SCENES.join(",") : ""),
+  );
+
+  if (!requestedScenes.length) {
+    return [createQuickCaptureProfile()];
+  }
+
+  return requestedScenes.map((sceneId) => createSceneCaptureProfile(sceneId, options));
+}
+
+function createQuickCaptureProfile() {
+  return {
+    id: "quick-start",
+    label: "Quick Start playlist",
+    startMode: "quick-start",
+    scene: "",
+    a: "",
+    b: "",
+    ballCount: null,
+  };
+}
+
+function createSceneCaptureProfile(sceneId, options) {
+  const defaultProfessions = getSceneDefaultProfessions(sceneId);
+  const requestedBallCount = options.ballCount || options.countBalls || process.env.YOUTUBE_CAPTURE_BALL_COUNT;
+  const dailyItemBallCount = options.dailyItemBallCount || process.env.YOUTUBE_DAILY_ITEM_BALL_COUNT || DEFAULT_DAILY_ITEM_BALL_COUNT;
+  const ballCount = isItemScene(sceneId)
+    ? parsePositiveInteger(requestedBallCount || dailyItemBallCount, DEFAULT_DAILY_ITEM_BALL_COUNT)
+    : null;
+
+  return {
+    id: ballCount ? `${sceneId}-${ballCount}` : sceneId,
+    label: getCaptureProfileLabel(sceneId, ballCount),
+    startMode: "setup-random-start",
+    scene: sceneId,
+    a: isItemScene(sceneId) ? "" : defaultProfessions.a || "",
+    b: isItemScene(sceneId) ? "" : defaultProfessions.b || "",
+    ballCount,
+  };
+}
+
+function parseSceneList(value) {
+  return String(value || "")
+    .split(",")
+    .map((scene) => normalizeCaptureScene(scene))
+    .filter(Boolean);
+}
+
+function normalizeCaptureScene(scene) {
+  const normalized = String(scene || "").trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  const aliases = {
+    item: ITEM_SCENE_ID,
+    items: ITEM_SCENE_ID,
+    "item-mode": ITEM_SCENE_ID,
+    hero: HERO_SCENE_ID,
+    heroes: HERO_SCENE_ID,
+    "hero-mode": HERO_SCENE_ID,
+    classic: DEFAULT_SCENE_ID,
+    profession: DEFAULT_SCENE_ID,
+    professions: DEFAULT_SCENE_ID,
+    quick: "quick",
+    playlist: "quick",
+  };
+  const sceneId = aliases[normalized] || normalized;
+  if (sceneId === "quick") {
+    return "";
+  }
+  if (!Object.hasOwn(SceneConfig, sceneId)) {
+    throw new Error(`Unknown capture scene "${scene}". Expected one of: ${Object.keys(SceneConfig).join(", ")}, quick.`);
+  }
+  return sceneId;
+}
+
+function getCaptureProfileLabel(sceneId, ballCount = null) {
+  if (isItemScene(sceneId)) {
+    return `Item Mode${ballCount ? ` (${ballCount} balls)` : ""}`;
+  }
+  if (isHeroScene(sceneId)) {
+    return "Hero Mode";
+  }
+  return `${SceneConfig[sceneId]?.id || sceneId} mode`;
+}
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getCaptureUrl(baseUrl, { renderQuality, captureProfile }) {
   const url = new URL(baseUrl);
   url.searchParams.set("recording", "1");
   url.searchParams.set("autoDownloadRecording", "1");
   url.searchParams.set("renderQuality", renderQuality);
+  if (captureProfile?.scene) {
+    url.searchParams.set("scene", captureProfile.scene);
+  }
+  if (captureProfile?.a) {
+    url.searchParams.set("a", captureProfile.a);
+  }
+  if (captureProfile?.b) {
+    url.searchParams.set("b", captureProfile.b);
+  }
+  if (captureProfile?.ballCount) {
+    url.searchParams.set("count", String(captureProfile.ballCount));
+  }
   return url.href;
+}
+
+async function startCaptureMatch(page, captureProfile) {
+  if (captureProfile?.startMode === "setup-random-start") {
+    await clickInteractiveElement(page, "main-start", MAIN_START_POINT);
+    await page.waitForTimeout(300);
+    await clickInteractiveElement(page, "setup-random-start", SETUP_RANDOM_START_POINT, { timeoutMs: 8000 });
+    return;
+  }
+
+  await clickInteractiveElement(page, "main-quick-start", QUICK_BATTLE_POINT);
 }
 
 async function getRecordingDownload(page, downloadPromise) {
@@ -327,18 +463,21 @@ function enrichClipWithOps({ clip, gameLocale, videoFormat }) {
   };
 }
 
-function createClipRecord({ index, runId, videoPath, savedFileName, suggestedFileName, recordingTags, match, gameLocale, baseUrl }) {
+function createClipRecord({ index, runId, videoPath, savedFileName, suggestedFileName, recordingTags, match, gameLocale, baseUrl, captureProfile }) {
+  const sceneId = match?.scene || captureProfile?.scene || DEFAULT_SCENE_ID;
   const tagLabels = recordingTags.map((tag) => getRecordingTagLabel(gameLocale, tag));
-  const ownRoleName = getRoleDisplayName(gameLocale, match?.ownRole);
-  const opponentRoleName = getRoleDisplayName(gameLocale, match?.opponentRole);
+  const ownRoleName = getRoleDisplayName(gameLocale, match?.ownRole, sceneId);
+  const opponentRoleName = getRoleDisplayName(gameLocale, match?.opponentRole, sceneId);
   const winnerRoleName = match?.winnerSide === "B" ? opponentRoleName : match?.winnerSide === "A" ? ownRoleName : translate(gameLocale, "result.draw");
   const primaryTag = tagLabels[0] || getRecordingTagLabel(gameLocale, "normal");
-  const matchup = `${ownRoleName} vs ${opponentRoleName}`;
-  const title = createYoutubeTitle({ gameLocale, primaryTag, winnerRoleName, matchup });
+  const modeLabel = getModeDisplayName(gameLocale, sceneId);
+  const matchup = isItemScene(sceneId) ? modeLabel : `${ownRoleName} vs ${opponentRoleName}`;
+  const title = createYoutubeTitle({ gameLocale, primaryTag, modeLabel });
   const shareUrl = createBattleReplayShareUrl({
-    scene: "classic",
-    a: match?.ownRole || "",
-    b: match?.opponentRole || "",
+    scene: sceneId,
+    a: isItemScene(sceneId) ? "" : match?.ownRole || captureProfile?.a || "",
+    b: isItemScene(sceneId) ? "" : match?.opponentRole || captureProfile?.b || "",
+    ballCount: match?.ballCount || captureProfile?.ballCount || "",
     seed: match?.replaySeed || "",
     matchId: match?.matchId || "",
     baseUrl,
@@ -347,10 +486,12 @@ function createClipRecord({ index, runId, videoPath, savedFileName, suggestedFil
     gameLocale,
     match,
     matchup,
+    modeLabel,
+    winnerRoleName,
     tagLabels,
     shareUrl,
   });
-  const youtubeTags = createYoutubeTags({ gameLocale, recordingTags, tagLabels, ownRoleName, opponentRoleName });
+  const youtubeTags = createYoutubeTags({ gameLocale, recordingTags, tagLabels, ownRoleName, opponentRoleName, modeLabel });
   const slug = sanitizeFileName(`${recordingTags.join("-") || "normal"}-${match?.matchId || index}`).replace(/\.[^.]+$/, "");
 
   return {
@@ -362,6 +503,9 @@ function createClipRecord({ index, runId, videoPath, savedFileName, suggestedFil
     sourceFileName: suggestedFileName,
     recordingTags,
     recordingTagLabels: tagLabels,
+    scene: sceneId,
+    modeLabel,
+    captureProfile,
     matchup,
     winnerRoleName,
     roleNames: {
@@ -381,23 +525,24 @@ function createClipRecord({ index, runId, videoPath, savedFileName, suggestedFil
   };
 }
 
-function createYoutubeTitle({ gameLocale, primaryTag, winnerRoleName, matchup }) {
+function createYoutubeTitle({ gameLocale, primaryTag, modeLabel }) {
   if (gameLocale === "zh" || gameLocale === "zh-TW") {
-    return `${primaryTag}｜${winnerRoleName}｜斗球球自动对战`;
+    return `${primaryTag}｜${modeLabel}｜斗球球自动对战`;
   }
 
-  return `${primaryTag} | ${winnerRoleName} | Profession Ball Arena`;
+  return `${primaryTag} | ${modeLabel} | Profession Ball Arena`;
 }
 
-function createYoutubeDescription({ gameLocale, match, matchup, tagLabels, shareUrl }) {
+function createYoutubeDescription({ gameLocale, match, matchup, modeLabel, winnerRoleName, tagLabels, shareUrl }) {
+  const resultLine = createResultLine({ gameLocale, match, winnerRoleName });
   if (gameLocale === "zh" || gameLocale === "zh-TW") {
     return [
-      "本机自动录制素材，适合剪辑后发布到 YouTube。",
+      "斗球球每日新录制自动对战素材。",
       "",
-      `对局：${matchup}`,
-      `结果：${match?.winnerSide || "unknown"}`,
-      `时长：${match?.duration || 0}s`,
-      `运营标签：${tagLabels.join(" / ") || getRecordingTagLabel(gameLocale, "normal")}`,
+      `${modeLabel}${matchup && matchup !== modeLabel ? `：${matchup}` : ""}`,
+      resultLine,
+      `全局 ${match?.duration || 0}s。`,
+      `看点：${tagLabels.join(" / ") || getRecordingTagLabel(gameLocale, "normal")}`,
       match?.reason ? `胜因：${match.reason}` : "",
       match?.lesson ? `败因回放：${match.lesson}` : "",
       shareUrl ? `回放链接：${shareUrl}` : "",
@@ -407,14 +552,14 @@ function createYoutubeDescription({ gameLocale, match, matchup, tagLabels, share
   }
 
   return [
-    "Locally recorded operations clip for YouTube editing and upload.",
+    "Fresh auto-battle footage from Profession Ball Arena.",
     "",
-    `Matchup: ${matchup}`,
-    `Result: ${match?.winnerSide || "unknown"}`,
-    `Duration: ${match?.duration || 0}s`,
-    `Clip tags: ${tagLabels.join(" / ") || getRecordingTagLabel(gameLocale, "normal")}`,
-    match?.reason ? `Why it won: ${match.reason}` : "",
-    match?.lesson ? `Replay note: ${match.lesson}` : "",
+    `${modeLabel}${matchup && matchup !== modeLabel ? `: ${matchup}` : ""}.`,
+    resultLine,
+    `Recorded from a ${match?.duration || 0}s run.`,
+    `Watch for ${formatEnglishTagList(tagLabels) || "the final exchange"}.`,
+    match?.reason ? `The turning point: ${match.reason}` : "",
+    match?.lesson ? `On the replay: ${match.lesson}` : "",
     shareUrl ? `Replay link: ${shareUrl}` : "",
     "",
     "#ProfessionBallArena #AutoBattle #IndieGame #gaming",
@@ -426,30 +571,63 @@ function createStoryYoutubeDescription({ baseDescription, story, topic, gameLoca
   const storyLines = zh
     ? [
         "",
-        "运营剧情：",
-        `钩子：${story.hook}`,
-        `开场字幕：${story.openingCaption}`,
-        `话题评分：${topic.score}`,
-        `入选理由：${topic.reasons.join(" / ") || "节奏完整"}`,
+        story.hook,
+        "你会怎么剪这一局？",
       ]
     : [
         "",
-        "Ops story:",
-        `Hook: ${story.hook}`,
-        `Opening caption: ${story.openingCaption}`,
-        `Topic score: ${topic.score}`,
-        `Selection reasons: ${topic.reasons.join(" / ") || "clean pacing"}`,
+        story.hook,
+        "Which side would you run next?",
       ];
 
   return [baseDescription, ...storyLines].filter(Boolean).join("\n");
 }
 
-function createYoutubeTags({ gameLocale, recordingTags, tagLabels, ownRoleName, opponentRoleName }) {
+function createYoutubeTags({ gameLocale, recordingTags, tagLabels, ownRoleName, opponentRoleName, modeLabel }) {
   const baseTags =
     gameLocale === "zh" || gameLocale === "zh-TW"
       ? ["斗球球", "小游戏", "自动对战", "像素游戏", "游戏高光", "YouTube素材"]
       : ["Profession Ball Arena", "auto battle", "indie game", "pixel game", "game highlights", "YouTube clip"];
-  return [...new Set([...baseTags, ...recordingTags, ...tagLabels, ownRoleName, opponentRoleName].filter(Boolean))].slice(0, 20);
+  return [...new Set([...baseTags, modeLabel, ...recordingTags, ...tagLabels, ownRoleName, opponentRoleName].filter(Boolean))].slice(0, 20);
+}
+
+function createResultLine({ gameLocale, match, winnerRoleName }) {
+  if (match?.winnerSide === "draw") {
+    return gameLocale === "zh" || gameLocale === "zh-TW" ? "双方同时倒下。" : "Both sides drop together.";
+  }
+  if (!match?.winnerSide) {
+    return gameLocale === "zh" || gameLocale === "zh-TW" ? "胜负等待复盘确认。" : "The ending is ready for a replay check.";
+  }
+  return gameLocale === "zh" || gameLocale === "zh-TW"
+    ? `${winnerRoleName} 收下这一局。`
+    : `${winnerRoleName} takes the win.`;
+}
+
+function formatEnglishTagList(tagLabels) {
+  const tags = (tagLabels || []).filter(Boolean);
+  if (!tags.length) {
+    return "";
+  }
+  if (tags.length === 1) {
+    return tags[0];
+  }
+  if (tags.length === 2) {
+    return `${tags[0]} and ${tags[1]}`;
+  }
+  return `${tags.slice(0, -1).join(", ")}, and ${tags[tags.length - 1]}`;
+}
+
+function getModeDisplayName(locale, sceneId) {
+  if (isItemScene(sceneId)) {
+    return locale === "zh" || locale === "zh-TW" ? "道具模式" : "Item Mode";
+  }
+  if (isHeroScene(sceneId)) {
+    return locale === "zh" || locale === "zh-TW" ? "英雄模式" : "Hero Mode";
+  }
+  if (sceneId === "super") {
+    return locale === "zh" || locale === "zh-TW" ? "超能模式" : "Super Mode";
+  }
+  return locale === "zh" || locale === "zh-TW" ? "职业模式" : "Classic Mode";
 }
 
 function createSelectedFileName(fileName, selectionRank) {
@@ -466,7 +644,7 @@ function createUploadPlan(manifest) {
     `Format: ${manifest.videoFormat.label} (${manifest.viewport.width}x${manifest.viewport.height})`,
     `Selected: ${manifest.clips.length}/${manifest.candidateCount}`,
     "",
-    "Use YouTube Studio to upload the files under `videos/`, then copy the matching title, description, and tags below.",
+    "Upload rank 1 with `npm run ops:youtube-upload -- --run=<runId> --rank=1 --privacy=public`, or use YouTube Studio and copy the matching metadata below.",
     "",
   ];
 
@@ -514,6 +692,11 @@ function createUploadPlan(manifest) {
 }
 
 function createDailyOpsBrief(manifest) {
+  const isEnglish = String(manifest.gameLocale || "").toLowerCase().startsWith("en");
+  if (isEnglish) {
+    return createEnglishDailyOpsBrief(manifest);
+  }
+
   const lines = [
     `# Daily YouTube Ops Brief - ${manifest.runId}`,
     "",
@@ -523,7 +706,7 @@ function createDailyOpsBrief(manifest) {
     `画幅：${manifest.videoFormat.label} (${manifest.viewport.width}x${manifest.viewport.height})`,
     `正式素材目录：${manifest.outputDir}/videos`,
     "",
-    "## 今日 3 条",
+    `## 今日精选 ${manifest.clips.length} 条`,
     "",
   ];
 
@@ -531,6 +714,7 @@ function createDailyOpsBrief(manifest) {
     lines.push(`### ${clip.selectionRank}. ${clip.story?.angle || clip.topic?.angle || "备选素材"} - ${clip.fileName}`);
     lines.push("");
     lines.push(`- 分数：${clip.topic?.score || 0}`);
+    lines.push(`- 模式：${clip.modeLabel || clip.captureProfile?.label || ""}`);
     lines.push(`- 标题：${clip.youtube.title}`);
     lines.push(`- 钩子：${clip.story?.hook || ""}`);
     lines.push(`- 开场字幕：${clip.story?.openingCaption || ""}`);
@@ -548,15 +732,16 @@ function createDailyOpsBrief(manifest) {
 
   lines.push("## 候选排行");
   lines.push("");
-  lines.push("| 分数 | 入选 | 标签 | 文件 | 理由 |");
-  lines.push("| --- | --- | --- | --- | --- |");
+  lines.push("| 分数 | 入选 | 模式 | 标签 | 文件 | 理由 |");
+  lines.push("| --- | --- | --- | --- | --- | --- |");
   for (const candidate of [...manifest.candidates].sort((a, b) => (b.topic?.score || 0) - (a.topic?.score || 0))) {
     const score = candidate.topic?.score || 0;
     const selected = candidate.selected ? `#${candidate.selectionRank}` : "否";
+    const mode = String(candidate.modeLabel || candidate.captureProfile?.label || "").replace(/\|/g, "/");
     const labels = ((candidate.recordingTagLabels || candidate.recordingTags || []).join(" / ") || "normal").replace(/\|/g, "/");
     const fileName = String(candidate.fileName || "").replace(/\|/g, "/");
     const reasons = (candidate.topic?.reasons || []).join("；").replace(/\|/g, "/");
-    lines.push(`| ${score} | ${selected} | ${labels} | ${fileName} | ${reasons} |`);
+    lines.push(`| ${score} | ${selected} | ${mode} | ${labels} | ${fileName} | ${reasons} |`);
   }
 
   lines.push("");
@@ -565,6 +750,64 @@ function createDailyOpsBrief(manifest) {
   lines.push("- 点击率低：先改 `story.thumbnailPrompt` 和 `story.titleIdeas[0]`。");
   lines.push("- 完播率低：缩短中段，只保留开场、转折、最后一击。");
   lines.push("- 评论少：把开场字幕改成问题句，并在置顶评论里让观众判定胜负。");
+
+  return `${lines.join("\n")}\n`;
+}
+
+function createEnglishDailyOpsBrief(manifest) {
+  const lines = [
+    `# Daily YouTube Ops Brief - ${manifest.runId}`,
+    "",
+    `Generated: ${manifest.generatedAt}`,
+    `Selected clips: ${manifest.clips.length}`,
+    `Candidate pool: ${manifest.candidateCount}`,
+    `Format: ${manifest.videoFormat.label} (${manifest.viewport.width}x${manifest.viewport.height})`,
+    `Ready-to-upload videos: ${manifest.outputDir}/videos`,
+    "",
+    "## Today's Shorts",
+    "",
+  ];
+
+  for (const clip of manifest.clips) {
+    lines.push(`### ${clip.selectionRank}. ${clip.story?.angle || clip.topic?.angle || "backup clip"} - ${clip.fileName}`);
+    lines.push("");
+    lines.push(`- Score: ${clip.topic?.score || 0}`);
+    lines.push(`- Mode: ${clip.modeLabel || clip.captureProfile?.label || ""}`);
+    lines.push(`- Title: ${clip.youtube.title}`);
+    lines.push(`- Hook: ${clip.story?.hook || ""}`);
+    lines.push(`- Opening caption: ${clip.story?.openingCaption || ""}`);
+    lines.push(`- Video: ${clip.videoPath}`);
+    lines.push(`- Metadata: ${clip.metadataPath}`);
+    lines.push("");
+    if (clip.story?.threeActStory?.length) {
+      lines.push("Three-act story:");
+      for (const beat of clip.story.threeActStory) {
+        lines.push(`- ${beat.beat}: ${beat.copy}`);
+      }
+      lines.push("");
+    }
+  }
+
+  lines.push("## Candidate Ranking");
+  lines.push("");
+  lines.push("| Score | Selected | Mode | Tags | File | Reasons |");
+  lines.push("| --- | --- | --- | --- | --- | --- |");
+  for (const candidate of [...manifest.candidates].sort((a, b) => (b.topic?.score || 0) - (a.topic?.score || 0))) {
+    const score = candidate.topic?.score || 0;
+    const selected = candidate.selected ? `#${candidate.selectionRank}` : "No";
+    const mode = String(candidate.modeLabel || candidate.captureProfile?.label || "").replace(/\|/g, "/");
+    const labels = ((candidate.recordingTagLabels || candidate.recordingTags || []).join(" / ") || "normal").replace(/\|/g, "/");
+    const fileName = String(candidate.fileName || "").replace(/\|/g, "/");
+    const reasons = (candidate.topic?.reasons || []).join("; ").replace(/\|/g, "/");
+    lines.push(`| ${score} | ${selected} | ${mode} | ${labels} | ${fileName} | ${reasons} |`);
+  }
+
+  lines.push("");
+  lines.push("## Prompt Tuning Notes");
+  lines.push("");
+  lines.push("- Low CTR: revise `story.thumbnailPrompt` and `story.titleIdeas[0]` first.");
+  lines.push("- Low retention: shorten the middle and keep only setup, turn, and final hit.");
+  lines.push("- Low comments: make the opening caption a question and add a pinned-comment judgment prompt.");
 
   return `${lines.join("\n")}\n`;
 }
@@ -584,7 +827,10 @@ function getRecordingTagLabel(locale, tag) {
   return label === key ? tag : label;
 }
 
-function getRoleDisplayName(locale, roleId) {
+function getRoleDisplayName(locale, roleId, sceneId = DEFAULT_SCENE_ID) {
+  if (isItemScene(sceneId)) {
+    return translate(locale, "reports.itemModeRole");
+  }
   if (!roleId || roleId === "none") {
     return locale === "zh" || locale === "zh-TW" ? "未知职业" : "Unknown Role";
   }

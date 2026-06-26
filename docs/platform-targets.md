@@ -15,7 +15,9 @@
 参考：
 
 - https://capacitorjs.com/docs/basics/workflow
-- https://gamemaker.io/en/help/articles/facebook-instant-games-getting-started
+- https://developers.facebook.com/docs/games/build/instant-games/get-started/quick-start/
+- https://developers.facebook.com/docs/games/build/instant-games/reference/bundle-config/
+- https://developers.facebook.com/docs/games/build/instant-games/get-started/test-publish-share/
 
 ## 常用命令
 

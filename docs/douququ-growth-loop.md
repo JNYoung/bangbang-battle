@@ -1,6 +1,6 @@
 # 斗球球增长闭环
 
-Updated: 2026-06-16
+Updated: 2026-06-23
 
 This is the project-local operating loop for moving `斗球球` toward a "斗蛐蛐" style game discovery and growth system.
 
@@ -55,6 +55,7 @@ Use these docs together:
 - `docs/analytics-events.md`: existing event schema and Firebase/Facebook event paths.
 - `docs/ad-flow.md`: current AdMob / Meta / mock ad placement flow.
 - `docs/aso-store-listing.md`: store listing, positioning, screenshots, compliance URLs.
+- `reports/aso-insights/`: daily ASO data insight reports generated from GA and Play Console inputs.
 - `docs/google-play-release.md`: Google Play release details.
 - `docs/social-sharing-deeplinks.md`: share/deeplink loop.
 - `docs/review-feedback-retention.md`: review and retention prompts.
@@ -151,6 +152,14 @@ Weekly operating questions:
 - Did ads disrupt retention or result-screen actions?
 
 ### 7. Data Analysis
+
+Daily command:
+
+```bash
+npm run aso:insights
+```
+
+This refreshes the GA daily report first, then translates the latest GA event funnel into ASO and store-listing tasks. Use `npm run ga:daily` only when checking the analytics chain directly.
 
 Read events by creative tag if possible:
 

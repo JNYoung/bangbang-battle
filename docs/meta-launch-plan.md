@@ -1,6 +1,6 @@
 # Meta 小游戏推进计划
 
-更新日期：2026-05-30
+更新日期：2026-06-21
 
 本文按 Meta Instant Games / Facebook Instant Games 上传包方向推进。由于 Meta 后台和审核规则会随账号状态变化，最终字段以登录 Meta Developer Dashboard 后的实时提示为准。
 
@@ -11,17 +11,29 @@
 - 主游戏构建通过：`npm run build`
 - 完整质量检查通过：`npm run test:ci`
 - Meta 上传包已生成并校验：`release/meta-instant/profession-ball-arena-meta.zip`
-- 最近一次包体校验：2026-05-30 执行 `npm run meta:bundle` 和 `node scripts/verify-build-artifacts.mjs` 通过。
-- 最近一次质量检查：2026-05-30 执行 `npm run lint:syntax && npm test && npm run test:artifacts` 通过，43 个单元测试全部通过。
-- 当前 ZIP 大小约 2.2 MB，根目录包含 `index.html`、`fbapp-config.json` 和静态资源。
+- 最近一次包体校验：2026-06-21 22:00 CST 执行 `npm run test:ci` 内的 `npm run test:artifacts` 通过。
+- 最近一次质量检查：2026-06-21 22:00 CST 执行 `npm run test:ci` 通过，59 个单元测试全部通过，职业对战和道具模式模拟全部通过。
+- 当前 ZIP 大小 `2,372,923` bytes，SHA-256：`d17d3ab59308ef6364411e6cb38000a2ea1b625500a15d5fd336e3a3c6314262`。
+- 当前 ZIP 根目录包含 `index.html`、`fbapp-config.json`、图标和 `assets/` 静态资源，没有多套一层目录。
 - `fbapp-config.json` 已配置：
   - `platform_version`: `RICH_GAMEPLAY`
   - `orientation`: `PORTRAIT`
   - `navigation_menu_version`: `NAV_FLOATING`
 - `platform.js` 已支持 `FBInstant.initializeAsync()`、`setLoadingProgress()`、`startGameAsync()` 和 `getEntryPointData()`。
 - 官网可构建：`official-site/dist/`
+- 最近一次官网构建：2026-06-21 22:00 CST 执行 `cd official-site && npm run build` 通过，输出包含 `privacy/`、`terms/`、`support/`、`data-deletion/`、`CNAME` 和 `.nojekyll`。
+- 最近一次公网合规页面检查：2026-06-21 22:05 CST，官网、隐私政策、用户协议、支持页、数据删除说明均返回 HTTPS 200。
 - 已配置公开域名：`professionballarena.top`
 - 当前版本不展示广告，也不会发起广告请求；Meta 包仅保留 `FBInstant` 平台初始化链路。
+
+## 2026-06-21 夜间推进记录
+
+- 重新执行完整质量检查：`npm run test:ci` 通过。
+- 重新生成 Meta Instant Games ZIP：`release/meta-instant/profession-ball-arena-meta.zip`。
+- 校验 ZIP 列表：根目录有 `index.html` 和 `fbapp-config.json`，`index.html` 已注入 `fbinstant.latest.js`。
+- 重新构建官网：`official-site/dist/` 已生成合规页面和域名配置文件。
+- 尝试使用 Chrome 现有登录态进入 `https://developers.facebook.com/apps/1013763001162439/settings/basic/`，但浏览器自动化停在 `about:blank`，未能进入 Meta 后台；没有执行任何后台写操作、上传、付款、身份验证或提审提交。
+- 新增交接清单：`docs/meta-submission-handoff-2026-06-21.md`。
 
 ## 2026-05-29/30 后台实操记录
 
@@ -129,6 +141,7 @@
 - 在出现 Instant Games 应用类型或产品入口后，创建正确应用并进入 Web Hosting / Upload Bundle 页面。
 - 上传 `release/meta-instant/profession-ball-arena-meta.zip`。
 - 用后台测试入口启动游戏，确认能进入合规弹窗、主菜单和一局战斗。
+- 上传时可对照 `docs/meta-submission-handoff-2026-06-21.md` 的 ZIP 哈希和素材路径，避免选错旧包。
 
 ### P1：后台测试闭环
 
@@ -163,6 +176,8 @@
 ## 当前阻塞项
 
 - 当前 Meta 后台没有开放 Instant Games / Web Hosting 入口，现有 App ID `1013763001162439` 是消费者应用，不能作为最终小游戏上传应用使用。
+- 2026-06-21 夜间尝试通过 Chrome 自动化打开 Meta 后台未成功，页面停在 `about:blank`；后续需要人工打开后台或恢复浏览器自动化后再继续。
+- 2026-06-22 08:15 CST 再次尝试上传：Chrome 可打开 `Profession Ball Arena` App 后台 URL，但 Meta Developer 内容区持续为空白，无法看到左侧菜单、Web Hosting 或上传控件；Safari 可打开公开开发者首页但没有进入已登录后台。未执行上传、保存、发布或提审操作。
 - `professionballarena.top` 的 HTTPS 证书已修复并开启强制 HTTPS；Meta 后台隐私政策和服务条款 URL 已保存为 HTTPS。
 - Meta 后台 `用户数据删除` 字段暂时拒绝有效 HTTPS URL，需后续重试或在正确 Instant Games 应用中重新填写。
 - App 已绑定到 `Profession Ball Arena` 业务资产组合；如后台后续要求，需在 Meta Business Suite 再次核对资产归属。

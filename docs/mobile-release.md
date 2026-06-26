@@ -54,9 +54,13 @@ The workflow produces an unsigned IPA artifact from a Release archive so packagi
 
 This workspace does not currently contain a signed `.ipa` release package.
 
+Use `docs/ios-first-release.md` for the first Apple Developer account, App Store Connect, signing, TestFlight, and App Store submission checklist.
+
 For a signed export, copy `ios/exportOptions.plist.example` to `ios/exportOptions.plist`, update the export method/team settings in Xcode, and run an archive/export on a machine with a valid Apple Developer certificate and provisioning profile.
 
-This local workspace currently only has Command Line Tools selected, not full Xcode, and no code-signing identities are installed. A signed IPA needs full Xcode plus Apple signing assets.
+This local workspace has full Xcode installed at `/Applications/Xcode.app`, but the active terminal developer directory may still point at Command Line Tools. Use `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` for local commands or switch with `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
+
+As of 2026-06-18, no code-signing identities or provisioning profiles are installed locally, and Xcode archive/build fails with `iOS 26.4 Platform Not Installed` until the matching iOS platform/runtime is installed from Xcode > Settings > Components. A signed IPA needs full Xcode, a paid Apple Developer Program team, and valid Apple signing assets.
 
 ## CI Artifacts
 

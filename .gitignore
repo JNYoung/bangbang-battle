@@ -3,6 +3,9 @@ dist/
 .tmp/
 release/
 ops-materials/
+.secrets/
+.credentials/
+*.token.json
 .DS_Store
 npm-debug.log*
 

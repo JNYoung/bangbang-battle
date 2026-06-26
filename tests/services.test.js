@@ -6,7 +6,10 @@ import {
   ShareTargets,
   ads,
   analytics,
+  captureCampaignAttribution,
+  clearCampaignAttribution,
   createBattleReplayShareUrl,
+  getCampaignAttributionAnalyticsPayload,
   iap,
   normalizeAnalyticsName,
   normalizeAnalyticsPayload,
@@ -86,6 +89,21 @@ function withMetaInstant(fbInstant, callback) {
   }
 }
 
+function createMemoryStorage() {
+  const items = new Map();
+  return {
+    getItem(key) {
+      return items.has(key) ? items.get(key) : null;
+    },
+    setItem(key, value) {
+      items.set(key, String(value));
+    },
+    removeItem(key) {
+      items.delete(key);
+    },
+  };
+}
+
 test("analytics placeholder is callable and does not send events", async () => {
   await analytics.setCollectionEnabled(true);
   const result = analytics.track("game_start", { a: "spear", b: "blade", enabled: true });
@@ -103,6 +121,42 @@ test("analytics events stay local until consent enables collection", () => {
   assert.equal(result.sent, false);
   assert.equal(result.eventName, "game_start");
   assert.equal(result.reason, "analytics_collection_disabled");
+});
+
+test("campaign attribution captures UTM fields for GA funnel analysis", () => {
+  const storage = createMemoryStorage();
+  const result = captureCampaignAttribution(
+    "https://professionballarena.top/play/?utm_source=youtube&utm_medium=shorts&utm_campaign=organic_daily_20260624&utm_content=clip_01&creative_id=A1_counter_matchup&gclid=raw-click-id",
+    { storage, nowMs: Date.parse("2026-06-24T00:00:00Z") },
+  );
+
+  assert.equal(result.captured, true);
+  assert.deepEqual(getCampaignAttributionAnalyticsPayload({
+    storage,
+    nowMs: Date.parse("2026-06-24T00:05:00Z"),
+  }), {
+    traffic_source: "youtube",
+    traffic_medium: "shorts",
+    traffic_campaign: "organic_daily_20260624",
+    traffic_content: "clip_01",
+    creative_id: "A1_counter_matchup",
+  });
+  assert.equal("gclid" in result.attribution, false);
+  clearCampaignAttribution(storage);
+  assert.deepEqual(getCampaignAttributionAnalyticsPayload({ storage }), {});
+});
+
+test("campaign attribution expires stale traffic context", () => {
+  const storage = createMemoryStorage();
+  captureCampaignAttribution(
+    "https://professionballarena.top/#utm_source=meta&utm_campaign=learn_ph&utm_content=creative_b",
+    { storage, nowMs: Date.parse("2026-06-01T00:00:00Z") },
+  );
+
+  assert.deepEqual(getCampaignAttributionAnalyticsPayload({
+    storage,
+    nowMs: Date.parse("2026-07-03T00:00:00Z"),
+  }), {});
 });
 
 test("analytics status reports unavailable without a native bridge", async () => {
@@ -270,6 +324,47 @@ test("social share delegates image payloads to the native bridge", async () => {
     assert.equal(result.shared, true);
     assert.equal(calls[0].target, "tiktok");
     assert.equal(calls[0].deepLinkUrl, "https://example.test/battle/?seed=1");
+  });
+});
+
+test("social share delegates video payloads to the native bridge", async () => {
+  const calls = [];
+  await withCapacitor({
+    Plugins: {
+      GameSocial: {
+        shareVideo(options) {
+          calls.push(["shareVideo", options]);
+          return { shared: true, transport: "android_sharesheet" };
+        },
+        saveVideo(options) {
+          calls.push(["saveVideo", options]);
+          return { saved: true, transport: "android_mediastore" };
+        },
+      },
+    },
+  }, async () => {
+    assert.equal(socialShare.isNativeAvailable(), true);
+    const shareResult = await socialShare.shareVideo({
+      target: ShareTargets.tiktok,
+      fileName: "short.webm",
+      contentType: "video/webm",
+      base64Data: "data:video/webm;base64,AAAA",
+      title: "Short",
+      text: "Replay",
+      deepLinkUrl: "https://example.test/battle/?seed=1",
+    });
+    const saveResult = await socialShare.saveVideo({
+      fileName: "short.webm",
+      contentType: "video/webm",
+      base64Data: "data:video/webm;base64,AAAA",
+    });
+
+    assert.equal(shareResult.shared, true);
+    assert.equal(saveResult.saved, true);
+    assert.equal(calls[0][0], "shareVideo");
+    assert.equal(calls[0][1].target, "tiktok");
+    assert.equal(calls[0][1].contentType, "video/webm");
+    assert.equal(calls[1][0], "saveVideo");
   });
 });
 

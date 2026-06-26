@@ -1,4 +1,4 @@
-import { MAX_BALL_COUNT, createComplianceState, normalizeSelectedProfessions } from "./compliance-state.js";
+import { MAX_BALL_COUNT, createComplianceState, normalizeBallCount, normalizeSelectedProfessions } from "./compliance-state.js";
 import {
   ARENA_SIZE,
   ATTACK_ANIMATION_CONFIG,
@@ -35,9 +35,11 @@ import {
   AnalyticsEvents,
   ShareTargets,
   analytics,
+  captureCampaignAttribution,
   createBattleReplaySeed,
   createBattleReplayShareUrl,
   deepLinks,
+  getCampaignAttributionAnalyticsPayload,
   iap,
   parseBattleReplayLink,
   reviews,
@@ -260,10 +262,12 @@ const BATTLE_DANMAKU_CONFIG = Object.freeze({
   laneReserveGap: 48,
 });
 const MATCH_RECORDING_MIME_TYPES = Object.freeze([
+  "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+  "video/mp4;codecs=h264",
+  "video/mp4",
   "video/webm;codecs=vp9",
   "video/webm;codecs=vp8",
   "video/webm",
-  "video/mp4",
 ]);
 const REVIEW_PROMPT_CONFIG = Object.freeze({
   minTotalMatches: 4,
@@ -502,6 +506,7 @@ let lastBattleDanmakuEventAt = -Infinity;
 let battleDanmakuSequence = 0;
 let gameSpeedMultiplier = GAME_SPEED_OPTIONS[0];
 let shareTargetOverlayOpen = false;
+let shareTargetOverlayMode = "reportCard";
 let deepLinkListenerHandle = null;
 let pendingReviewPromptTimer = null;
 let lastArenaShakeTime = -Infinity;
@@ -2066,6 +2071,7 @@ function setScreen(nextScreen) {
   sceneDropdownLayout = null;
   if (nextScreen !== Screen.RESULT) {
     shareTargetOverlayOpen = false;
+    shareTargetOverlayMode = "reportCard";
   }
   if (fromScreen === Screen.RESULT && nextScreen !== Screen.RESULT) {
     clearPendingReviewPrompt();
@@ -2550,6 +2556,8 @@ function normalizeMatchHistory(history) {
       dateKey: String(entry.dateKey || ""),
       winnerSide: entry.winnerSide === "draw" ? "draw" : String(entry.winnerSide || ""),
       ownResult: ["win", "loss", "draw"].includes(entry.ownResult) ? entry.ownResult : "draw",
+      scene: Object.hasOwn(SceneConfig, entry.scene) ? String(entry.scene) : DEFAULT_SCENE_ID,
+      ballCount: normalizeBallCount(entry.ballCount),
       ownRole: String(entry.ownRole || "none"),
       opponentRole: String(entry.opponentRole || "none"),
       reason: String(entry.reason || ""),
@@ -2657,6 +2665,7 @@ function createNextDayReturnPayload(savedProgress) {
     scene: selectedProfessions.scene,
     locale: currentLocale,
     surface: getRuntimeSurface(),
+    ...getCampaignAttributionAnalyticsPayload(),
   };
 }
 
@@ -2679,6 +2688,8 @@ function createMatchHistoryEntry(winnerSide, insight) {
     dateKey: getLocalDateKey(),
     winnerSide,
     ownResult: getOwnResult(winnerSide),
+    scene: selectedProfessions.scene,
+    ballCount: selectedProfessions.ballCount || balls.length || 2,
     ownRole: getAnalyticsRoleForSide(ownSide),
     opponentRole: getAnalyticsRoleForSide(opponentSide),
     reason: insight?.reason || "",
@@ -3218,7 +3229,7 @@ function isCurrentResultRecording() {
 }
 
 function shouldDrawResultRecordingSummary() {
-  return isCurrentResultRecording() && ["recording", "finalizing", "failed", "unsupported"].includes(matchRecordingState.status);
+  return isCurrentResultRecording() && ["recording", "finalizing", "failed", "unsupported", "ready"].includes(matchRecordingState.status);
 }
 
 function shouldDrawRecordingDownloadButton() {
@@ -3244,13 +3255,53 @@ function getResultRecordingStatusText() {
 }
 
 function downloadMatchRecording() {
+  void saveMatchRecording({ preferDownload: true, source: "download" });
+}
+
+async function saveMatchRecording({ preferDownload = false, source = "result_save" } = {}) {
   if (!shouldDrawRecordingDownloadButton()) {
-    return;
+    return false;
+  }
+
+  const fileName = matchRecordingState.lastFileName || createMatchRecordingFileName(matchRecordingState);
+  const payload = createMatchRecordingSharePayload();
+  analytics.track(AnalyticsEvents.matchRecordingSave, createFunnelAnalyticsPayload({
+    source,
+    transport: preferDownload ? "browser_download" : "native_or_download",
+    recording_tags: getMatchRecordingHighlightSlugs(),
+    content_type: getMatchRecordingContentType(),
+  }));
+
+  if (!preferDownload && socialShare.isNativeAvailable()) {
+    serviceMessage = t("messages.matchRecordingSaving");
+    try {
+      const result = await socialShare.saveVideo({
+        fileName,
+        contentType: getMatchRecordingContentType(),
+        base64Data: await blobToDataUrl(matchRecordingState.lastBlob),
+        title: payload.title,
+        text: payload.text,
+        deepLinkUrl: payload.deepLinkUrl,
+      });
+      if (result?.saved) {
+        serviceMessage = t("messages.matchRecordingNativeSaved");
+        analytics.track(AnalyticsEvents.matchRecordingSave, createFunnelAnalyticsPayload({
+          source,
+          transport: result.transport || "native_video_save",
+          recording_tags: getMatchRecordingHighlightSlugs(),
+          content_type: getMatchRecordingContentType(),
+          saved: true,
+        }));
+        return true;
+      }
+    } catch (error) {
+      console.warn("Native match recording save failed", error);
+    }
   }
 
   const link = document.createElement("a");
   link.href = matchRecordingState.lastObjectUrl;
-  link.download = matchRecordingState.lastFileName || createMatchRecordingFileName(matchRecordingState);
+  link.download = fileName;
   link.rel = "noopener";
   document.body.append(link);
   link.click();
@@ -3258,6 +3309,113 @@ function downloadMatchRecording() {
   serviceMessage = t("messages.matchRecordingSaved", {
     fileName: link.download,
   });
+  return true;
+}
+
+async function shareMatchRecording(target = ShareTargets.system) {
+  if (!shouldDrawRecordingDownloadButton()) {
+    return false;
+  }
+
+  shareTargetOverlayOpen = false;
+  shareTargetOverlayMode = "reportCard";
+  const payload = createMatchRecordingSharePayload();
+  const fileName = matchRecordingState.lastFileName || createMatchRecordingFileName(matchRecordingState);
+  const contentType = getMatchRecordingContentType();
+  analytics.track(AnalyticsEvents.matchRecordingShare, createFunnelAnalyticsPayload({
+    share_target: target,
+    recording_tags: getMatchRecordingHighlightSlugs(),
+    content_type: contentType,
+    winner_side: resultWinnerSide,
+    own_result: getOwnResult(resultWinnerSide),
+  }));
+
+  if (socialShare.isNativeAvailable()) {
+    serviceMessage = t("messages.matchRecordingSharing");
+    try {
+      const result = await socialShare.shareVideo({
+        target,
+        fileName,
+        contentType,
+        base64Data: await blobToDataUrl(matchRecordingState.lastBlob),
+        title: payload.title,
+        text: payload.text,
+        deepLinkUrl: payload.deepLinkUrl,
+      });
+      if (result?.shared) {
+        serviceMessage = t("messages.matchRecordingShared");
+        return true;
+      }
+    } catch (error) {
+      console.warn("Native match recording sharing failed", error);
+    }
+  }
+
+  const browserNavigator = globalThis.navigator;
+  if (
+    typeof globalThis.File !== "undefined" &&
+    browserNavigator?.share &&
+    typeof browserNavigator.canShare === "function"
+  ) {
+    const file = new File([matchRecordingState.lastBlob], fileName, { type: contentType });
+    if (browserNavigator.canShare({ files: [file] })) {
+      try {
+        await browserNavigator.share({
+          files: [file],
+          title: payload.title,
+          text: payload.text,
+          url: payload.deepLinkUrl,
+        });
+        serviceMessage = t("messages.matchRecordingShared");
+        return true;
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          serviceMessage = t("messages.matchRecordingShareCancelled");
+          return true;
+        }
+        console.warn("Falling back to match recording download", error);
+      }
+    }
+  }
+
+  serviceMessage = t("messages.matchRecordingShareFailed");
+  return saveMatchRecording({ preferDownload: true, source: "share_fallback" });
+}
+
+function createMatchRecordingSharePayload() {
+  const deepLinkUrl = createBattleReplayShareUrl({
+    ...selectedProfessions,
+    seed: matchTelemetry.replaySeed || activeBattleReplaySeed,
+    matchId: matchTelemetry.matchId,
+  });
+  const winner = getBattleReportWinnerText();
+  const tags = getMatchRecordingHighlightSummary(matchRecordingState.lastHighlights);
+  return {
+    title: t("recordingShare.title"),
+    text: t("recordingShare.text", {
+      winner,
+      tags,
+      link: deepLinkUrl,
+    }),
+    deepLinkUrl,
+  };
+}
+
+function getMatchRecordingContentType() {
+  return matchRecordingState.lastBlob?.type || matchRecordingState.mimeType || "video/webm";
+}
+
+function getMatchRecordingHighlightSlugs() {
+  return (matchRecordingState.lastHighlights || [])
+    .map((highlight) => highlight.slug)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(",");
+}
+
+function openRecordingShareTargetOverlay() {
+  shareTargetOverlayMode = "recording";
+  shareTargetOverlayOpen = true;
 }
 
 function pushMatchRecordingDanmaku(text, options = {}) {
@@ -3468,6 +3626,7 @@ function trackGameInitSuccess(consentSource = "boot") {
     locale: currentLocale,
     surface: getRuntimeSurface(),
     ...getRenderQualityAnalyticsPayload(),
+    ...getCampaignAttributionAnalyticsPayload(),
     analytics_enabled: analytics.enabled,
     analytics_consent: isAnalyticsConsentGranted() ? "granted" : "denied",
     consent_source: consentSource,
@@ -3598,6 +3757,7 @@ function startRewardedEncoreMatch() {
   serviceMessage = t("messages.rewardEncoreStarted", { matchup: recommendation.matchupText });
   analytics.track(AnalyticsEvents.nextMatchRecommendClick, createFunnelAnalyticsPayload({
     recommendation_reason: "rewarded_encore",
+    recommendation_reason_text: recommendation.reasonText,
     recommended_matchup: recommendation.matchupText,
     pending_passes: rewardState.pendingEncorePasses,
     winner_side: resultWinnerSide,
@@ -3862,6 +4022,7 @@ function createGameStartAnalyticsPayload() {
     ...getMatchBaseAnalyticsPayload(),
     ...getRenderQualityAnalyticsPayload(),
     match_id: matchTelemetry.matchId,
+    ...getCampaignAttributionAnalyticsPayload(),
   };
 }
 
@@ -3871,6 +4032,7 @@ function createFunnelAnalyticsPayload(extraPayload = {}) {
     match_id: matchTelemetry.matchId,
     daily_match_count: getCurrentPlayerProgress().daily.matches,
     total_matches: getCurrentPlayerProgress().totalMatches,
+    ...getCampaignAttributionAnalyticsPayload(),
     ...extraPayload,
   };
 }
@@ -10456,12 +10618,13 @@ function drawResultOverlay() {
   }
 
   drawPanel({ x: panelX, y: panelY, width: panelWidth, height: panelHeight });
+  const verdictTitle = t("result.verdictTitle", { result: resultMessage });
   ctx.fillStyle = COLORS.text;
   setCanvasDirection(ctx);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = canvasFont(getFittedFontSize(resultMessage, panelWidth - padding * 2, compact ? 21 : 24, 13, 900), 900);
-  ctx.fillText(resultMessage, panelX + panelWidth / 2, titleY);
+  ctx.font = canvasFont(getFittedFontSize(verdictTitle, panelWidth - padding * 2, compact ? 20 : 23, 12, 900), 900);
+  ctx.fillText(verdictTitle, panelX + panelWidth / 2, titleY);
 
   const buttonX = panelX + padding;
   drawResultInsight(panelX + padding, infoY, panelWidth - padding * 2, Math.max(54, infoBottom - infoY), { compact });
@@ -10476,7 +10639,8 @@ function drawResultOverlay() {
   }
   let currentButtonY = buttonY;
   drawButton(recommendation.buttonLabel, buttonX, currentButtonY, fullButtonWidth, buttonHeight, startRecommendedMatch, { id: "result-recommend-next", active: true });
-  currentButtonY += buttonHeight + buttonGap;
+  drawResultRecommendationReason(recommendation.reasonText, buttonX, currentButtonY + buttonHeight + 4, fullButtonWidth, compact);
+  currentButtonY += buttonHeight + getResultRecommendationReasonHeight(compact) + buttonGap;
   if (showRewardedEncore) {
     drawButton(getRewardedEncoreButtonLabel(), buttonX, currentButtonY, fullButtonWidth, buttonHeight, handleRewardedEncoreAction, {
       id: "result-rewarded-encore",
@@ -10485,14 +10649,21 @@ function drawResultOverlay() {
     currentButtonY += buttonHeight + buttonGap;
   }
   if (showRecordingDownload) {
-    drawButton(t("result.downloadRecording"), buttonX, currentButtonY, fullButtonWidth, buttonHeight, downloadMatchRecording, {
+    drawButton(t("result.saveShort"), buttonX, currentButtonY, splitButtonWidth, buttonHeight, () => {
+      void saveMatchRecording();
+    }, {
       id: "result-download-recording",
+      active: true,
+    });
+    drawButton(t("result.shareShort"), buttonX + splitButtonWidth + buttonGap, currentButtonY, splitButtonWidth, buttonHeight, openRecordingShareTargetOverlay, {
+      id: "result-share-recording",
       active: true,
     });
     currentButtonY += buttonHeight + buttonGap;
   }
   drawButton(t("result.again"), buttonX, currentButtonY, splitButtonWidth, buttonHeight, () => startGame({ source: "result_again" }), { id: "result-again" });
   drawButton(t("result.shareCard"), buttonX + splitButtonWidth + buttonGap, currentButtonY, splitButtonWidth, buttonHeight, () => {
+    shareTargetOverlayMode = "reportCard";
     shareTargetOverlayOpen = true;
   }, { id: "result-share-card" });
   currentButtonY += buttonHeight + buttonGap;
@@ -10524,21 +10695,30 @@ function drawShareTargetOverlay(resultLayout) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.font = canvasFont(17, 900);
-  ctx.fillText(t("shareTargets.title"), overlayX + overlayWidth / 2, overlayY + 27);
+  ctx.fillText(t(shareTargetOverlayMode === "recording" ? "shareTargets.recordingTitle" : "shareTargets.title"), overlayX + overlayWidth / 2, overlayY + 27);
+
+  const shareAction = (target) => {
+    if (shareTargetOverlayMode === "recording") {
+      void shareMatchRecording(target);
+      return;
+    }
+    void generateAndShareBattleReportCard(target);
+  };
 
   drawButton(t("shareTargets.facebook"), buttonX, buttonY, buttonWidth, buttonHeight, () => {
-    void generateAndShareBattleReportCard(ShareTargets.facebook);
+    shareAction(ShareTargets.facebook);
   }, { id: "share-facebook" });
   buttonY += buttonHeight + buttonGap;
   drawButton(t("shareTargets.tiktok"), buttonX, buttonY, buttonWidth, buttonHeight, () => {
-    void generateAndShareBattleReportCard(ShareTargets.tiktok);
+    shareAction(ShareTargets.tiktok);
   }, { id: "share-tiktok" });
   buttonY += buttonHeight + buttonGap;
   drawButton(t("shareTargets.system"), buttonX, buttonY, (buttonWidth - buttonGap) / 2, buttonHeight, () => {
-    void generateAndShareBattleReportCard(ShareTargets.system);
+    shareAction(ShareTargets.system);
   }, { id: "share-system" });
   drawButton(t("shareTargets.cancel"), buttonX + (buttonWidth + buttonGap) / 2, buttonY, (buttonWidth - buttonGap) / 2, buttonHeight, () => {
     shareTargetOverlayOpen = false;
+    shareTargetOverlayMode = "reportCard";
   }, { id: "share-cancel" });
   ctx.restore();
 }
@@ -10559,6 +10739,18 @@ function drawResultRecordingSummary(x, y, width, compact) {
   ctx.restore();
 }
 
+function getResultRecommendationReasonHeight(compact) {
+  return compact ? 16 : 18;
+}
+
+function drawResultRecommendationReason(text, x, y, width, compact) {
+  if (!text) {
+    return;
+  }
+
+  drawSingleLineNotice(text, x, y, width, compact ? 11 : 12, "#8be8ff");
+}
+
 function getResultOverlayLayout() {
   const safe = getSafeAreaInsets();
   const visibleHeight = Math.max(260, Math.min(viewport.height, Math.round(window.visualViewport?.height || viewport.height)));
@@ -10568,9 +10760,10 @@ function getResultOverlayLayout() {
   const panelWidth = Math.min(390, availableWidth);
   const showRewardedEncore = shouldDrawRewardedEncoreButton();
   const showRecordingDownload = shouldDrawRecordingDownloadButton();
+  const recommendationReasonHeight = getResultRecommendationReasonHeight(availableWidth < 360);
   const extraPanelHeight = (showRewardedEncore ? 40 : 0) + (showRecordingDownload ? 52 : 0);
-  const maxPanelHeight = 350 + extraPanelHeight;
-  const minPanelHeight = 248 + extraPanelHeight;
+  const maxPanelHeight = 368 + extraPanelHeight;
+  const minPanelHeight = 264 + extraPanelHeight;
   const panelHeight = clamp(Math.min(maxPanelHeight, availableHeight), minPanelHeight, maxPanelHeight);
   const panelX = safe.left + (availableWidth - panelWidth) / 2 + 14;
   const panelY = safe.top + (availableHeight - panelHeight) / 2 + 14;
@@ -10579,7 +10772,7 @@ function getResultOverlayLayout() {
   const buttonHeight = compact ? 36 : 42;
   const buttonGap = compact ? 9 : 12;
   const buttonRowCount = 3 + (showRewardedEncore ? 1 : 0) + (showRecordingDownload ? 1 : 0);
-  const buttonBlockHeight = buttonHeight * buttonRowCount + buttonGap * (buttonRowCount - 1);
+  const buttonBlockHeight = buttonHeight * buttonRowCount + buttonGap * (buttonRowCount - 1) + recommendationReasonHeight;
   const bottomPadding = compact ? 18 : 24;
   const buttonY = panelY + panelHeight - bottomPadding - buttonBlockHeight;
   const recordingSummaryHeight = shouldDrawResultRecordingSummary() ? (compact ? 22 : 24) : 0;
@@ -10613,6 +10806,7 @@ function getResultNextRecommendation() {
       },
       matchupText: t("result.nextItemChaos"),
       reason: "item_chaos",
+      reasonText: t("result.counterReasonItemChaos"),
     };
   }
 
@@ -10625,6 +10819,8 @@ function getResultNextRecommendation() {
       reason: "challenge_counter",
       selectedProfessions: { ...selectedProfessions, b: counterRole },
       highlightRole: counterRole,
+      winnerRole: ownRole,
+      reasonTextKey: "result.counterReasonChallenge",
     });
   }
 
@@ -10635,6 +10831,8 @@ function getResultNextRecommendation() {
       reason: "revenge_lineup",
       selectedProfessions: { ...selectedProfessions, a: revengeRole },
       highlightRole: revengeRole,
+      winnerRole: opponentRole,
+      reasonTextKey: "result.counterReasonRevenge",
     });
   }
 
@@ -10644,16 +10842,23 @@ function getResultNextRecommendation() {
     reason: "draw_breaker",
     selectedProfessions: { ...selectedProfessions, b: breakerRole },
     highlightRole: breakerRole,
+    reasonTextKey: "result.counterReasonDrawBreaker",
   });
 }
 
-function createResultRecommendation({ labelKey, reason, selectedProfessions: nextProfessions, highlightRole }) {
+function createResultRecommendation({ labelKey, reason, selectedProfessions: nextProfessions, highlightRole, winnerRole = null, reasonTextKey }) {
   const normalized = normalizeSelectedProfessions(nextProfessions, ProfessionConfig);
+  const counterRoleName = getProfessionName(highlightRole);
+  const winnerRoleName = winnerRole ? getProfessionName(winnerRole) : counterRoleName;
   return {
-    buttonLabel: t(labelKey, { role: getProfessionName(highlightRole) }),
+    buttonLabel: t(labelKey, { role: counterRoleName }),
     selectedProfessions: normalized,
     matchupText: getMatchupText(normalized),
     reason,
+    reasonText: t(reasonTextKey, {
+      counterRole: counterRoleName,
+      winnerRole: winnerRoleName,
+    }),
   };
 }
 
@@ -10690,6 +10895,7 @@ function startRecommendedMatch() {
   serviceMessage = t("messages.recommendedMatch", { matchup: recommendation.matchupText });
   analytics.track(AnalyticsEvents.nextMatchRecommendClick, createFunnelAnalyticsPayload({
     recommendation_reason: recommendation.reason,
+    recommendation_reason_text: recommendation.reasonText,
     recommended_matchup: recommendation.matchupText,
     winner_side: resultWinnerSide,
     own_result: getOwnResult(resultWinnerSide),
@@ -10736,6 +10942,7 @@ async function generateAndShareBattleReportCard(target = ShareTargets.system) {
   }
 
   shareTargetOverlayOpen = false;
+  shareTargetOverlayMode = "reportCard";
   analytics.track(AnalyticsEvents.reportCardClick, createFunnelAnalyticsPayload({
     share_target: target,
     winner_side: resultWinnerSide,
@@ -13362,13 +13569,13 @@ function addInteractiveElement(element) {
 }
 
 function resetRecordingInteractiveRects() {
-  if (isMatchRecordingForcedByQuery()) {
+  if (shouldCollectInteractiveRects()) {
     globalThis.__bangbangInteractiveRects = [];
   }
 }
 
 function pushRecordingInteractiveRect(element) {
-  if (!isMatchRecordingForcedByQuery() || !element?.id || !element.rect) {
+  if (!shouldCollectInteractiveRects() || !element?.id || !element.rect) {
     return;
   }
 
@@ -13381,6 +13588,10 @@ function pushRecordingInteractiveRect(element) {
     rect: { ...element.rect },
     clipRect: element.clipRect ? { ...element.clipRect } : null,
   });
+}
+
+function shouldCollectInteractiveRects() {
+  return isMatchRecordingForcedByQuery() || Array.isArray(globalThis.__bangbangInteractiveRects);
 }
 
 function getInteractiveElementAt(point) {
@@ -16184,6 +16395,7 @@ function easeInCubic(progress) {
 async function bootGame() {
   applyLocaleToDocument();
   resizeCanvas();
+  captureCampaignAttribution();
   GamePlatform.setLoadingProgress(35);
   await initializePlatform();
   await initializeDeepLinkRouting();

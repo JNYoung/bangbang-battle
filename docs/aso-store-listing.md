@@ -1,6 +1,6 @@
 # ASO Store Listing Pack
 
-Updated: 2026-06-02
+Updated: 2026-06-24
 
 This pack prepares `斗球球` / `Profession Ball Arena` for Apple App Store, Google Play, and mobile launch review. It is based on the current app bundle id `com.professionballarena.game`, the public site `https://professionballarena.top/`, and the in-app compliance flow already present in this repo.
 
@@ -91,11 +91,11 @@ This game contains mild cartoon/fantasy combat and is not directed at children. 
 ### zh-CN
 
 - App name: `斗球球`
-- Short description: `选择职业与道具，观看球球在像素竞技场自动开战。`
+- Short description: `选一组对阵，看谁会赢，再挑战反制阵容。`
 - Full description:
 
 ```text
-斗球球是一款竖屏 2D 自动对战小游戏，适合快速开一局、观察不同职业和道具组合的战斗结果。
+斗球球是一款竖屏 2D 自动对战小游戏，核心是紧凑的像素球对阵。选两种职业，看竞技场自动决出胜负，再用下一局挑战反制阵容。
 
 你可以选择双方职业，进入经典斗技场；也可以切换到道具模式，让球球随机拾取武器和建筑；还可以体验英雄模式，观看英雄生命、魔法和专属技能的对抗。
 
@@ -112,11 +112,11 @@ This game contains mild cartoon/fantasy combat and is not directed at children. 
 ### en-US
 
 - App name: `Profession Ball Arena`
-- Short description: `Pick professions and watch quick pixel-ball auto battles.`
+- Short description: `Pick a matchup, watch pixel-ball battles, then try the counter.`
 - Full description:
 
 ```text
-Profession Ball Arena is a portrait 2D auto-battle game for quick mobile sessions and compact arena matchups.
+Profession Ball Arena is a fast portrait auto-battle game about compact pixel matchups. Pick two professions, watch the arena decide the result, then try the counter in the next round.
 
 Choose two professions and start a classic duel, switch to item mode for random weapons and defensive tools, or enter hero mode for battles with health, mana, and signature skills.
 
@@ -139,11 +139,20 @@ Generated screenshots should be placed in:
 
 Recommended upload order:
 
-1. `01-classic-battle.png` - active arena combat.
-2. `02-profession-select.png` - profession and mode setup.
-3. `03-item-mode.png` - random items and weapons.
-4. `04-hero-battle.png` - hero mode battle.
-5. `05-settings-privacy.png` - settings, privacy, and transparent controls.
+1. `01-matchup-question-battle.png` - active arena combat with a clear matchup question. Caption: `Spear vs Shield: who wins?`
+2. `02-pick-matchup.png` - profession and mode setup. Caption: `Pick a side, test the counter`
+3. `03-result-verdict-next.png` - result screen with verdict and counter CTA. Caption: `Verdict is in. Try the counter.`
+4. `04-item-chaos.png` - random items and weapons. Caption: `Random items, different battles`
+5. `05-settings-privacy.png` - settings, privacy, and transparent controls. Caption: `Clear settings and privacy controls`
+
+Feature graphic treatment for the first test:
+
+```text
+Spear VS Shield
+Who wins?
+```
+
+For the first Product Page Optimization pass, test only screenshots, short copy, and feature graphic. Keep the app icon, preview video, and large keyword changes stable.
 
 Optional caption themes for future marketing variants:
 

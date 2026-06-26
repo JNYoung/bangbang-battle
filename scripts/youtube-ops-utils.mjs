@@ -1,4 +1,4 @@
-export const DAILY_YOUTUBE_CLIP_COUNT = 3;
+export const DAILY_YOUTUBE_CLIP_COUNT = 1;
 export const DEFAULT_DAILY_CANDIDATE_COUNT = 9;
 export const OPS_PROMPT_VERSION = "2026-06-topic-drama-v1";
 

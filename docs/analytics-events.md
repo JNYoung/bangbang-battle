@@ -56,6 +56,23 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 
 ## Event Schema
 
+### Growth Attribution Parameters
+
+When a user opens the web game or a deep link with campaign parameters, the runtime stores a 30-day attribution context and attaches a compact subset to acquisition and funnel events. This lets GA compare YouTube Shorts, ASO experiments, and paid creative angles against `game_start`, first-match completion, second-match starts, result actions, and next-day return.
+
+Captured URL fields:
+
+- `utm_source` -> `traffic_source`
+- `utm_medium` -> `traffic_medium`
+- `utm_campaign` -> `traffic_campaign`
+- `utm_content` -> `traffic_content`
+- `creative_id` -> `creative_id`
+- `campaign_id` or `utm_id` -> `campaign_id`
+
+The runtime may also store other local attribution fields for debugging, but event payloads intentionally omit raw click identifiers such as `gclid` and `fbclid`.
+
+Events that include this compact attribution payload when available: `game_init_success`, `game_start`, `first_battle_start`, `first_battle_complete`, `second_battle_start`, `daily_match_complete`, `next_match_recommend_click`, `report_card_click`, `match_recording_save`, `match_recording_share`, `review_prompt_request`, `review_prompt_result`, `store_review_click`, and `next_day_return`.
+
 | Event | When | Key parameters |
 | --- | --- | --- |
 | `ad_request` | Reserved historical event; current build does not emit it | `placement`, `ad_format`, `ad_network`, `creative_id`, `scene`, `surface`, `locale`, optional `match_id` |
@@ -71,7 +88,9 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 | `second_battle_start` | The user's second local match starts | `match_id`, match base parameters, `start_source`, `daily_match_index`, `total_matches_before` |
 | `daily_match_complete` | Any match completes, with daily progress context | `match_id`, match base parameters, `daily_match_count`, `daily_win_count`, `total_matches`, `winner_side`, `own_result`, `duration_sec`, `daily_goal_reached` |
 | `report_card_click` | The result screen battle-report image button is clicked | `match_id`, match base parameters, `winner_side`, `own_result`, `daily_match_count`, `total_matches` |
-| `next_match_recommend_click` | The result screen recommended-next-match button is clicked | `match_id`, match base parameters, `recommendation_reason`, `recommended_matchup`, `winner_side`, `own_result` |
+| `match_recording_save` | The result screen Save Short action runs or falls back to browser download | `match_id`, match base parameters, `source`, `transport`, `recording_tags`, `content_type`, optional `saved`, `daily_match_count`, `total_matches` |
+| `match_recording_share` | The result screen Share Short action is clicked | `match_id`, match base parameters, `share_target`, `recording_tags`, `content_type`, `winner_side`, `own_result`, `daily_match_count`, `total_matches` |
+| `next_match_recommend_click` | The result screen recommended-next-match button is clicked | `match_id`, match base parameters, `recommendation_reason`, `recommendation_reason_text`, `recommended_matchup`, `winner_side`, `own_result` |
 | `review_prompt_request` | The app schedules a native in-app review request after an eligible result screen | `match_id`, match base parameters, `review_reason`, `review_session_count`, `review_attempt_count`, `app_version`, `daily_match_count`, `total_matches` |
 | `review_prompt_result` | The native review bridge returns after requesting the system review card | `match_id`, match base parameters, `requested`, `transport`, `reason`, `platform`, `app_version`, `daily_match_count`, `total_matches` |
 | `store_review_click` | The Settings screen manual rating/store button is clicked | `match_id`, match base parameters, `opened`, `transport`, `reason`, `platform`, `daily_match_count`, `total_matches` |
@@ -79,6 +98,8 @@ Do not use Firebase DebugView runs to judge the next-day aggregate Events report
 | `performance_snapshot` | A throttled performance sample is captured during a match or at match end | `match_id`, `sample_type`, `sample_frames`, `match_time_sec`, `fps_avg`, `frame_ms_avg`, `frame_ms_p95`, `frame_ms_max`, `long_frame_pct`, `jank_frame_pct`, `match_fps_avg`, `match_jank_pct`, `render_quality`, `render_reason`, `render_dpr`, plus match base parameters |
 | `render_quality_change` | Runtime performance triggers an automatic render-quality downgrade during a match | `match_id`, match base parameters, `previous_quality`, `render_quality`, `render_reason`, `render_dpr`, `frame_ms_p95`, `jank_frame_pct`, `sample_frames`, `match_time_sec`, `change_count` |
 | `setting_select` | A configurable option changes | `setting_name`, `setting_value`, `previous_value`, `scene`, `locale` |
+| `legal_accept` | The user accepts the current privacy policy and user agreement | `version` |
+| `restore_purchases` | The restore-purchases entrypoint is used from Settings | native restore result fields when available |
 
 ## Definitions
 

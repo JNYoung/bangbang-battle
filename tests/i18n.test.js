@@ -92,9 +92,18 @@ test("locale options and translations are complete enough for the UI", () => {
     assert.notEqual(translate(locale, "result.nextChallenge", { role: "Shield" }), "result.nextChallenge");
     assert.notEqual(translate(locale, "result.rewardedEncoreWatch"), "result.rewardedEncoreWatch");
     assert.notEqual(translate(locale, "result.downloadRecording"), "result.downloadRecording");
+    assert.notEqual(translate(locale, "result.saveShort"), "result.saveShort");
+    assert.notEqual(translate(locale, "result.shareShort"), "result.shareShort");
     assert.notEqual(translate(locale, "result.recordingTagComeback"), "result.recordingTagComeback");
     assert.notEqual(translate(locale, "result.recordingDanmakuStart", { matchup: "A vs B" }), "result.recordingDanmakuStart");
     assert.notEqual(translate(locale, "messages.matchRecordingReady", { tags: "Comeback" }), "messages.matchRecordingReady");
+    assert.notEqual(translate(locale, "messages.matchRecordingShared"), "messages.matchRecordingShared");
+    assert.notEqual(translate(locale, "shareTargets.recordingTitle"), "shareTargets.recordingTitle");
+    assert.notEqual(translate(locale, "recordingShare.text", {
+      winner: "A",
+      tags: "Comeback",
+      link: "https://example.test",
+    }), "recordingShare.text");
     assert.notEqual(translate(locale, "variants.rewardEncore.title", { variant: "Supply Drop" }), "variants.rewardEncore.title");
     assert.notEqual(translate(locale, "main.funStatsLine", {
       favorite: "Archer",
