@@ -13,6 +13,7 @@ Release permissions to account for:
 - `android.permission.INTERNET`: required by the WebView shell and Firebase Analytics upload.
 - `android.permission.VIBRATE`: required for the optional vibration feedback setting.
 - `android.permission.ACCESS_NETWORK_STATE`: brought in by Firebase dependencies in the merged manifest for network availability checks.
+- `android.permission.WRITE_EXTERNAL_STORAGE` with `maxSdkVersion=28`: only used on Android 9 and below when the user explicitly taps Save Short for a recorded match video. Android 10+ uses MediaStore scoped writes.
 
 Removed or disabled analytics-advertising identifiers:
 
@@ -36,11 +37,11 @@ Runtime flow:
 5. Review-prompt throttling state is saved locally so native rating prompts are not repeated too frequently.
 6. Withdrawing consent disables analytics and returns the user to the consent screen.
 
-No notification, camera, microphone, contacts, location, storage, or photo permissions are requested.
+No notification, camera, microphone, contacts, or location permissions are requested. Storage/photo-library access is only requested by explicit user action for saving recorded match Shorts.
 
 ## iOS
 
-The iOS target does not request camera, microphone, location, contacts, calendar, photo library, Bluetooth, tracking, or notification permissions.
+The iOS target does not request camera, microphone, location, contacts, calendar, Bluetooth, tracking, or notification permissions. Photo library add-only permission is requested only when the user taps Save Short for a recorded match video.
 
 Ad configuration:
 
@@ -50,7 +51,7 @@ Ad configuration:
 
 Configured privacy files:
 
-- `ios/App/App/Info.plist`: no sensitive permission usage descriptions are present because the app does not request those capabilities.
+- `ios/App/App/Info.plist`: includes `NSPhotoLibraryAddUsageDescription` for explicit Save Short exports.
 - `ios/App/App/PrivacyInfo.xcprivacy`: declares no tracking, no tracking domains, no collected data types, and the app-container UserDefaults required-reason API category for app-local preferences.
 
-Runtime flow mirrors Android at the Web layer. The current iOS native shell includes a StoreKit review prompt bridge but does not include Firebase Analytics, so the Analytics setting will only become active on iOS after an iOS analytics bridge is added.
+Runtime flow mirrors Android at the Web layer. The current iOS native shell includes StoreKit review and system share/save bridges but does not include Firebase Analytics, so the Analytics setting will only become active on iOS after an iOS analytics bridge is added.

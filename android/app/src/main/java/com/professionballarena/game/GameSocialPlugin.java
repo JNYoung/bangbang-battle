@@ -1,6 +1,8 @@
 package com.professionballarena.game;
 
 import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.ClipData;
 import android.content.ComponentName;
 import android.graphics.Bitmap;
@@ -10,7 +12,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.Log;
 
@@ -36,6 +42,7 @@ import com.tiktok.open.sdk.share.model.MediaContent;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -62,9 +69,9 @@ public class GameSocialPlugin extends Plugin {
 
         try {
             String target = normalizeTarget(call.getString("target", TARGET_SYSTEM));
-            String fileName = sanitizeFileName(call.getString("fileName", "battle-report.png"));
+            String fileName = sanitizeFileName(call.getString("fileName", "battle-report.png"), "battle-report.png", ".png");
             String contentType = call.getString("contentType", "image/png");
-            File imageFile = writeSharedImage(base64Data, fileName);
+            File imageFile = writeSharedMedia(base64Data, fileName);
             Uri contentUri = FileProvider.getUriForFile(
                     getContext(),
                     getContext().getPackageName() + ".fileprovider",
@@ -81,7 +88,7 @@ public class GameSocialPlugin extends Plugin {
                 return;
             }
 
-            if (TARGET_TIKTOK.equals(target) && shareToTikTokShareKit(contentUri)) {
+            if (TARGET_TIKTOK.equals(target) && shareToTikTokShareKit(contentUri, MediaType.IMAGE)) {
                 resolveShared(call, target, "tiktok_share_kit", contentUri);
                 return;
             }
@@ -89,6 +96,58 @@ public class GameSocialPlugin extends Plugin {
             launchShareIntent(call, contentUri, contentType, target);
         } catch (Exception error) {
             call.reject("Image sharing failed: " + error.getMessage(), error);
+        }
+    }
+
+    @PluginMethod
+    public void shareVideo(PluginCall call) {
+        String base64Data = call.getString("base64Data");
+        if (base64Data == null || base64Data.trim().isEmpty()) {
+            call.reject("base64Data is required");
+            return;
+        }
+
+        try {
+            String target = normalizeTarget(call.getString("target", TARGET_SYSTEM));
+            String contentType = call.getString("contentType", "video/webm");
+            String fileName = sanitizeFileName(call.getString("fileName", "match-short.webm"), "match-short.webm", getDefaultVideoExtension(contentType));
+            File videoFile = writeSharedMedia(base64Data, fileName);
+            Uri contentUri = FileProvider.getUriForFile(
+                    getContext(),
+                    getContext().getPackageName() + ".fileprovider",
+                    videoFile
+            );
+
+            if (TARGET_TIKTOK.equals(target) && shareToTikTokShareKit(contentUri, MediaType.VIDEO)) {
+                resolveShared(call, target, "tiktok_share_kit", contentUri);
+                return;
+            }
+
+            launchShareIntent(call, contentUri, contentType, target);
+        } catch (Exception error) {
+            call.reject("Video sharing failed: " + error.getMessage(), error);
+        }
+    }
+
+    @PluginMethod
+    public void saveVideo(PluginCall call) {
+        String base64Data = call.getString("base64Data");
+        if (base64Data == null || base64Data.trim().isEmpty()) {
+            call.reject("base64Data is required");
+            return;
+        }
+
+        try {
+            String contentType = call.getString("contentType", "video/webm");
+            String fileName = sanitizeFileName(call.getString("fileName", "match-short.webm"), "match-short.webm", getDefaultVideoExtension(contentType));
+            Uri uri = saveVideoToGallery(decodeBase64Payload(base64Data), fileName, contentType);
+            JSObject result = new JSObject();
+            result.put("saved", true);
+            result.put("transport", "android_mediastore");
+            result.put("uri", uri.toString());
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Video save failed: " + error.getMessage(), error);
         }
     }
 
@@ -200,7 +259,7 @@ public class GameSocialPlugin extends Plugin {
         return true;
     }
 
-    private boolean shareToTikTokShareKit(Uri contentUri) {
+    private boolean shareToTikTokShareKit(Uri contentUri, MediaType mediaType) {
         String clientKey = getStringResource("tiktok_client_key");
         if (clientKey == null || clientKey.isEmpty() || !isAnyPackageInstalled(TIKTOK_PACKAGES)) {
             return false;
@@ -212,7 +271,7 @@ public class GameSocialPlugin extends Plugin {
 
         ArrayList<String> mediaPaths = new ArrayList<>();
         mediaPaths.add(contentUri.toString());
-        MediaContent mediaContent = new MediaContent(MediaType.IMAGE, mediaPaths);
+        MediaContent mediaContent = new MediaContent(mediaType, mediaPaths);
         ShareRequest request = new ShareRequest(
                 clientKey,
                 mediaContent,
@@ -225,7 +284,7 @@ public class GameSocialPlugin extends Plugin {
     }
 
     private void launchShareIntent(PluginCall call, Uri contentUri, String contentType, String target) {
-        Intent shareIntent = createImageShareIntent(call, contentUri, contentType);
+        Intent shareIntent = createMediaShareIntent(call, contentUri, contentType);
 
         String directPackage = getDirectPackageForTarget(target);
         if (directPackage != null) {
@@ -260,6 +319,10 @@ public class GameSocialPlugin extends Plugin {
     }
 
     private Intent createImageShareIntent(PluginCall call, Uri contentUri, String contentType) {
+        return createMediaShareIntent(call, contentUri, contentType);
+    }
+
+    private Intent createMediaShareIntent(PluginCall call, Uri contentUri, String contentType) {
         Intent shareIntent = new Intent(Intent.ACTION_SEND);
         shareIntent.setType(contentType == null || contentType.isEmpty() ? "image/png" : contentType);
         shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
@@ -293,24 +356,72 @@ public class GameSocialPlugin extends Plugin {
         return (text == null || text.isEmpty()) ? deepLinkUrl : text + "\n" + deepLinkUrl;
     }
 
-    private File writeSharedImage(String base64Data, String fileName) throws IOException {
-        String normalizedData = base64Data;
-        int commaIndex = normalizedData.indexOf(',');
-        if (commaIndex >= 0) {
-            normalizedData = normalizedData.substring(commaIndex + 1);
-        }
-
-        byte[] imageBytes = Base64.decode(normalizedData, Base64.DEFAULT);
+    private File writeSharedMedia(String base64Data, String fileName) throws IOException {
+        byte[] mediaBytes = decodeBase64Payload(base64Data);
         File shareDirectory = new File(getContext().getCacheDir(), "social-share");
         if (!shareDirectory.exists() && !shareDirectory.mkdirs()) {
             throw new IOException("Could not create share cache directory");
         }
 
-        File imageFile = new File(shareDirectory, fileName);
-        try (FileOutputStream outputStream = new FileOutputStream(imageFile)) {
-            outputStream.write(imageBytes);
+        File mediaFile = new File(shareDirectory, fileName);
+        try (FileOutputStream outputStream = new FileOutputStream(mediaFile)) {
+            outputStream.write(mediaBytes);
         }
-        return imageFile;
+        return mediaFile;
+    }
+
+    private byte[] decodeBase64Payload(String base64Data) {
+        String normalizedData = base64Data == null ? "" : base64Data;
+        int commaIndex = normalizedData.indexOf(',');
+        if (commaIndex >= 0) {
+            normalizedData = normalizedData.substring(commaIndex + 1);
+        }
+        return Base64.decode(normalizedData, Base64.DEFAULT);
+    }
+
+    private Uri saveVideoToGallery(byte[] videoBytes, String fileName, String contentType) throws IOException {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentResolver resolver = getContext().getContentResolver();
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Video.Media.DISPLAY_NAME, fileName);
+            values.put(MediaStore.Video.Media.MIME_TYPE, contentType);
+            values.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Profession Ball Arena");
+            values.put(MediaStore.Video.Media.IS_PENDING, 1);
+            Uri collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+            Uri itemUri = resolver.insert(collection, values);
+            if (itemUri == null) {
+                throw new IOException("Could not create MediaStore video item");
+            }
+
+            try (OutputStream outputStream = resolver.openOutputStream(itemUri)) {
+                if (outputStream == null) {
+                    throw new IOException("Could not open MediaStore output stream");
+                }
+                outputStream.write(videoBytes);
+            }
+
+            values.clear();
+            values.put(MediaStore.Video.Media.IS_PENDING, 0);
+            resolver.update(itemUri, values, null, null);
+            return itemUri;
+        }
+
+        File moviesDirectory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Profession Ball Arena");
+        if (!moviesDirectory.exists() && !moviesDirectory.mkdirs()) {
+            throw new IOException("Could not create Movies directory");
+        }
+
+        File videoFile = new File(moviesDirectory, fileName);
+        try (FileOutputStream outputStream = new FileOutputStream(videoFile)) {
+            outputStream.write(videoBytes);
+        }
+        MediaScannerConnection.scanFile(
+                getContext(),
+                new String[] { videoFile.getAbsolutePath() },
+                new String[] { contentType },
+                null
+        );
+        return Uri.fromFile(videoFile);
     }
 
     private String normalizeTarget(String target) {
@@ -321,12 +432,16 @@ public class GameSocialPlugin extends Plugin {
         return TARGET_SYSTEM;
     }
 
-    private String sanitizeFileName(String fileName) {
+    private String sanitizeFileName(String fileName, String fallbackFileName, String defaultExtension) {
         String sanitized = fileName == null ? "" : fileName.replaceAll("[^a-zA-Z0-9._-]", "-");
         if (sanitized.isEmpty()) {
-            return "battle-report.png";
+            return fallbackFileName;
         }
-        return sanitized.endsWith(".png") ? sanitized : sanitized + ".png";
+        return sanitized.contains(".") ? sanitized : sanitized + defaultExtension;
+    }
+
+    private String getDefaultVideoExtension(String contentType) {
+        return contentType != null && contentType.toLowerCase(Locale.ROOT).contains("mp4") ? ".mp4" : ".webm";
     }
 
     private String getDirectPackageForTarget(String target) {

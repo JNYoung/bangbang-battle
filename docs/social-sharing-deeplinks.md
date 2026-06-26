@@ -6,6 +6,7 @@
 - 该 HTTPS 链接是官网落地页：已安装 App 时尝试打开客户端回放；未安装时展示 Android / iOS 下载入口。
 - Android 原生桥 `GameSocial` 支持 `facebook`、`tiktok`、`system` 三个分享目标。
 - Android 有平台 key 时优先使用 Facebook Share SDK / TikTok Share Kit；未配置 key 时回退到已安装 App 的定向 Intent 或系统分享面板。
+- 结果页录屏完成后支持 `Save Short` / `Share Short`：Android 可保存到 Movies/Profession Ball Arena 或分享视频文件；iOS 通过系统分享面板分享，并在用户点保存时写入照片图库。
 - `professionballarena://battle/replay?...` 可直接唤起客户端；官网 `/battle/` 页面会把 HTTPS 分享链接转成客户端 scheme，并保留官网下载入口。
 
 ## Android 配置
@@ -29,6 +30,12 @@ facebookClientToken=<已配置，实际值不写入文档>
 `facebookClientToken` 来自 Meta Developer Dashboard 的 App settings -> Advanced -> Client token。不要把 App Secret 写进客户端文件或仓库。
 
 TikTok 后台需要登记 release 签名的 MD5 和 SHA-256。Facebook 后台需要登记包名 `com.professionballarena.game`、主 Activity `com.professionballarena.game.MainActivity` 和 key hash。
+
+视频分享说明：
+
+- TikTok：`GameSocial.shareVideo` 会优先走 TikTok Share Kit，缺少 `TIKTOK_CLIENT_KEY` 或未安装 TikTok 时回退系统分享。
+- Facebook：视频走定向 Intent/系统分享；战报图片仍保留 Facebook Share SDK fallback。
+- 保存：`GameSocial.saveVideo` 在 Android 10+ 写入 MediaStore；Android 9 及以下写入公开 Movies 目录，并触发媒体扫描。
 
 当前本机 debug 包的 Facebook key hash：
 
@@ -74,3 +81,13 @@ itms-apps://itunes.apple.com/search?term=Profession%20Ball%20Arena
 ```
 
 `seed` 用于复现地形、道具池和自动战斗流程；如果用户在回放中主动触发 Shake，后续结果可能发生变化。
+
+## YouTube Shorts 素材
+
+英文宣传素材推荐命令：
+
+```bash
+npm run ops:daily-youtube:en
+```
+
+该命令会录制 9:16 Shorts 候选、筛选 3 条素材，并输出英文标题、描述、hook、thumbnail prompt 和剪辑 prompt 到 `ops-materials/youtube/<run-id>/`。

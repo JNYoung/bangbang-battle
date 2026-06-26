@@ -2,6 +2,34 @@ const ANALYTICS_PARAM_LIMIT = 25;
 const ANALYTICS_NAME_LIMIT = 40;
 const ANALYTICS_STRING_VALUE_LIMIT = 100;
 const RESERVED_ANALYTICS_PREFIXES = ["firebase_", "ga_", "google_"];
+const CAMPAIGN_ATTRIBUTION_STORAGE_KEY = "bangbang.campaignAttribution";
+const CAMPAIGN_ATTRIBUTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CAMPAIGN_ATTRIBUTION_EVENT_KEYS = [
+  "traffic_source",
+  "traffic_medium",
+  "traffic_campaign",
+  "traffic_content",
+  "creative_id",
+  "campaign_id",
+];
+const CAMPAIGN_PARAM_ALIASES = Object.freeze({
+  traffic_source: ["utm_source", "source", "src"],
+  traffic_medium: ["utm_medium", "medium"],
+  traffic_campaign: ["utm_campaign", "campaign"],
+  traffic_content: ["utm_content", "content"],
+  traffic_term: ["utm_term", "term", "keyword"],
+  campaign_id: ["campaign_id", "campaignid", "utm_id"],
+  adset_id: ["adset_id", "adgroup_id", "ad_group_id"],
+  ad_id: ["ad_id", "adid"],
+  creative_id: ["creative_id", "creative", "utm_creative"],
+});
+const CLICK_ID_PARAM_TYPES = Object.freeze({
+  gclid: "google_ads",
+  gbraid: "google_ads",
+  wbraid: "google_ads",
+  fbclid: "meta",
+  msclkid: "microsoft_ads",
+});
 const AD_DISABLED_MODE = "disabled";
 const AD_DISABLED_REASON = "ads_removed";
 const AD_FORMATS = Object.freeze({
@@ -38,6 +66,8 @@ export const AnalyticsEvents = Object.freeze({
   rewardedAdGrant: "rewarded_ad_grant",
   storeReviewClick: "store_review_click",
   reportCardClick: "report_card_click",
+  matchRecordingSave: "match_recording_save",
+  matchRecordingShare: "match_recording_share",
   renderQualityChange: "render_quality_change",
   secondBattleStart: "second_battle_start",
   settingSelect: "setting_select",
@@ -195,6 +225,61 @@ export function normalizeAnalyticsPayload(payload = {}) {
   return normalized;
 }
 
+export function captureCampaignAttribution(
+  url = globalThis.location?.href || "",
+  {
+    storage = globalThis.localStorage,
+    referrer = globalThis.document?.referrer || "",
+    nowMs = Date.now(),
+  } = {},
+) {
+  if (!storage?.setItem) {
+    return { captured: false, reason: "storage_unavailable" };
+  }
+
+  const attribution = createCampaignAttribution(url, { referrer, nowMs });
+  if (!attribution) {
+    return { captured: false, reason: "no_campaign_params" };
+  }
+
+  try {
+    storage.setItem(CAMPAIGN_ATTRIBUTION_STORAGE_KEY, JSON.stringify(attribution));
+    return { captured: true, attribution };
+  } catch (error) {
+    return { captured: false, reason: "storage_failed", error };
+  }
+}
+
+export function getCampaignAttributionAnalyticsPayload({
+  storage = globalThis.localStorage,
+  nowMs = Date.now(),
+} = {}) {
+  const attribution = readCampaignAttribution(storage);
+  if (!attribution) {
+    return {};
+  }
+
+  const expiresAt = Date.parse(attribution.expires_at || "");
+  if (Number.isFinite(expiresAt) && expiresAt <= nowMs) {
+    clearCampaignAttribution(storage);
+    return {};
+  }
+
+  return Object.fromEntries(
+    CAMPAIGN_ATTRIBUTION_EVENT_KEYS
+      .map((key) => [key, attribution[key]])
+      .filter(([, value]) => typeof value === "string" && value.trim()),
+  );
+}
+
+export function clearCampaignAttribution(storage = globalThis.localStorage) {
+  try {
+    storage?.removeItem?.(CAMPAIGN_ATTRIBUTION_STORAGE_KEY);
+  } catch {
+    // Best effort cleanup only.
+  }
+}
+
 export function normalizeAnalyticsName(name, fallback) {
   const baseName = String(name || "")
     .trim()
@@ -229,6 +314,125 @@ function normalizeAnalyticsValue(value) {
   }
 
   return JSON.stringify(value).slice(0, ANALYTICS_STRING_VALUE_LIMIT);
+}
+
+function createCampaignAttribution(url, { referrer = "", nowMs = Date.now() } = {}) {
+  const parsedUrl = parseAttributionUrl(url);
+  if (!parsedUrl) {
+    return null;
+  }
+
+  const params = collectAttributionParams(parsedUrl);
+  const attribution = {};
+
+  for (const [field, aliases] of Object.entries(CAMPAIGN_PARAM_ALIASES)) {
+    const value = readFirstParam(params, aliases);
+    if (value) {
+      attribution[field] = normalizeAttributionValue(value);
+    }
+  }
+
+  const clickIdTypes = [...new Set(
+    Object.entries(CLICK_ID_PARAM_TYPES)
+      .filter(([param]) => params.has(param))
+      .map(([, type]) => type),
+  )];
+  if (clickIdTypes.length > 0) {
+    attribution.click_id_type = normalizeAttributionValue(clickIdTypes.join("_"));
+  }
+
+  if (!attribution.traffic_source) {
+    const referrerHost = getReferrerHost(referrer);
+    if (referrerHost) {
+      attribution.traffic_source = referrerHost;
+      attribution.traffic_medium ||= "referral";
+    }
+  }
+
+  if (!hasUsableAttribution(attribution)) {
+    return null;
+  }
+
+  return {
+    ...attribution,
+    landing_path: normalizeAttributionValue(parsedUrl.pathname || "/"),
+    captured_at: new Date(nowMs).toISOString(),
+    expires_at: new Date(nowMs + CAMPAIGN_ATTRIBUTION_TTL_MS).toISOString(),
+  };
+}
+
+function parseAttributionUrl(url) {
+  try {
+    return new URL(String(url || ""), globalThis.location?.origin || DEFAULT_SHARE_BASE_URL);
+  } catch {
+    return null;
+  }
+}
+
+function collectAttributionParams(parsedUrl) {
+  const params = new URLSearchParams(parsedUrl.search);
+  const hash = parsedUrl.hash ? parsedUrl.hash.slice(1) : "";
+  const hashQuery = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : hash;
+  if (hashQuery.includes("=")) {
+    const hashParams = new URLSearchParams(hashQuery);
+    for (const [key, value] of hashParams.entries()) {
+      if (!params.has(key)) {
+        params.set(key, value);
+      }
+    }
+  }
+  return params;
+}
+
+function readFirstParam(params, aliases) {
+  for (const alias of aliases) {
+    const value = params.get(alias);
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function normalizeAttributionValue(value) {
+  return String(value || "").trim().slice(0, ANALYTICS_STRING_VALUE_LIMIT);
+}
+
+function getReferrerHost(referrer) {
+  if (!referrer) {
+    return "";
+  }
+
+  try {
+    const host = new URL(referrer).hostname.replace(/^www\./, "");
+    return normalizeAttributionValue(host);
+  } catch {
+    return "";
+  }
+}
+
+function hasUsableAttribution(attribution) {
+  return [
+    "traffic_source",
+    "traffic_campaign",
+    "traffic_content",
+    "creative_id",
+    "campaign_id",
+    "click_id_type",
+  ].some((key) => Boolean(attribution[key]));
+}
+
+function readCampaignAttribution(storage) {
+  try {
+    const raw = storage?.getItem?.(CAMPAIGN_ATTRIBUTION_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function getNativeAnalyticsPlugin() {
@@ -352,7 +556,8 @@ export const deepLinks = {
 
 export const socialShare = {
   isNativeAvailable() {
-    return Boolean(getNativeSocialPlugin()?.shareImage);
+    const nativePlugin = getNativeSocialPlugin();
+    return Boolean(nativePlugin?.shareImage || nativePlugin?.shareVideo || nativePlugin?.saveVideo);
   },
 
   async shareImage(options = {}) {
@@ -369,6 +574,46 @@ export const socialShare = {
       target: normalizeShareTarget(options.target),
       fileName: options.fileName,
       contentType: options.contentType || "image/png",
+      base64Data: options.base64Data,
+      title: options.title,
+      text: options.text,
+      deepLinkUrl: options.deepLinkUrl,
+    });
+  },
+
+  async shareVideo(options = {}) {
+    const nativePlugin = getNativeSocialPlugin();
+    if (!nativePlugin?.shareVideo) {
+      return {
+        shared: false,
+        target: options.target || ShareTargets.system,
+        reason: "native_video_share_unavailable",
+      };
+    }
+
+    return nativePlugin.shareVideo({
+      target: normalizeShareTarget(options.target),
+      fileName: options.fileName,
+      contentType: options.contentType || "video/webm",
+      base64Data: options.base64Data,
+      title: options.title,
+      text: options.text,
+      deepLinkUrl: options.deepLinkUrl,
+    });
+  },
+
+  async saveVideo(options = {}) {
+    const nativePlugin = getNativeSocialPlugin();
+    if (!nativePlugin?.saveVideo) {
+      return {
+        saved: false,
+        reason: "native_video_save_unavailable",
+      };
+    }
+
+    return nativePlugin.saveVideo({
+      fileName: options.fileName,
+      contentType: options.contentType || "video/webm",
       base64Data: options.base64Data,
       title: options.title,
       text: options.text,
